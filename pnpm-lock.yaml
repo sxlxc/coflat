@@ -161,6 +161,9 @@ importers:
       jsdom:
         specifier: ^29.0.0
         version: 29.1.1
+      pandocmd-cst:
+        specifier: file:../pandocmd-cst
+        version: file:../pandocmd-cst
       publint:
         specifier: ^0.3.18
         version: 0.3.20
@@ -1412,6 +1415,9 @@ packages:
 
   package-manager-detector@1.6.0:
     resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
+
+  pandocmd-cst@file:../pandocmd-cst:
+    resolution: {directory: ../pandocmd-cst, type: directory}
 
   parse5@8.0.1:
     resolution: {integrity: sha512-z1e/HMG90obSGeidlli3hj7cbocou0/wa5HacvI3ASx34PecNjNQeaHNo5WIZpWofN9kgkqV1q5YvXe3F0FoPw==}
@@ -2964,6 +2970,10 @@ snapshots:
       wsl-utils: 0.3.1
 
   package-manager-detector@1.6.0: {}
+
+  pandocmd-cst@file:../pandocmd-cst:
+    dependencies:
+      '@lezer/common': 1.5.2
 
   parse5@8.0.1:
     dependencies:

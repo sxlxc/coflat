@@ -26,6 +26,7 @@ describe("editor package dependency manifest", () => {
     expect(isEditorExternalDependency("@codemirror/view")).toBe(true);
     expect(isEditorExternalDependency("@codemirror/view/subpath")).toBe(true);
     expect(isEditorExternalDependency("react/jsx-runtime")).toBe(true);
+    expect(isEditorExternalDependency("pandocmd-cst")).toBe(true);
     expect(isEditorExternalDependency("@tauri-apps/api/core")).toBe(false);
     expect(isEditorExternalDependency("@radix-ui/react-dialog")).toBe(false);
     expect(isEditorExternalDependency("@overleaf/codemirror-tree-view")).toBe(false);

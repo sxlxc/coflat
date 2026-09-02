@@ -1,4 +1,5 @@
 import { type Extension } from "@codemirror/state";
+import { pandocCstField } from "../cst";
 import { referencePresentationField } from "../references/presentation";
 import {
   documentReferenceCatalogField,
@@ -20,6 +21,10 @@ export function coreDocumentStateExtensions(
   defaultPlugins: readonly BlockPlugin[],
 ): Extension[] {
   return [
+    // M6-A: synchronous CST transaction spine.
+    // TODO(M6): remove the old Markdown language and analysis fields after
+    // every production consumer has migrated to CST-backed inputs.
+    pandocCstField,
     frontmatterField,
     activeStructureEditField,
     documentAnalysisField,

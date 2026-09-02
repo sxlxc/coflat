@@ -10,6 +10,10 @@ import {
   markdownEditorModes,
   setEditorMode,
 } from "./editor";
+import {
+  getPandocCstUpdateCountForTesting,
+  getPandocTree,
+} from "./cst";
 import { sidenotesCollapsedField } from "./render";
 import { documentReferenceCatalogField } from "./semantics/editor-reference-catalog";
 import { bibDataField } from "./state/bib-data";
@@ -38,6 +42,22 @@ describe("createEditor", () => {
 
     expect(view.state.doc.toString()).toBe(doc);
 
+    view.destroy();
+  });
+
+  it("keeps the installed Pandoc CST synchronized through dispatch", () => {
+    const parent = document.createElement("div");
+    const doc = "# Heading\n\nText.\n";
+    const view = createEditor({ parent, doc });
+
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(0);
+
+    const from = doc.indexOf("Text");
+    view.dispatch({ changes: { from, to: from + 4, insert: "Prose" } });
+
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
     view.destroy();
   });
 

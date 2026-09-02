@@ -27,6 +27,7 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
   "dompurify",
   "katex",
   "lucide-react",
+  "pandocmd-cst",
   "pathe",
   "pdfjs-dist",
   "react",
