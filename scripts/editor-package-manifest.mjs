@@ -27,7 +27,6 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
   "dompurify",
   "katex",
   "lucide-react",
-  "pandocmd-cst",
   "pathe",
   "pdfjs-dist",
   "react",
@@ -40,6 +39,7 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
 
 export const EDITOR_BUNDLED_DEPENDENCIES = Object.freeze([
   "@overleaf/codemirror-tree-view",
+  "pandocmd-cst",
 ]);
 
 export const EDITOR_FORBIDDEN_EXTERNAL_DEPENDENCIES = Object.freeze([
