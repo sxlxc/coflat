@@ -64,14 +64,6 @@
     "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test tests/e2e/smoke.spec.ts",
     "e2e:install": "playwright install --with-deps chromium"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ],
-    "patchedDependencies": {
-      "katex@0.16.38": "patches/katex@0.16.38.patch"
-    }
-  },
   "peerDependencies": {
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
