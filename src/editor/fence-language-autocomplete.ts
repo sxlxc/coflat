@@ -23,7 +23,7 @@ import type {
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import type { EditorState, Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { NODE } from "../core/constants/node-types";
@@ -60,7 +60,7 @@ const FENCE_INFO_QUERY_RE = /^[\w+#.-]*$/;
  * being content or the closing fence of one that started earlier.
  */
 function isFenceOpenerLine(state: EditorState, lineFrom: number): boolean {
-  const node = syntaxTree(state).resolveInner(lineFrom, 1);
+  const node = getPandocSyntaxTree(state).resolveInner(lineFrom, 1);
   const fence = findAncestorByName(node, NODE.FencedCode);
   return !fence || fence.from >= lineFrom;
 }

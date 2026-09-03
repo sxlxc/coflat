@@ -22,6 +22,7 @@ import type {
   TextSource,
 } from "../document-model";
 import { matchBracketedReference } from "../reference-parts";
+import { parseReferenceToken } from "../../lib/reference-tokens";
 
 export interface StructuralWindow {
   readonly from: number;
@@ -208,13 +209,18 @@ export function collectLink(
 ): void {
   const raw = doc.slice(node.from, node.to);
   const refMatch = matchBracketedReference(raw);
-  if (refMatch) {
-    result.bracketedRefs.push({
+  const parsedToken = parseReferenceToken(raw);
+  const token = refMatch
+    ? { bracketed: true, ids: refMatch.ids, locators: refMatch.locators }
+    : parsedToken;
+  if (token) {
+    const collection = token.bracketed ? result.bracketedRefs : result.narrativeRefs;
+    collection.push({
       from: node.from,
       to: node.to,
-      bracketed: true,
-      ids: [...refMatch.ids],
-      locators: [...refMatch.locators],
+      bracketed: token.bracketed,
+      ids: [...token.ids],
+      locators: [...token.locators],
     });
   }
   result.excludedRanges.push({ from: node.from, to: node.to });

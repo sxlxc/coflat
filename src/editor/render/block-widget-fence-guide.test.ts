@@ -131,8 +131,9 @@ describe("block widgets inside active fenced divs", () => {
     const doc = [
       "::: {.theorem}",
       "Prelude",
+      "",
       "| A | B |",
-      "| - | - |",
+      "| --- | --- |",
       "| 1 | 2 |",
       ":::",
     ].join("\n");

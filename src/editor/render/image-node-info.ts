@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import { CSS } from "../../core/constants/css-classes";
@@ -77,7 +77,7 @@ export function collectImageNodeInfosInRanges(
   const seen = new Set<string>();
 
   for (const range of dirtyRanges) {
-    syntaxTree(state).iterate({
+    getPandocSyntaxTree(state).iterate({
       from: range.from,
       to: range.to,
       enter(node) {

@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
-    "emitDeclarationOnly": false,
+    "emitDeclarationOnly": true,
     "allowImportingTsExtensions": false,
     "declarationMap": false,
     "skipLibCheck": true,

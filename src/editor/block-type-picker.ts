@@ -14,7 +14,7 @@
  * shared command-menu library instead of custom DOM code.
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import { type Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { computePosition, flip, offset, shift } from "@floating-ui/dom";
@@ -42,7 +42,7 @@ import type { PluginRegistryState } from "./state/plugin-registry-core";
 /** Collect ancestor FencedDiv fence positions for colon upgrades. */
 function collectAncestorFences(view: EditorView, pos: number): AncestorFence[] {
   const fences: AncestorFence[] = [];
-  let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(pos, -1);
+  let node: SyntaxNode | null = getPandocSyntaxTree(view.state).resolveInner(pos, -1);
   while (node) {
     if (isFencedDivNodeName(node.name)) {
       let openFence: SyntaxNode | null = null;

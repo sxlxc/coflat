@@ -24,7 +24,7 @@ import type {
 
 type IRCompatibleAnalysis = Pick<
   DocumentAnalysis,
-  "headings" | "fencedDivs" | "equations" | "references"
+  "headings" | "fencedDivs" | "equations" | "mathRegions" | "references"
 >;
 
 export interface DocumentIRBuildInput {
@@ -206,13 +206,17 @@ export function buildDocumentIR({
     ? { ...metadata, abstract: abstractBlock.content.trim() }
     : metadata;
 
-  const math: MathNode[] = analysis.equations.map((equation) => ({
-    latex: equation.latex,
-    display: true,
-    label: equation.id,
-    number: equation.number,
-    range: { from: equation.from, to: equation.to },
-  }));
+  const equationByFrom = new Map(analysis.equations.map(equation => [equation.from, equation]));
+  const math: MathNode[] = analysis.mathRegions.map((region) => {
+    const equation = equationByFrom.get(region.from);
+    return {
+      latex: region.latex,
+      display: region.isDisplay,
+      label: equation?.id,
+      number: equation?.number,
+      range: { from: region.from, to: region.to },
+    };
+  });
 
   const references: ReferenceNode[] = analysis.references.map((reference) => ({
     ids: reference.ids,

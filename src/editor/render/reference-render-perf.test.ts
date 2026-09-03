@@ -60,7 +60,7 @@ describe("collectReferenceRanges performance invalidation", () => {
       expect(referenceRenderDependenciesChanged(beforeState, view.state)).toBe(false);
     });
 
-    it("tracks equation renumbering even when references stay in place", () => {
+    it("ignores unsupported equation-label insertions", () => {
       const doc = [
         "See [@eq:beta].",
         "",
@@ -81,7 +81,7 @@ describe("collectReferenceRanges performance invalidation", () => {
         },
       });
 
-      expect(referenceRenderDependenciesChanged(beforeState, view.state)).toBe(true);
+      expect(referenceRenderDependenciesChanged(beforeState, view.state)).toBe(false);
     });
 
     it("tracks block renumbering even when references stay in place", () => {
@@ -243,19 +243,6 @@ describe("collectReferenceRanges performance invalidation", () => {
       const afterView = createPluginView(nextDoc, 0);
       const beforeAnalysis = beforeView.state.field(documentAnalysisField);
       const afterAnalysis = afterView.state.field(documentAnalysisField);
-
-      (
-        afterAnalysis as {
-          references: typeof beforeAnalysis.references;
-          referenceByFrom: typeof beforeAnalysis.referenceByFrom;
-        }
-      ).references = beforeAnalysis.references;
-      (
-        afterAnalysis as {
-          references: typeof beforeAnalysis.references;
-          referenceByFrom: typeof beforeAnalysis.referenceByFrom;
-        }
-      ).referenceByFrom = beforeAnalysis.referenceByFrom;
 
       const makeState = (
         analysis: typeof beforeAnalysis,

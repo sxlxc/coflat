@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import type { EditorView } from "@codemirror/view";
 import { CSS } from "../core/constants/css-classes";
 import { isFencedDivNodeName } from "../core/constants/node-types";
@@ -121,7 +121,7 @@ export function inspectDebugLine(
 
 export function collectDebugTreeDivs(view: EditorView): DebugDivInfo[] {
   const state = view.state;
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const divs: DebugDivInfo[] = [];
   tree.iterate({
     enter(node) {

@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type Extension,
   type Range,
@@ -36,7 +36,7 @@ import {
 export function defaultShouldUpdate(update: ViewUpdate): boolean {
   return (
     update.docChanged ||
-    syntaxTree(update.state) !== syntaxTree(update.startState)
+    getPandocSyntaxTree(update.state) !== getPandocSyntaxTree(update.startState)
   );
 }
 
@@ -248,7 +248,7 @@ export function createCursorSensitiveViewPlugin(
       }
 
       if (
-        syntaxTree(update.state) !== syntaxTree(update.startState) ||
+        getPandocSyntaxTree(update.state) !== getPandocSyntaxTree(update.startState) ||
         extraNeedsRebuild
       ) {
         this.rebuild(update.view);

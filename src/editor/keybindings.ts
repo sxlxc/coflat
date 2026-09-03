@@ -4,7 +4,7 @@ import {
   historyKeymap,
   indentWithTab,
 } from "@codemirror/commands";
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import { EditorSelection, type EditorState, type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
@@ -153,7 +153,7 @@ export function toggleInlineMarker(
  * `)`), and finally bias 0 as a tiebreaker.
  */
 function findLinkNodeAt(state: EditorState, pos: number): SyntaxNode | null {
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   for (const bias of [1, -1, 0] as const) {
     let node: SyntaxNode | null = tree.resolveInner(pos, bias);
     while (node) {
@@ -315,7 +315,7 @@ export function moveDownAcrossNestedClosingFences(view: EditorView): boolean {
 
 function findEnclosingFencedDiv(state: EditorState, pos: number): SyntaxNode | null {
   for (const bias of [-1, 1, 0] as const) {
-    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, bias);
+    let node: SyntaxNode | null = getPandocSyntaxTree(state).resolveInner(pos, bias);
     while (node) {
       if (isFencedDivNodeName(node.name)) return node;
       node = node.parent;

@@ -7,7 +7,7 @@
  * between [ ] and [x].
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type Extension,
   type Range,
@@ -69,7 +69,7 @@ function collectCheckboxItems(
   const items: Range<Decoration>[] = [];
   const seen = new Set<number>();
   for (const { from, to } of ranges) {
-    syntaxTree(state).iterate({
+    getPandocSyntaxTree(state).iterate({
       from,
       to,
       enter(node) {

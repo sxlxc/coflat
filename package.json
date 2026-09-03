@@ -77,6 +77,8 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.editor.json && vite build --config vite.editor.config.ts && find src -name '*.d.mts' -print0 | xargs -0 -I{} rsync -aR {} dist/ && find src -name '*.d.ts' -print0 | xargs -0 -I{} rsync -aR {} dist/ && tsc -p tsconfig.test-utils.json",
     "bench:cst-transactions": "COFLAT_CST_BENCHMARK=1 vitest run src/editor/cst/pandoc-cst-field.bench.test.ts --reporter=verbose",
+    "check:cst-long-session": "bun scripts/check-cst-long-session.ts",
+    "check:m6-authority": "node scripts/check-m6-cst-authority.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "publint": "publint",
@@ -87,7 +89,7 @@
     "check:package": "pnpm build && pnpm publint",
     "check:package-smoke": "pnpm build && node scripts/package-smoke.mjs",
     "test:watch": "vitest",
-    "lint": "biome lint . && node scripts/check-layer-boundary.mjs",
+    "lint": "biome lint . && node scripts/check-layer-boundary.mjs && node scripts/check-m6-cst-authority.mjs",
     "lint:layers": "node scripts/check-layer-boundary.mjs",
     "publish:gitea": "node scripts/publish-gitea.mjs",
     "prepack": "pnpm build && pnpm publint",
@@ -100,8 +102,7 @@
       "esbuild"
     ],
     "patchedDependencies": {
-      "katex@0.16.38": "patches/katex@0.16.38.patch",
-      "@lezer/markdown@1.7.2": "patches/@lezer__markdown@1.7.2.patch"
+      "katex@0.16.38": "patches/katex@0.16.38.patch"
     }
   },
   "peerDependencies": {
@@ -116,7 +117,6 @@
     "@codemirror/lang-java": "^6.0.2",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
-    "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-rust": "^6.0.2",
     "@codemirror/language": "^6.12.4",
@@ -126,7 +126,6 @@
     "@floating-ui/dom": "^1.7.6",
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
-    "@lezer/markdown": "^1.7.2",
     "@radix-ui/react-context-menu": "^2.2.16",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -155,6 +154,8 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@codemirror/lang-markdown": "^6.5.1",
+    "@lezer/markdown": "^1.7.2",
     "fast-check": "^4.6.0",
     "jsdom": "^29.0.0",
     "pandocmd-cst": "file:vendor/pandocmd-cst",

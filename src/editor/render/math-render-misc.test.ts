@@ -1,10 +1,8 @@
 import { EditorView } from "@codemirror/view";
-import { parser as lezerParser } from "@lezer/markdown";
 import katex from "katex";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CSS } from "../../core/constants/css-classes";
-import { equationLabelExtension } from "../../core/parser/equation-label";
-import { mathExtension } from "../../core/parser/math-backslash";
+import { parsePandocCstSource } from "../cst";
 import { renderInlineMarkdown } from "./inline-render";
 import {
   _snapToTokenBoundary,
@@ -196,10 +194,9 @@ describe("stripMathDelimiters with contentTo", () => {
 });
 
 describe("getDisplayMathContentEnd", () => {
-  /** Parse text directly with Lezer and find the first DisplayMath SyntaxNode. */
+  /** Find the first CST-projected DisplayMath node. */
   function findDisplayMathSyntaxNode(text: string) {
-    const configured = lezerParser.configure([mathExtension, equationLabelExtension]);
-    const tree = configured.parse(text);
+    const tree = parsePandocCstSource(text);
     let found: import("@lezer/common").SyntaxNode | undefined;
     tree.iterate({
       enter(node) {
@@ -213,15 +210,14 @@ describe("getDisplayMathContentEnd", () => {
     return found;
   }
 
-  it("returns offset for labeled $$ display math", () => {
-    // "$$x^2$$ {#eq:foo}" — closing $$ ends at offset 7 from node start
+  it("does not reinterpret a trailing attribute as an equation label", () => {
     const node = findDisplayMathSyntaxNode("$$x^2$$ {#eq:foo}");
-    expect(getDisplayMathContentEnd(node)).toBe(7);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
-  it("returns offset for labeled \\[\\] display math", () => {
+  it("does not reinterpret a trailing attribute after \\[\\] as an equation label", () => {
     const node = findDisplayMathSyntaxNode("\\[x^2\\] {#eq:foo}");
-    expect(getDisplayMathContentEnd(node)).toBe(7);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
   it("returns undefined for unlabeled display math", () => {
@@ -229,14 +225,13 @@ describe("getDisplayMathContentEnd", () => {
     expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
-  it("returns offset for multi-line labeled display math", () => {
-    // "$$\nx^2\n$$ {#eq:bar}" — closing $$ starts at index 7, ends at 9
+  it("does not reinterpret a multiline trailing attribute as an equation label", () => {
     const node = findDisplayMathSyntaxNode("$$\nx^2\n$$ {#eq:bar}");
-    expect(getDisplayMathContentEnd(node)).toBe(9);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 });
 
-describe("display math with equation labels", () => {
+describe("display math with literal trailing attributes", () => {
   let view: EditorView | undefined;
 
   afterEach(() => {
@@ -306,14 +301,14 @@ describe("display math with equation labels", () => {
     expect(el.textContent).not.toContain("#eq:");
   });
 
-  it("renders equation numbers from document semantics", () => {
+  it("does not synthesize equation numbers from unsupported trailing labels", () => {
     const doc = "$$x^2$$ {#eq:first}\n\n$$y^2$$ {#eq:second}";
     view = createMathViewWithLabels(doc, doc.length);
     const widgets = getWidgets(collectMathRanges(view));
 
     expect(widgets).toHaveLength(2);
-    expect(widgets[0].toDOM().querySelector(`.${CSS.mathDisplayNumber}`)?.textContent).toBe("(1)");
-    expect(widgets[1].toDOM().querySelector(`.${CSS.mathDisplayNumber}`)?.textContent).toBe("(2)");
+    expect(widgets[0].toDOM().querySelector(`.${CSS.mathDisplayNumber}`)).toBeNull();
+    expect(widgets[1].toDOM().querySelector(`.${CSS.mathDisplayNumber}`)).toBeNull();
   });
 
   it("unlabeled display math still renders correctly", () => {

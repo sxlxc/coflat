@@ -1,4 +1,4 @@
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { getPandocSyntaxTree, pandocSyntaxTreeAvailable } from "../cst";
 import { type EditorState, type Line, type Range, type StateField, type Transaction } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { CSS } from "../../core/constants/css-classes";
@@ -238,8 +238,8 @@ export function createFencedBlockDecorationField(
         tr.effects.some((e) => e.is(focusEffect)) ||
         (
           options?.rebuildOnTreeChange !== false &&
-          syntaxTree(tr.state) !== syntaxTree(tr.startState) &&
-          syntaxTreeAvailable(tr.state, tr.state.doc.length)
+          getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState) &&
+          pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length)
         ) ||
         (options?.extraShouldRebuild?.(tr) ?? false)
       );

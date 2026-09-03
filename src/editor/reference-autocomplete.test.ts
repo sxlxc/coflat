@@ -160,7 +160,7 @@ describe("findReferenceCompletionMatch", () => {
 });
 
 describe("collectReferenceCompletionCandidates", () => {
-  it("collects blocks, equations, headings, and citations with semantic precedence", () => {
+  it("collects blocks, headings, and citations with semantic precedence", () => {
     const state = createReferenceState(
       [
         "# Background {#sec:background}",
@@ -192,10 +192,7 @@ describe("collectReferenceCompletionCandidates", () => {
       detail: "Theorem 1",
       info: "Fundamental theorem",
     });
-    expect(byId.get("eq:energy")).toMatchObject({
-      kind: "equation",
-      detail: "Eq. (1)",
-    });
+    expect(byId.get("eq:energy")).toBeUndefined();
     expect(byId.get("sec:background")).toMatchObject({
       kind: "heading",
       detail: "Section 1",
@@ -206,7 +203,7 @@ describe("collectReferenceCompletionCandidates", () => {
       detail: "Karger 2000",
       preview: "Karger, David R.. Minimum cuts in near-linear time. JACM, 47(1), 46-76. 2000.",
     });
-    expect(byId.size).toBe(4);
+    expect(byId.size).toBe(3);
   });
 
   it("reuses the shared citation formatter across repeated candidate collection", () => {
@@ -474,16 +471,6 @@ describe("reference autocomplete integration", () => {
     expect(tableItem?.querySelector(".cf-reference-completion-meta")?.textContent).toContain("Table");
     expect(tableItem?.querySelector(".cf-hover-preview-table-scroll table")).toBeTruthy();
     expect(tableItem?.textContent).toContain("Results table");
-
-    const equationItem = await waitForCompletionItem((candidate) =>
-      candidate.querySelector(".cm-completionDetail")?.textContent === "eq:energy",
-    );
-    expect(equationItem?.querySelector(".cm-completionLabel")?.textContent).toBe("Eq. (1)");
-    const equationPreview = equationItem?.querySelector(".cf-reference-completion-content");
-    expect(equationPreview?.firstElementChild?.className).toContain("cf-hover-preview-body");
-    expect(equationPreview?.querySelector(".cf-reference-completion-meta")?.textContent)
-      .toBe("Eq. (1)");
-    expect(equationItem?.querySelector(".katex-display")).toBeTruthy();
 
     const headingItem = await waitForCompletionItem((candidate) =>
       candidate.querySelector(".cm-completionDetail")?.textContent === "sec:background",

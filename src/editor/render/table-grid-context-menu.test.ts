@@ -15,6 +15,7 @@ import type { ParsedTable } from "./table-utils";
 
 const DOC = [
   "before",
+  "",
   "| A | B |",
   "| --- | --- |",
   "| 1 | 2 |",

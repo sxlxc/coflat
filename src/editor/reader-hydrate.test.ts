@@ -108,16 +108,16 @@ describe("hydrateMath", () => {
     expect(placeholder?.getAttribute("data-math-hydrated")).toBe("true");
   });
 
-  it("preserves reader equation numbers while hydrating display math", async () => {
-    const { html } = renderToHtml("$$y=mx+b$$ {#eq:line}");
+  it("hydrates unnumbered fixed-dialect display math", async () => {
+    const { html } = renderToHtml("$$y=mx+b$$");
     const root = makeRoot(html);
     const placeholder = requireMathPlaceholder(root);
-    expect(placeholder.classList.contains("cf-math-display-numbered")).toBe(true);
+    expect(placeholder.classList.contains("cf-math-display-numbered")).toBe(false);
 
     await hydrateMath(root);
 
     expect(placeholder.querySelector(".cf-math-display-content")).not.toBeNull();
-    expect(placeholder.querySelector(".cf-math-display-number")?.textContent).toBe("(1)");
+    expect(placeholder.querySelector(".cf-math-display-number")).toBeNull();
     expect(placeholder.getAttribute("data-math-hydrated")).toBe("true");
   });
 
@@ -358,30 +358,26 @@ describe("hydrateReaderHoverPreviews", () => {
     expect(tooltip.querySelector(".cf-doc-display-math")).toBeNull();
   });
 
-  it("uses render-time preview index entries before raw source scans", async () => {
+  it("uses render-time heading preview index entries before raw source scans", async () => {
     const source = [
-      "$$",
-      "x+1",
-      "$$ {#eq:actual}",
+      "# Actual {#sec:actual}",
       "",
-      "See [@eq:actual].",
+      "See [@sec:actual].",
     ].join("\n");
     const result = renderToHtml(source, undefined, {
       referencePreviews: true,
       resolveReferences: true,
     });
     const root = makeRoot(result.html);
-    // If hydration ignored the index and scanned this source, the tooltip would
-    // render y+1 instead. The index entry carries the Lezer-owned equation body.
-    root.dataset.source = "$$\ny+1\n$$ {#eq:actual}";
+    root.dataset.source = "# Wrong {#sec:actual}";
 
-    const tooltip = await hoverReference(root, "eq:actual", {
+    const tooltip = await hoverReference(root, "sec:actual", {
       referencePreviewIndex: result.referencePreviewIndex,
     });
 
-    expect(tooltip.textContent).toContain("Eq. (1)");
-    expect(tooltip.textContent).toContain("x+1");
-    expect(tooltip.textContent).not.toContain("y+1");
+    expect(tooltip.textContent).toContain("Section 1");
+    expect(tooltip.textContent).toContain("Actual");
+    expect(tooltip.textContent).not.toContain("Wrong");
   });
 
   it("lets host previews override render-time preview index entries", async () => {

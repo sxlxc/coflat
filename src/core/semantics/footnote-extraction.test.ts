@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMarkdownSource } from "../parser";
+import { parsePandocTraversalSource } from "../parser";
 import {
   extractFootnoteDefinition,
   extractFootnoteReference,
 } from "./footnote-extraction";
 
 function firstNode(source: string, name: string) {
-  const tree = parseMarkdownSource(source, "semantic");
+  const tree = parsePandocTraversalSource(source, "semantic");
   let found = tree.topNode.getChild(name);
   tree.iterate({
     enter(node) {

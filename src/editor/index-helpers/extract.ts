@@ -6,12 +6,12 @@
 import type { BlockNode, DocumentIR, MathNode, ReferenceNode, SectionNode } from "../ir/types";
 import {
   type DocumentSemantics,
+  type DocumentArtifacts,
 } from "../semantics/document";
 import {
   getDocumentArtifacts,
   rememberDocumentAnalysisSnapshot,
 } from "../semantics/incremental/cached-document-analysis";
-import type { DocumentArtifacts } from "../semantics/incremental/engine";
 import type { FileIndex, IndexEntry, IndexReference } from "./query-api";
 
 const fileIndexAnalysisCache = new WeakMap<FileIndex, DocumentSemantics>();

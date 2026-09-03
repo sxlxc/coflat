@@ -82,6 +82,6 @@ describe("reader/editor semantic parity fixtures", () => {
 
   it("keeps the package-owned catalog API pure enough for Node import paths", async () => {
     const parseModule = await import("../../parse");
-    expect(parseModule.buildReferenceCatalog(source).targets.length).toBe(3);
+    expect(parseModule.buildReferenceCatalog(source).targets.length).toBe(2);
   });
 });

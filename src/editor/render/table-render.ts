@@ -31,7 +31,6 @@ import {
 import {
   type TableRange,
   tableDiscoveryField,
-  tableDiscoveryPendingParseField,
 } from "../state/table-discovery";
 import { buildDecorations } from "./decoration-core";
 import { createLifecycleDecorationStateField } from "./decoration-field";
@@ -41,7 +40,6 @@ import {
   findTableAtCursor,
   findTablesInState,
   findTablesInView,
-  tableDiscoveryParsePlugin,
 } from "./table-discovery";
 import { tableKeybindings } from "./table-navigation";
 import { cellEditAnnotation, TableWidget } from "./table-widget";
@@ -318,8 +316,6 @@ export const tableRenderPlugin: Extension = [
   focusTracker,
   mathMacrosField,
   tableDiscoveryField,
-  tableDiscoveryPendingParseField,
-  tableDiscoveryParsePlugin,
   tableDecorationField,
   liveCellMainSyncPlugin,
   tableContextMenuHandler,

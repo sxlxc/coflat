@@ -1,10 +1,10 @@
 import { markdown } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import { describe, expect, it } from "vitest";
 import { NODE } from "../../core/constants/node-types";
 import { markdownExtensions } from "../../core/parser";
+import { getPandocSyntaxTree, pandocCstField } from "../cst";
 import {
   findAncestor,
   findAncestorByName,
@@ -19,13 +19,13 @@ import {
 function createState(doc: string): EditorState {
   return EditorState.create({
     doc,
-    extensions: [markdown({ extensions: markdownExtensions })],
+    extensions: [markdown({ extensions: markdownExtensions }), pandocCstField],
   });
 }
 
 function findFirstNode(state: EditorState, name: string): SyntaxNode | null {
   let match: SyntaxNode | null = null;
-  syntaxTree(state).iterate({
+  getPandocSyntaxTree(state).iterate({
     enter(node) {
       if (node.name !== name || match) {
         return;
@@ -61,7 +61,7 @@ describe("findAncestor", () => {
 describe("findAncestorByName", () => {
   it("finds ancestors by node type name", () => {
     const state = createState("```js\ncode\n```");
-    const node = syntaxTree(state).resolveInner(5, 1);
+    const node = getPandocSyntaxTree(state).resolveInner(5, 1);
 
     const ancestor = findAncestorByName(node, NODE.FencedCode);
 

@@ -123,6 +123,16 @@ export function displayMathSourcePlan(
   const equationId = label
     ? readBracedLabelId(source, label.from, label.to, "eq:")
     : null;
+  let ancestor: SyntaxNode | null = node.parent;
+  let insideBlockquote = false;
+  while (ancestor) {
+    if (ancestor.name === "Blockquote") {
+      insideBlockquote = true;
+      break;
+    }
+    ancestor = ancestor.parent;
+  }
+  const latex = source.slice(latexRange.from, latexRange.to);
 
   return {
     sourceRange: { from: node.from, to: node.to },
@@ -131,6 +141,8 @@ export function displayMathSourcePlan(
     closeMarkRange: { from: closeMark.from, to: closeMark.to },
     ...(labelRange ? { labelRange, labelFrom: closeMark.to } : {}),
     equationId,
-    latex: source.slice(latexRange.from, latexRange.to),
+    latex: insideBlockquote
+      ? latex.replace(/^(?: {0,3}> ?)/gm, "").trim()
+      : latex,
   };
 }

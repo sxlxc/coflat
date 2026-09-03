@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../../cst";
 import { Annotation, type Transaction } from "@codemirror/state";
 import { coalesceChangedRanges } from "./dirty-windows";
 import type { RawChangedRange, SemanticDelta } from "./types";
@@ -138,7 +138,7 @@ export function buildSemanticDelta(
   options: SemanticDeltaBuildOptions = {},
 ): SemanticDelta {
   const rawChangedRanges = collectRawChangedRanges(tr);
-  const syntaxTreeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
+  const syntaxTreeChanged = getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState);
   const singleInsertion = getSingleInsertionChange(rawChangedRanges);
 
   return {

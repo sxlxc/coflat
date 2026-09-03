@@ -4,13 +4,13 @@ import {
   getMarkdownParser,
   htmlRenderExtensions,
   markdownExtensions,
-  parseMarkdownSource,
+  parsePandocTraversalSource,
   semanticOnlyMarkdownExtensions,
 } from "./index";
 
 function nodeNames(source: string, mode: "semantic" | "html-render"): string[] {
   const names: string[] = [];
-  parseMarkdownSource(source, mode).iterate({
+  parsePandocTraversalSource(source, mode).iterate({
     enter(node) {
       names.push(node.name);
     },
@@ -32,7 +32,7 @@ describe("Coflat parser profiles", () => {
       ":::",
       "",
       "| A | B |",
-      "| - | - |",
+      "| --- | --- |",
       "| 1 | 2 |",
       "",
       "- [x] task",
@@ -42,7 +42,7 @@ describe("Coflat parser profiles", () => {
       const names = nodeNames(source, mode);
       expect(names).toContain("FencedDiv");
       expect(names).toContain("InlineMath");
-      expect(names).toContain("Highlight");
+      expect(names).not.toContain("Highlight");
       expect(names).toContain("Table");
       expect(names).toContain("TaskMarker");
     }

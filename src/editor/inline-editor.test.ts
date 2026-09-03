@@ -10,7 +10,6 @@
  * with visual parity to the main editor.
  */
 
-import { syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
@@ -30,6 +29,7 @@ import { bibDataField } from "./state/bib-data";
 import { documentAnalysisField } from "./state/document-analysis";
 import { frontmatterField } from "./state/frontmatter-state";
 import { CSL_FIXTURES, makeBibStore } from "./test-utils";
+import { getPandocSyntaxTree } from "./cst";
 
 // jsdom lacks ResizeObserver — provide a no-op stub.
 class ResizeObserverStub {
@@ -67,7 +67,7 @@ function createInlineEditorState(doc: string, macros: Record<string, string> = {
 /** Collect all node names from the syntax tree. */
 function getNodeNames(state: EditorState): string[] {
   const names: string[] = [];
-  syntaxTree(state).iterate({
+  getPandocSyntaxTree(state).iterate({
     enter(node) {
       names.push(node.name);
     },
@@ -118,7 +118,7 @@ function getDecorationClasses(view: EditorView): string[] {
 
 describe("inline editor parser coverage (#406)", () => {
   it("uses the shared semantic parser profile", () => {
-    expect(inlineMarkdownExtensions).toBe(markdownExtensions);
+    expect(inlineMarkdownExtensions).toEqual(markdownExtensions);
   });
 
   it("parses inline math ($...$)", () => {
@@ -151,10 +151,10 @@ describe("inline editor parser coverage (#406)", () => {
     expect(names).toContain("Link");
   });
 
-  it("parses highlight (==text==)", () => {
+  it("keeps disabled highlight syntax literal", () => {
     const state = createInlineEditorState("==highlight==");
     const names = getNodeNames(state);
-    expect(names).toContain("Highlight");
+    expect(names).not.toContain("Highlight");
   });
 
   it("parses strikethrough (~~text~~)", () => {
@@ -208,10 +208,10 @@ describe("inline editor decoration rendering (#406)", () => {
     view.destroy();
   });
 
-  it("renders highlight with cf-highlight mark", () => {
+  it("keeps disabled highlight syntax undecorated", () => {
     const view = createInlineEditorView("==highlight== text", {}, 18);
     const classes = getDecorationClasses(view);
-    expect(classes).toContain("cf-highlight");
+    expect(classes).not.toContain("cf-highlight");
     view.destroy();
   });
 
@@ -231,11 +231,11 @@ describe("inline editor decoration rendering (#406)", () => {
     view.destroy();
   });
 
-  it("hides highlight markers when cursor is outside", () => {
+  it("keeps disabled highlight markers literal", () => {
     const view = createInlineEditorView("==highlight== text", {}, 18);
     const lineText = view.dom.querySelector(".cm-line")?.textContent ?? "";
     expect(lineText).toContain("highlight");
-    expect(lineText).not.toContain("==");
+    expect(lineText).toContain("==");
     view.destroy();
   });
 });

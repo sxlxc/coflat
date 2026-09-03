@@ -7,16 +7,12 @@
  */
 
 import {
-  deleteMarkupBackward,
-  insertNewlineContinueMarkup,
-} from "@codemirror/lang-markdown";
-import {
   codeFolding,
   foldGutter,
   foldKeymap,
   foldService,
-  syntaxTree,
 } from "@codemirror/language";
+import { getPandocSyntaxTree, insertNewlineContinuePandocMarkup } from "./cst";
 import { type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
@@ -89,7 +85,7 @@ function deleteListMarkerBackward(view: EditorView): boolean {
 }
 
 const listFoldService = foldService.of((state, lineStart, _lineEnd) => {
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   let node = tree.resolveInner(lineStart, 1);
 
   while (node) {
@@ -135,11 +131,11 @@ const listOutlinerKeymap = Prec.highest(keymap.of([
   },
   {
     key: "Enter",
-    run: (view) => exitEmptyListItem(view) || insertNewlineContinueMarkup(view),
+    run: (view) => exitEmptyListItem(view) || insertNewlineContinuePandocMarkup(view),
   },
   {
     key: "Backspace",
-    run: (view) => deleteListMarkerBackward(view) || deleteMarkupBackward(view),
+    run: deleteListMarkerBackward,
   },
   ...foldKeymap,
 ]));

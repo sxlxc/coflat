@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tableRenderPlan } from "./block-render-plan";
-import { parseMarkdownSource } from "./parser";
+import { parsePandocTraversalSource } from "./parser";
 import {
   applyTableCellSurface,
   createTableCellElement,
@@ -19,7 +19,7 @@ import {
 } from "./table-surface";
 
 function firstTable(source: string) {
-  const tree = parseMarkdownSource(source, "html-render");
+  const tree = parsePandocTraversalSource(source, "html-render");
   let table = tree.topNode.firstChild;
   while (table && table.name !== "Table") table = table.nextSibling;
   if (!table) throw new Error("missing table");
@@ -76,7 +76,7 @@ describe("table surface", () => {
   it("renders a table plan skeleton for HTML emitters", () => {
     const source = [
       "| A | B |",
-      "| :- | -: |",
+      "| :--- | ---: |",
       "| 1 | 2 | 3 |",
       "| 4 |",
     ].join("\n");
@@ -92,12 +92,12 @@ describe("table surface", () => {
       + '<th class="cf-doc-table-cell cf-doc-table-header" data-align="left" style="text-align:left">A</th>'
       + '<th class="cf-doc-table-cell cf-doc-table-header" data-align="right" style="text-align:right">B</th>'
       + '</tr></thead><tbody>'
-      + '<tr class="cf-doc-table-row" data-row-from="22">'
+      + '<tr class="cf-doc-table-row" data-row-from="26">'
       + '<td class="cf-doc-table-cell" data-align="left" style="text-align:left">1</td>'
       + '<td class="cf-doc-table-cell" data-align="right" style="text-align:right">2</td>'
       + '<td class="cf-doc-table-cell">3</td>'
       + '</tr>'
-      + '<tr class="cf-doc-table-row" data-row-from="36">'
+      + '<tr class="cf-doc-table-row" data-row-from="40">'
       + '<td class="cf-doc-table-cell" data-align="left" style="text-align:left">4</td>'
       + '</tr></tbody></table>',
     );

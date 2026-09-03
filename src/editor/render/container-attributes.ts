@@ -1,33 +1,23 @@
-import {
-  syntaxTree,
-  syntaxTreeAvailable,
-} from "@codemirror/language";
+import { headingLevel, taskChecked, type SyntaxNode } from "pandocmd-cst";
+import { getPandocTree } from "../cst";
 import {
   type EditorState,
   type Extension,
   type Range,
-  StateField,
-  type Transaction,
 } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
   type EditorView,
-  ViewPlugin,
-  type ViewUpdate,
 } from "@codemirror/view";
 import {
   DOCUMENT_SURFACE_CLASS,
   documentSurfaceClassNames,
 } from "../../core/document-surface-classes";
 import {
-  editorListItemLineClassNamesFromNode,
-  type ListTreeNodeLike,
+  editorListItemLineClassNames,
 } from "../../core/list-surface";
 import {
-  clampDocPos,
-  expandChangeQueryRange,
-  expandRangeToLineBounds,
   forEachOverlappingOrderedRange,
   getMergedRangeCoverage,
   rangesOverlap,
@@ -35,35 +25,32 @@ import {
 import { documentAnalysisField } from "../state/document-analysis";
 import { frontmatterField } from "../state/frontmatter-state";
 import { buildDecorations } from "./decoration-core";
-import { SyntaxParseScheduler } from "./syntax-parse-scheduler";
 import { createSimpleViewPlugin } from "./view-plugin-factories";
 
 /**
- * Maps Lezer syntax node type names to HTML tag names.
+ * Maps public CST node kinds to HTML tag names.
  * These become `data-tag-name` attributes on `cm-line` elements,
  * enabling CSS selectors like `[data-tag-name="h1"]`.
  */
-const TAG_NAME_MAP: Readonly<Record<string, string>> = {
-  ATXHeading1: "h1",
-  ATXHeading2: "h2",
-  ATXHeading3: "h3",
-  ATXHeading4: "h4",
-  ATXHeading5: "h5",
-  ATXHeading6: "h6",
+const CST_TAG_NAME_MAP: Readonly<Record<string, string>> = {
   BulletList: "ul",
   OrderedList: "ol",
-  FencedCode: "code",
+  FencedCodeBlock: "code",
+  IndentedCodeBlock: "code",
   HorizontalRule: "hr",
   FencedDiv: "div",
   Paragraph: "p",
+  Plain: "p",
 };
 
-const TREE_ONLY_TAG_NAME_MAP: Readonly<Record<string, string>> = {
+const CST_TREE_ONLY_TAG_NAME_MAP: Readonly<Record<string, string>> = {
   BulletList: "ul",
   OrderedList: "ol",
-  FencedCode: "code",
+  FencedCodeBlock: "code",
+  IndentedCodeBlock: "code",
   HorizontalRule: "hr",
   Paragraph: "p",
+  Plain: "p",
 };
 
 const HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
@@ -117,7 +104,7 @@ function forEachCoveredLineStart(
   let lineStart = state.doc.lineAt(Math.max(from, rangeFrom)).from;
   const nodeEnd = Math.min(to, rangeTo);
 
-  while (lineStart <= nodeEnd) {
+  while (lineStart < nodeEnd) {
     callback(lineStart);
     const line = state.doc.lineAt(lineStart);
     if (line.to >= nodeEnd) break;
@@ -154,8 +141,11 @@ function addListLineDecorations(
   });
 }
 
-function listItemLineClasses(node: { readonly node: ListTreeNodeLike }): readonly string[] {
-  return editorListItemLineClassNamesFromNode(node.node).split(" ");
+function listItemLineClasses(node: SyntaxNode): readonly string[] {
+  return editorListItemLineClassNames({
+    ordered: node.parent?.kind === "OrderedList",
+    task: node.prop(taskChecked) !== undefined,
+  }).split(" ");
 }
 
 function collectLineDecorationsInRange(
@@ -208,12 +198,13 @@ function collectLineDecorationsInRange(
     );
   }
 
-  const treeTagMap = semantics ? TREE_ONLY_TAG_NAME_MAP : TAG_NAME_MAP;
-  syntaxTree(state).iterate({
-    from: visibleFrom,
-    to: rangeTo,
-    enter(node) {
-      const tagName = treeTagMap[node.type.name];
+  const treeTagMap = semantics ? CST_TREE_ONLY_TAG_NAME_MAP : CST_TAG_NAME_MAP;
+  getPandocTree(state).iterate((node) => {
+      let tagName = treeTagMap[node.kind];
+      if (!semantics && (node.kind === "AtxHeading" || node.kind === "SetextHeading")) {
+        tagName = HEADING_TAGS[(node.prop(headingLevel) ?? 1) - 1];
+      }
+      if (node.kind === "ListItem") tagName = "p";
       if (tagName) {
         assignLineTag(
           lineTagMap,
@@ -225,7 +216,7 @@ function collectLineDecorationsInRange(
           rangeTo,
         );
       }
-      if (node.type.name === "ListItem") {
+      if (node.kind === "ListItem") {
         addListLineDecorations(
           items,
           state,
@@ -236,8 +227,7 @@ function collectLineDecorationsInRange(
           rangeTo,
         );
       }
-    },
-  });
+    }, { from: visibleFrom, to: rangeTo });
 
   for (const [pos, tagName] of [...lineTagMap.entries()].sort((a, b) => a[0] - b[0])) {
     items.push(lineDecorationFor(tagName).range(pos));
@@ -284,104 +274,6 @@ function buildViewportContainerDecorations(view: EditorView): DecorationSet {
   );
 }
 
-interface DirtyRegion {
-  readonly filterFrom: number;
-  readonly filterTo: number;
-}
-
-function mergeDirtyRegions(
-  a: DirtyRegion | null,
-  b: DirtyRegion | null,
-): DirtyRegion | null {
-  if (!a) return b;
-  if (!b) return a;
-  return {
-    filterFrom: Math.min(a.filterFrom, b.filterFrom),
-    filterTo: Math.max(a.filterTo, b.filterTo),
-  };
-}
-
-function dirtyRegionsEqual(
-  a: DirtyRegion | null,
-  b: DirtyRegion | null,
-): boolean {
-  if (a === b) return true;
-  return a?.filterFrom === b?.filterFrom && a?.filterTo === b?.filterTo;
-}
-
-function mapDirtyRegion(region: DirtyRegion, tr: Transaction): DirtyRegion {
-  const mappedFrom = clampDocPos(tr.state.doc, tr.changes.mapPos(region.filterFrom, 1));
-  const mappedTo = clampDocPos(
-    tr.state.doc,
-    Math.max(mappedFrom, tr.changes.mapPos(region.filterTo, -1)),
-  );
-  const mappedWindow = expandRangeToLineBounds(tr.state.doc, mappedFrom, mappedTo);
-  return {
-    filterFrom: mappedWindow.from,
-    filterTo: mappedWindow.to,
-  };
-}
-
-function computePendingDirtyRegion(
-  tr: Transaction,
-): DirtyRegion | null {
-  let filterFrom = Number.POSITIVE_INFINITY;
-  let filterTo = Number.NEGATIVE_INFINITY;
-
-  tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
-    const newWindow = expandChangeQueryRange(tr.state.doc, fromB, toB);
-    filterFrom = Math.min(filterFrom, newWindow.from);
-    filterTo = Math.max(filterTo, newWindow.to);
-  }, true);
-
-  if (filterFrom > filterTo) return null;
-  return { filterFrom, filterTo };
-}
-
-const containerAttributePendingDirtyRegionField = StateField.define<DirtyRegion | null>({
-  create(state) {
-    if (syntaxTreeAvailable(state, state.doc.length)) return null;
-    return { filterFrom: 0, filterTo: state.doc.length };
-  },
-
-  update(value, tr) {
-    const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
-    const pendingDirtyRegion = tr.docChanged && value
-      ? mapDirtyRegion(value, tr)
-      : value;
-
-    if (tr.docChanged) {
-      const nextDirtyRegion = mergeDirtyRegions(
-        pendingDirtyRegion,
-        computePendingDirtyRegion(tr),
-      );
-      if (
-        treeChanged &&
-        nextDirtyRegion &&
-        syntaxTreeAvailable(tr.state, nextDirtyRegion.filterTo)
-      ) {
-        return null;
-      }
-
-      return nextDirtyRegion;
-    }
-
-    if (
-      treeChanged &&
-      pendingDirtyRegion &&
-      syntaxTreeAvailable(tr.state, pendingDirtyRegion.filterTo)
-    ) {
-      return null;
-    }
-
-    return pendingDirtyRegion;
-  },
-
-  compare(a, b) {
-    return dirtyRegionsEqual(a, b);
-  },
-});
-
 /**
  * Viewport-scoped ViewPlugin that maintains `Decoration.line` decorations
  * for the rendered lines, adding `data-tag-name` attributes to the
@@ -400,57 +292,13 @@ const containerAttributesViewPlugin = createSimpleViewPlugin(
     shouldUpdate: (update) =>
       update.docChanged ||
       update.viewportChanged ||
-      syntaxTree(update.state) !== syntaxTree(update.startState),
+      getPandocTree(update.state) !== getPandocTree(update.startState),
     spanName: "cm6.containerAttributes",
   },
 );
 
-class ContainerAttributeParsePlugin {
-  private readonly scheduler: SyntaxParseScheduler;
-  private destroyed = false;
-
-  constructor(private readonly view: EditorView) {
-    this.scheduler = new SyntaxParseScheduler(view);
-    this.schedule();
-  }
-
-  update(_update: ViewUpdate): void {
-    if (this.destroyed) return;
-    if (this.view.state.field(containerAttributePendingDirtyRegionField, false)) {
-      this.schedule();
-    }
-  }
-
-  destroy(): void {
-    this.destroyed = true;
-    this.scheduler.destroy();
-  }
-
-  private schedule(): void {
-    if (this.destroyed) return;
-    const pendingDirtyRegion = this.view.state.field(
-      containerAttributePendingDirtyRegionField,
-      false,
-    );
-    if (!pendingDirtyRegion) return;
-    this.scheduler.schedule({
-      targetTo: pendingDirtyRegion.filterTo,
-      isStillNeeded: () => Boolean(
-        !this.destroyed &&
-        this.view.state.field(containerAttributePendingDirtyRegionField, false),
-      ),
-    });
-  }
-}
-
 /** CM6 extension that adds `data-tag-name` attributes to `cm-line` elements. */
 export const containerAttributesPlugin: Extension = [
   frontmatterField,
-  containerAttributePendingDirtyRegionField,
   containerAttributesViewPlugin,
-  ViewPlugin.fromClass(ContainerAttributeParsePlugin),
 ];
-
-export {
-  containerAttributePendingDirtyRegionField as _containerAttributePendingDirtyRegionFieldForTest,
-};

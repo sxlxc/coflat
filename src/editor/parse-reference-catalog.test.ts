@@ -28,7 +28,7 @@ describe("buildReferenceCatalog", () => {
     expect(extractFirstH1(["## Subhead", "", "```md", "# Fake", "```", "", "# Real"].join("\n"))).toBe("Real");
   });
 
-  it("returns shared target labels for headings, blocks, equations, and refs", () => {
+  it("returns shared target labels for headings and blocks without inventing equations", () => {
     const catalog = buildReferenceCatalog(fixture);
 
     expect(catalog.targets.map((target) => [
@@ -39,7 +39,6 @@ describe("buildReferenceCatalog", () => {
       ["heading", "sec:intro", "Section 1"],
       ["block", "def:main", "Definition 1"],
       ["block", "thm:main", "Theorem 1"],
-      ["equation", "eq:one", "Eq. (1)"],
     ]);
 
     expect(catalog.uniqueTargetById.get("thm:main")?.displayLabel)
@@ -63,9 +62,7 @@ describe("buildReferenceCatalog", () => {
     expect(catalog.uniqueTargetById.get("sec:intro")?.line).toBe(1);
     expect(catalog.uniqueTargetById.get("def:main")?.line).toBe(3);
     expect(catalog.uniqueTargetById.get("thm:main")?.line).toBe(7);
-    const eq = catalog.uniqueTargetById.get("eq:one");
-    expect(eq?.line).toBeGreaterThanOrEqual(11);
-    expect(eq?.line).toBeLessThanOrEqual(13);
+    expect(catalog.uniqueTargetById.get("eq:one")).toBeUndefined();
     // The single citation cluster sits on the last line of the fixture.
     expect(catalog.references[0]?.line).toBe(15);
   });

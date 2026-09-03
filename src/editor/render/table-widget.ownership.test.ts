@@ -38,6 +38,7 @@ vi.mock("../inline-editor", async (importOriginal) => {
 const actualInlineEditor =
   await vi.importActual<typeof import("../inline-editor")>("../inline-editor");
 const { tableRenderPlugin } = await import("./table-render");
+const { TableWidget } = await import("./table-widget");
 const { destroyActiveInlineEditor, getActiveInlineEditor } =
   await import("./table-widget-session");
 
@@ -177,6 +178,37 @@ describe("TableWidget cross-widget editor ownership", () => {
 
     expect(getActiveInlineEditor()).toBeNull();
     expect(view.dom.textContent).toContain("TWO");
+  });
+
+  it("preserves the live cell when only reference-render dependencies change", () => {
+    const doc = "| A | B |\n| --- | --- |\n| one | two |";
+    const view = createRootView(doc);
+    const parsed = {
+      header: { cells: [{ content: "A" }, { content: "B" }] },
+      alignments: ["none", "none"] as const,
+      rows: [{ cells: [{ content: "one" }, { content: "two" }] }],
+    };
+    const oldWidget = new TableWidget(parsed, doc, 0, {}, "references:before");
+    const dom = oldWidget.toDOM(view);
+    document.body.appendChild(dom);
+
+    try {
+      const cell = dom.querySelector<HTMLElement>("tbody td");
+      if (!cell) throw new Error("expected a rendered table cell");
+      cell.dispatchEvent(mousedown());
+      expect(getActiveInlineEditor()?.owner).toBe(oldWidget);
+
+      const table = dom.querySelector("table");
+      const newWidget = new TableWidget(parsed, doc, 0, {}, "references:after");
+      expect(newWidget.eq(oldWidget)).toBe(false);
+      expect(newWidget.updateDOM(dom, view, oldWidget)).toBe(true);
+
+      expect(dom.querySelector("table")).toBe(table);
+      expect(cell.classList.contains("cf-table-cell-editing")).toBe(true);
+      expect(getActiveInlineEditor()?.owner).toBe(newWidget);
+    } finally {
+      dom.remove();
+    }
   });
 
   it("places rendered-token cell selections before focusing the inline editor", async () => {

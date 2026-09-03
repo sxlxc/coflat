@@ -88,7 +88,6 @@ describe("buildDocumentLabelGraph", () => {
     expect(graph.definitions.map((definition) => definition.id)).toEqual([
       "sec:intro",
       "thm:main",
-      "eq:main",
     ]);
 
     expect(getDocumentLabelDefinition(graph, "sec:intro")).toMatchObject({
@@ -106,17 +105,10 @@ describe("buildDocumentLabelGraph", () => {
       tokenFrom: doc.indexOf("#thm:main"),
       labelFrom: doc.indexOf("#thm:main") + 1,
     });
-    expect(getDocumentLabelDefinition(graph, "eq:main")).toMatchObject({
-      kind: "equation",
-      displayLabel: "Eq. (1)",
-      text: "x + y",
-      tokenFrom: doc.indexOf("{#eq:main}"),
-      labelFrom: doc.indexOf("{#eq:main}") + 2,
-    });
+    expect(getDocumentLabelDefinition(graph, "eq:main")).toBeUndefined();
 
     expect(graph.references.map((reference) => reference.id)).toEqual([
       "thm:main",
-      "eq:main",
       "sec:intro",
     ]);
     expect(findDocumentLabelBacklinks(graph, "karger2000")).toEqual([]);
@@ -137,19 +129,7 @@ describe("buildDocumentLabelGraph", () => {
       locator: "p. 2",
     });
 
-    const equationBacklink = findDocumentLabelBacklinks(graph, "eq:main")[0];
-    expect(equationBacklink).toEqual({
-      id: "eq:main",
-      from: doc.indexOf("@eq:main"),
-      to: doc.indexOf("@eq:main") + "@eq:main".length,
-      labelFrom: doc.indexOf("@eq:main") + 1,
-      labelTo: doc.indexOf("@eq:main") + "@eq:main".length,
-      clusterFrom,
-      clusterTo,
-      clusterIndex: 1,
-      bracketed: true,
-      locator: undefined,
-    });
+    expect(findDocumentLabelBacklinks(graph, "eq:main")).toEqual([]);
   });
 
   it("ignores reference-like tokens inside links and display math bodies", () => {
@@ -167,7 +147,6 @@ describe("buildDocumentLabelGraph", () => {
 
     expect(graph.definitions.map((definition) => definition.id)).toEqual([
       "sec:intro",
-      "eq:visible",
     ]);
     expect(graph.references.map((reference) => reference.id)).toEqual(["sec:intro"]);
   });
@@ -248,7 +227,6 @@ describe("document label graph summary", () => {
       { id: "sec:intro", kind: "heading" },
       { id: "dup", kind: "block" },
       { id: "dup", kind: "block" },
-      { id: "eq:main", kind: "equation" },
     ]);
     expect(summary.duplicateIds).toEqual(["dup"]);
     expect(summary.references).toEqual([
@@ -267,14 +245,6 @@ describe("document label graph summary", () => {
         labelFrom: doc.indexOf("@sec:intro") + 1,
         labelTo: doc.indexOf("@sec:intro") + "@sec:intro".length,
         locator: undefined,
-      },
-      {
-        id: "eq:main",
-        from: doc.indexOf("@eq:main"),
-        to: doc.indexOf("@eq:main") + "@eq:main".length,
-        labelFrom: doc.indexOf("@eq:main") + 1,
-        labelTo: doc.indexOf("@eq:main") + "@eq:main".length,
-        locator: "p. 2",
       },
     ]);
   });

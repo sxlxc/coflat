@@ -44,7 +44,7 @@ describe("collectReferenceRanges (clusters)", () => {
 
   // Regression (#397): clustered crossrefs must render per-item spans
   // with data-ref-id attributes, not a flat text join.
-  it("renders clustered equation crossrefs with per-item spans", () => {
+  it("renders source-only equation ids as unresolved clustered items", () => {
     const doc = [
       "$$a^2$$ {#eq:alpha}",
       "",
@@ -64,13 +64,15 @@ describe("collectReferenceRanges (clusters)", () => {
     expect(widget).toBeDefined();
     if (!widget) return;
     const el = widget.toDOM() as HTMLElement;
-    expect(el.textContent).toBe("Eq. (1); Eq. (2)");
+    expect(el.textContent).toBe("eq:alpha; eq:beta");
 
     // Per-item spans with data-ref-id
     const spans = el.querySelectorAll("span[data-ref-id]");
     expect(spans.length).toBe(2);
     expect(spans[0].getAttribute("data-ref-id")).toBe("eq:alpha");
+    expect(spans[0].className).toBe(CSS.crossrefUnresolved);
     expect(spans[1].getAttribute("data-ref-id")).toBe("eq:beta");
+    expect(spans[1].className).toBe(CSS.crossrefUnresolved);
   });
 
   // Regression (#397): clustered block crossrefs must have per-item spans
@@ -227,14 +229,13 @@ describe("collectReferenceRanges (clusters)", () => {
     expect(widget).toBeDefined();
     if (!widget) return;
     const el = widget.toDOM() as HTMLElement;
-    expect(el.textContent).toContain("Eq. (1)");
-    expect(el.textContent).toBe("Eq. (1); karger2000");
+    expect(el.textContent).toBe("eq:alpha; karger2000");
     expect(el.className).toBe(CSS.citationCluster);
 
     const spans = el.querySelectorAll("span[data-ref-id]");
     expect(spans.length).toBe(2);
     expect(spans[0].getAttribute("data-ref-id")).toBe("eq:alpha");
-    expect(spans[0].className).toBe(CSS.crossref);
+    expect(spans[0].className).toBe(CSS.crossrefUnresolved);
     expect(spans[1].getAttribute("data-ref-id")).toBe("karger2000");
     expect(spans[1].className).toBe(CSS.crossrefUnresolved);
   });

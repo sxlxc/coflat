@@ -3,12 +3,17 @@ import { EditorView } from "@codemirror/view";
 import {
   activateStructureEditTarget,
   createStructureEditTargetAt,
+  type DisplayMathStructureEditTarget,
 } from "../state/cm-structure-edit";
 
-function activateInsertedMathBlock(view: EditorView, anchor: number): void {
+function activateInsertedMathBlock(
+  view: EditorView,
+  anchor: number,
+  fallback: DisplayMathStructureEditTarget,
+): void {
   activateStructureEditTarget(
     view,
-    createStructureEditTargetAt(view.state, anchor),
+    createStructureEditTargetAt(view.state, anchor) ?? fallback,
     anchor,
   );
 }
@@ -62,12 +67,20 @@ export function createPairedMathEntry(
       // Preserve indentation: keep the leading whitespace on all three lines.
       const indent = before.slice(0, before.length - beforeTrimmed.length);
       const anchor = line.from + indent.length + 3;
+      const blockFrom = line.from + indent.length;
+      const blockTo = blockFrom + indent.length + 6;
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: `${indent}$$\n\n${indent}$$` },
         selection: { anchor },
         annotations: fenceOperationAnnotation.of(true),
       });
-      activateInsertedMathBlock(view, anchor);
+      activateInsertedMathBlock(view, anchor, {
+        kind: "display-math",
+        from: blockFrom,
+        to: blockTo,
+        contentFrom: blockFrom + 2,
+        contentTo: blockTo - 2,
+      });
       return true;
     }
 
@@ -85,12 +98,20 @@ export function createPairedMathEntry(
       // Preserve indentation: keep the leading whitespace on all three lines.
       const indent = before.slice(0, before.length - beforeTrimmed.length);
       const anchor = line.from + indent.length + 3;
+      const blockFrom = line.from + indent.length;
+      const blockTo = blockFrom + indent.length + 6;
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: `${indent}\\[\n\n${indent}\\]` },
         selection: { anchor },
         annotations: fenceOperationAnnotation.of(true),
       });
-      activateInsertedMathBlock(view, anchor);
+      activateInsertedMathBlock(view, anchor, {
+        kind: "display-math",
+        from: blockFrom,
+        to: blockTo,
+        contentFrom: blockFrom + 2,
+        contentTo: blockTo - 2,
+      });
       return true;
     }
 

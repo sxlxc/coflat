@@ -361,7 +361,7 @@ describe("bibliographyPlugin integration", () => {
     expect(view.state.doc.toString()).toBe("See [@karger2000].");
   });
 
-  it("does not render bibliography entries for local targets that collide with bib keys", () => {
+  it("renders a bibliography entry when only an unsupported math label collides", () => {
     view = createBibView([
       "## Background {#alpha2019}",
       "",
@@ -374,8 +374,9 @@ describe("bibliographyPlugin integration", () => {
       "See [@alpha2019], [@karger2000], and [@eq:stein2001].",
     ].join("\n"));
 
-    expect(view.dom.querySelector(`.${CSS.bibliographyEntry}`)).toBeNull();
-    expect(view.dom.querySelector(`.${CSS.bibliographyBacklink}`)).toBeNull();
+    expect(view.dom.querySelector(`.${CSS.bibliographyEntry}`)?.getAttribute("data-citation-key"))
+      .toBe("eq:stein2001");
+    expect(view.dom.querySelector(`.${CSS.bibliographyBacklink}`)).not.toBeNull();
   });
 
   it("shows a compact rich preview instead of a native title on bibliography backlinks", async () => {

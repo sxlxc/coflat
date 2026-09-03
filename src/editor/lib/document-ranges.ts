@@ -76,10 +76,14 @@ export function normalizeDirtyDocumentRange(
 export function documentRangesFromChanges(
   changes: ChangeSet,
   expandRange: DocumentRangeExpander,
+  coordinateSpace: "old" | "new" = "new",
 ): DocumentRange[] {
   const ranges: DocumentRange[] = [];
-  changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
-    ranges.push(expandRange(fromB, toB));
+  changes.iterChangedRanges((fromA, toA, fromB, toB) => {
+    ranges.push(expandRange(
+      coordinateSpace === "old" ? fromA : fromB,
+      coordinateSpace === "old" ? toA : toB,
+    ));
   });
   return mergeDocumentRanges(ranges);
 }

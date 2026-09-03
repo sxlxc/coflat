@@ -1,7 +1,7 @@
 {
   "name": "pandocmd-cst",
-  "version": "0.1.0-vendor.d2a5c88",
-  "description": "Vendored build input for Coflat's unpublished Pandoc Markdown CST",
+  "version": "1.0.0-vendor.m6",
+  "description": "Vendored build input for Coflat's Pandoc Markdown CST v1",
   "license": "MIT",
   "private": true,
   "type": "module",

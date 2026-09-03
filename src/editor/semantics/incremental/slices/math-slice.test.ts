@@ -51,9 +51,9 @@ function extractDirtyMathWindows(
 describe("math slice", () => {
   it("maps unchanged math region offsets through transaction changes", () => {
     const doc = [
-      "$$x$$ {#eq:first}",
+      "$$x$$",
       "",
-      "$$y$$ {#eq:second}",
+      "$$y$$",
     ].join("\n");
     const state = createState(doc);
     const before = analyzeMathSlice(state);
@@ -72,7 +72,6 @@ describe("math slice", () => {
       to: second.to + insert.length,
       contentFrom: second.contentFrom + insert.length,
       contentTo: second.contentTo + insert.length,
-      labelFrom: (second.labelFrom ?? 0) + insert.length,
     });
     expect(mapped).not.toBe(second);
   });

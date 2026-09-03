@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeMarkdownSemantics } from "../semantics/markdown-analysis";
 
 describe("classifyReferenceIndex", () => {
-  it("indexes citations, headings, blocks, and equation labels from one analysis", () => {
+  it("indexes citations, headings, and blocks without inventing equation labels", () => {
     const doc = [
       "# Intro {#sec:intro}",
       "",
@@ -37,10 +37,8 @@ describe("classifyReferenceIndex", () => {
     });
     expect(analysis.referenceIndex.get("eq:main")).toMatchObject({
       id: "eq:main",
-      type: "label",
-      targetKind: "equation",
-      display: "Eq. (1)",
-      ordinal: 1,
+      type: "citation",
+      display: "eq:main",
     });
   });
 

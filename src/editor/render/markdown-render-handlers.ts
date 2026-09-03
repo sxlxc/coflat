@@ -1,4 +1,3 @@
-import { syntaxTree } from "@codemirror/language";
 import type { EditorSelection, EditorState, Range } from "@codemirror/state";
 import { Decoration, WidgetType } from "@codemirror/view";
 import type { SyntaxNodeRef } from "@lezer/common";
@@ -15,7 +14,6 @@ import {
 } from "../../core/list-surface";
 import { documentContextFacet } from "../document-context";
 import { containsRange } from "../lib/range-helpers";
-import { isReferenceTokenSource } from "../lib/reference-tokens";
 import { documentPathFacet } from "../lib/types";
 import { findTrailingHeadingAttributes } from "../semantics/heading-ancestry";
 import {
@@ -97,47 +95,6 @@ const styleMap: Readonly<Record<string, Decoration>> = {
   InlineCode: inlineCodeDecoration,
 };
 
-const activeLineDelimiterMarks: readonly {
-  readonly delimiter: string;
-  readonly decoration: Decoration;
-}[] = [
-  { delimiter: "**", decoration: boldDecoration },
-  { delimiter: "__", decoration: boldDecoration },
-  { delimiter: "~~", decoration: strikethroughDecoration },
-  { delimiter: "*", decoration: italicDecoration },
-  { delimiter: "_", decoration: italicDecoration },
-];
-
-// The active-line fallback bridges temporary CommonMark flanking failures; it
-// must not reinterpret delimiter-like characters inside parsed syntax atoms.
-const ACTIVE_LINE_DELIMITER_EXCLUSION_NODES = new Set([
-  "Comment",
-  "CommentBlock",
-  "DisplayMath",
-  "Entity",
-  "EmphasisMark",
-  "EquationLabel",
-  "Escape",
-  "FencedCode",
-  "FencedDivAttributes",
-  "FootnoteDefLabel",
-  "FootnoteRef",
-  "HTMLBlock",
-  "HTMLTag",
-  "InlineCode",
-  "InlineMath",
-  "LinkLabel",
-  "LinkTitle",
-  "ProcessingInstruction",
-  "ProcessingInstructionBlock",
-  "StrikethroughMark",
-  "URL",
-]);
-
-function isActiveLineDelimiterExclusionNode(state: EditorState, node: SyntaxNodeRef): boolean {
-  return ACTIVE_LINE_DELIMITER_EXCLUSION_NODES.has(node.name)
-    || (node.name === "Link" && isReferenceTokenSource(state.sliceDoc(node.from, node.to)));
-}
 
 class HorizontalRuleWidget extends WidgetType {
   override toDOM(): HTMLElement {
@@ -189,39 +146,6 @@ export interface MarkdownHandlerContext {
   readonly items: Range<Decoration>[];
   /** Set by ATXHeading handler, read by HeaderMark handler. */
   cursorInHeading: boolean;
-}
-
-interface MarkdownRange {
-  readonly from: number;
-  readonly to: number;
-}
-
-function collectActiveLineDelimiterExclusions(
-  state: EditorState,
-  line: { readonly from: number; readonly to: number },
-): readonly MarkdownRange[] {
-  const ranges: MarkdownRange[] = [];
-  syntaxTree(state).iterate({
-    from: line.from,
-    to: line.to,
-    enter(node) {
-      if (!isActiveLineDelimiterExclusionNode(state, node)) return undefined;
-      ranges.push({ from: node.from, to: node.to });
-      return false;
-    },
-  });
-  return ranges;
-}
-
-function delimiterTouchesExcludedRange(
-  lineFrom: number,
-  delimiterFrom: number,
-  delimiterLength: number,
-  exclusions: readonly MarkdownRange[],
-): boolean {
-  const from = lineFrom + delimiterFrom;
-  const to = from + delimiterLength;
-  return exclusions.some((range) => from < range.to && range.from < to);
 }
 
 function isWordLike(char: string): boolean {
@@ -468,77 +392,6 @@ MARKDOWN_HANDLERS.set("HorizontalRule", { cursorSensitive: true, handle: handleH
 MARKDOWN_HANDLERS.set("LinkReference", { cursorSensitive: false, handle: () => false });
 MARKDOWN_HANDLERS.set("Escape", { cursorSensitive: true, handle: handleEscape });
 MARKDOWN_HANDLERS.set("ListMark", { cursorSensitive: false, handle: handleListMark });
-
-/**
- * While typing inside an active inline marker pair, CommonMark flanking rules
- * can temporarily reject the emphasis node, for example `**foo **`. Keep the
- * active-line styling stable while the cursor remains inside the pair; once the
- * cursor leaves, the parsed Markdown semantics take over again.
- */
-export function addActiveLineTypingSupplements(
-  ctx: MarkdownHandlerContext,
-  ranges: readonly MarkdownRange[],
-): void {
-  if (!ctx.focused) return;
-  const { state } = ctx;
-  const selection = ctx.revealSelection.main;
-  if (!selection.empty) return;
-
-  const line = state.doc.lineAt(selection.from);
-  if (!ranges.some((range) => line.from <= range.to && range.from <= line.to)) {
-    return;
-  }
-  const exclusions = collectActiveLineDelimiterExclusions(state, line);
-  const cursor = selection.from - line.from;
-  for (const { delimiter, decoration } of activeLineDelimiterMarks) {
-    let openSearchFrom = Math.max(0, cursor - 1);
-    while (openSearchFrom >= 0) {
-      const open = line.text.lastIndexOf(delimiter, openSearchFrom);
-      if (open < 0) break;
-      if (delimiterTouchesExcludedRange(line.from, open, delimiter.length, exclusions)) {
-        openSearchFrom = open - 1;
-        continue;
-      }
-      const contentFrom = open + delimiter.length;
-      if (cursor < contentFrom) {
-        openSearchFrom = open - 1;
-        continue;
-      }
-
-      let closeSearchFrom = Math.max(cursor, contentFrom);
-      let close = -1;
-      while (closeSearchFrom <= line.text.length) {
-        const candidate = line.text.indexOf(delimiter, closeSearchFrom);
-        if (candidate < 0) break;
-        closeSearchFrom = candidate + delimiter.length;
-        if (candidate <= contentFrom) continue;
-        if (delimiterTouchesExcludedRange(line.from, candidate, delimiter.length, exclusions)) {
-          continue;
-        }
-        close = candidate;
-        break;
-      }
-      if (close < 0) {
-        openSearchFrom = open - 1;
-        continue;
-      }
-
-      const from = line.from + contentFrom;
-      const to = line.from + close;
-      if (ctx.items.some((item) =>
-        item.from <= from &&
-        item.to >= to &&
-        item.value === decoration
-      )) {
-        return;
-      }
-      ctx.items.push(
-        decoration.range(from, to),
-      );
-      return;
-    }
-  }
-}
 
 export const CURSOR_SENSITIVE_NODES = new Set(
   [...MARKDOWN_HANDLERS].filter(([, h]) => h.cursorSensitive).map(([name]) => name),

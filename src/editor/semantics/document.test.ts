@@ -178,15 +178,13 @@ describe("document semantics analyzers", () => {
     expect(semantics.footnotes.refByFrom.get(13)?.id).toBe("n");
   });
 
-  it("analyzes equations once for shared numbering and lookup", () => {
+  it("does not invent equations from unsupported trailing math labels", () => {
     const doc = "$$x^2$$ {#eq:first}\n\n$$y^2$$ {#eq:second}\n";
     const tree = parser.parse(doc);
 
     const equations = analyzeEquations(stringTextSource(doc), tree);
 
-    expect(equations).toHaveLength(2);
-    expect(equations[0]).toMatchObject({ id: "eq:first", number: 1 });
-    expect(equations[1]).toMatchObject({ id: "eq:second", number: 2 });
+    expect(equations).toEqual([]);
   });
 
   it("analyzes inline and display math into shared math regions", () => {
@@ -204,7 +202,7 @@ describe("document semantics analyzers", () => {
       isDisplay: true,
       latex: "y^2",
     });
-    expect(math[1].labelFrom).toBeGreaterThan(math[1].contentTo);
+    expect(math[1].labelFrom).toBeUndefined();
   });
 
   it("analyzes bracketed and narrative references once", () => {
@@ -250,19 +248,15 @@ describe("document semantics analyzers", () => {
     ]);
   });
 
-  it("includes equations and references in canonical document analysis", () => {
+  it("keeps unlabeled math and unresolved references in canonical document analysis", () => {
     const doc = "$$x^2$$ {#eq:first}\n\nSee [@eq:first]\n";
     const tree = parser.parse(doc);
 
     const semantics = analyzeDocumentSemantics(stringTextSource(doc), tree);
 
-    expect(semantics.equationById.get("eq:first")?.number).toBe(1);
+    expect(semantics.equationById.get("eq:first")).toBeUndefined();
     expect(semantics.references[0]?.ids).toEqual(["eq:first"]);
-    expect(semantics.referenceIndex.get("eq:first")).toMatchObject({
-      type: "label",
-      targetKind: "equation",
-      display: "Eq. (1)",
-    });
+    expect(semantics.referenceIndex.get("eq:first")?.type).toBe("citation");
     expect(semantics.mathRegions[0]).toMatchObject({
       isDisplay: true,
       latex: "x^2",

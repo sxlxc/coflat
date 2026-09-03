@@ -1,7 +1,6 @@
 /**
- * Cancelable idle-or-timeout scheduling primitive shared by the low-priority
- * background drivers (`render/syntax-parse-scheduler.ts` parse nudger,
- * `state/pending-analysis-drain.ts` analysis drainer). Prefers
+ * Cancelable idle-or-timeout scheduling primitive for low-priority background
+ * editor work. Prefers
  * `requestIdleCallback` with a bounded timeout so work runs during idle
  * periods but never starves; falls back to a short timeout where idle
  * callbacks are unavailable (jsdom, Safari).

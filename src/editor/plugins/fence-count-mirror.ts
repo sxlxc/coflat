@@ -18,7 +18,7 @@
  *   block-type picker and other programmatic edits.
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   EditorState,
   type Extension,
@@ -64,7 +64,7 @@ export const fenceCountMirrorExtension: Extension = EditorState.transactionFilte
   if (tr.annotation(fenceOperationAnnotation)) return tr;
   if (tr.annotation(programmaticDocumentChangeAnnotation)) return tr;
 
-  const tree = syntaxTree(tr.startState);
+  const tree = getPandocSyntaxTree(tr.startState);
 
   const visited = new Set<number>();
   const candidates: SyntaxNode[] = [];

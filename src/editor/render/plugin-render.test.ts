@@ -437,14 +437,14 @@ describe("blockDecorationField", () => {
     expect(specs.some((spec) => spec.widgetClass === "BlockHeaderWidget")).toBe(true);
   });
 
-  it("trailing title text renders as a block header", () => {
+  it("preserves invalid trailing-title syntax as literal source", () => {
     const doc = `::: {.theorem} **Main Result**\nContent\n:::`;
     const state = createTestState(doc);
     const specs = getDecoSpecs(state);
 
     const widgets = specs.filter((s) => s.widgetClass === "BlockHeaderWidget");
-    expect(widgets.length).toBe(1);
-    expect(hasLineClassAt(specs, state.doc.line(1).from, CSS.blockHeader)).toBe(true);
+    expect(widgets.length).toBe(0);
+    expect(hasLineClassAt(specs, state.doc.line(1).from, CSS.blockHeader)).toBe(false);
   });
 
   it("canonical title attributes render a block header widget", () => {

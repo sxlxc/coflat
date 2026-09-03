@@ -74,14 +74,23 @@ export default defineConfig(({ mode }) => ({
         citeproc: fileURLToPath(new URL("./citeproc.ts", import.meta.url)),
         numeric: fileURLToPath(new URL("./numeric.ts", import.meta.url)),
         latex: fileURLToPath(new URL("./latex.ts", import.meta.url)),
+        "test-utils": fileURLToPath(new URL("./test-utils.ts", import.meta.url)),
+        "browser-test-utils": fileURLToPath(new URL("./browser-test-utils.ts", import.meta.url)),
       },
       formats: ["es"],
-      fileName: (_format, entryName) => `${entryName}.mjs`,
+      fileName: (_format, entryName) =>
+        entryName.endsWith("test-utils") ? `${entryName}.js` : `${entryName}.mjs`,
     },
     rolldownOptions: {
       external: (id) => {
         if (id.includes("?inline") || id.endsWith(".css")) {
           return false;
+        }
+
+        // `vitest` is a peer of the published test-only helper entry. It is
+        // intentionally absent from the standalone editor runtime manifest.
+        if (id === "vitest") {
+          return true;
         }
 
         const packageName = packageNameFromSpecifier(id);

@@ -10,7 +10,7 @@ import {
 import {
   getDocumentAnalysisRevision,
   getDocumentAnalysisSliceRevision,
-} from "./engine";
+} from "../cst-document-analysis";
 
 beforeEach(() => {
   clearDocumentAnalysisCache();
@@ -77,16 +77,14 @@ describe("shared document analysis cache", () => {
       "",
     ].join("\n"), path);
 
-    expect(after.analysis).toBe(before.analysis);
+    expect(after.analysis).not.toBe(before.analysis);
+    expect(after.analysis.headings).toBe(before.analysis.headings);
+    expect(after.analysis.references).toBe(before.analysis.references);
     expect(before.ir.tables[0]?.rows[0]?.cells[0]?.content).toBe("1");
     expect(after.ir.tables[0]?.rows[0]?.cells[0]?.content).toBe("9");
   });
 
-  it("converges unchanged-text reads after a structural edit defers pending work", () => {
-    // The reader path has no tree-progress or idle-drain transactions: after
-    // a fence opener reinterprets a >budget suffix, both the updating call
-    // and later unchanged-text calls must return fully drained analyses
-    // instead of short-circuiting to the stale snapshot forever.
+  it("publishes complete unchanged-text reads after a structural edit", () => {
     const path = "notes/pending-drain.md";
     const head = "# Intro {#sec:intro}\n\nintro para.\n\n";
     const tail = Array.from({ length: 1200 }, (_, index) =>
@@ -95,7 +93,7 @@ describe("shared document analysis cache", () => {
         : `Filler prose line number ${index}.`,
     ).flatMap((line) => [line, ""]).join("\n");
     const before = head + tail;
-    const after = `${head}\`\`\`\n${tail}`;
+    const after = `${head}\`\`\`\n${tail}\n\`\`\`\n`;
     expect(after.length).toBeGreaterThan(16384 * 2);
 
     expect(getDocumentAnalysis(before, path).headings.length).toBeGreaterThan(1);

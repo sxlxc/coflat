@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import type { EditorState, Range } from "@codemirror/state";
 import type { Decoration, EditorView } from "@codemirror/view";
 import type { SyntaxNodeRef } from "@lezer/common";
@@ -47,7 +47,7 @@ export function collectNodes(
 ): RenderableNode[] {
   const state = "state" in viewOrState ? viewOrState.state : viewOrState;
   const results: RenderableNode[] = [];
-  const cursor = syntaxTree(state).cursor();
+  const cursor = getPandocSyntaxTree(state).cursor();
   do {
     if (types.has(cursor.name)) {
       results.push({ type: cursor.name, from: cursor.from, to: cursor.to });
@@ -94,7 +94,7 @@ export function collectNodeRangesExcludingCursor(
   },
 ): Range<Decoration>[] {
   const items: Range<Decoration>[] = [];
-  const tree = syntaxTree(view.state);
+  const tree = getPandocSyntaxTree(view.state);
   const ranges = options?.ranges ?? view.visibleRanges;
   const skip = options?.skip;
 

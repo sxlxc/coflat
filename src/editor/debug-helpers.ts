@@ -14,7 +14,7 @@
  */
 
 import { redoDepth, undoDepth } from "@codemirror/commands";
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import { type EditorView } from "@codemirror/view";
 import {
   collectDebugFenceStatuses,
@@ -120,7 +120,7 @@ export function createDebugHelpers(view: EditorView): DebugHelpers {
     },
 
     treeString() {
-      return syntaxTree(view.state).toString();
+      return getPandocSyntaxTree(view.state).toString();
     },
 
     fences() {

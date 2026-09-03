@@ -5,13 +5,12 @@ import { renderToHtml } from "./reader";
 const OPTS = { resolveReferences: true } as const;
 
 describe("reader in-document crossref resolution", () => {
-  it("resolves a labeled equation reference to its number + #id link", () => {
+  it("leaves unsupported source-only equation labels unresolved", () => {
     const src = "$$x^2$$ {#eq:main}\n\nSee [@eq:main].";
     const { html } = renderToHtml(src, undefined, OPTS);
-    expect(html).toContain('class="cf-crossref"');
+    expect(html).toContain('class="cf-crossref cf-crossref-unresolved"');
     expect(html).toContain('data-ref-key="eq:main"');
-    expect(html).toContain('href="#eq%3Amain"');
-    expect(html).toContain("Eq. (1)");
+    expect(html).not.toContain('href="#eq%3Amain"');
   });
 
   it("resolves a heading reference to its section number", () => {
@@ -88,7 +87,7 @@ describe("reader in-document crossref resolution", () => {
       "First.",
       ":::",
       "",
-      "::: {.table #tbl:apps} Application table.",
+      '::: {.table #tbl:apps title="Application table."}',
       "",
       "| Class | Runtime |",
       "| --- | --- |",

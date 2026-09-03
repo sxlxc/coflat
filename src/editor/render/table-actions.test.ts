@@ -45,10 +45,12 @@ const { applyTableMutation, showTableContextMenu, showWidgetContextMenu } =
 
 const DOC = [
   "before",
+  "",
   "| A | B |",
   "| --- | --- |",
   "| 1 | 2 |",
   "| 3 | 4 |",
+  "",
   "after",
 ].join("\n");
 

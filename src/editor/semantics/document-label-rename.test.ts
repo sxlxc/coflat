@@ -102,26 +102,6 @@ describe("prepareDocumentLabelRename", () => {
       ].join("\n"),
     },
     {
-      name: "equation labels from the definition token",
-      doc: [
-        "$$",
-        "x + y",
-        "$$ {#eq:main}",
-        "",
-        "See [@eq:main].",
-      ].join("\n"),
-      selectionText: "{#eq:main}",
-      selectionOffset: 3,
-      nextId: "eq:sum",
-      expectedDoc: [
-        "$$",
-        "x + y",
-        "$$ {#eq:sum}",
-        "",
-        "See [@eq:sum].",
-      ].join("\n"),
-    },
-    {
       name: "fenced-block labels from a bracketed reference",
       doc: [
         '::: {.theorem #thm:main title="Main Result"}',

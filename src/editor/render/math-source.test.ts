@@ -1,8 +1,6 @@
 import type { SyntaxNode } from "@lezer/common";
-import { parser as lezerParser } from "@lezer/markdown";
 import { describe, expect, it } from "vitest";
-import { equationLabelExtension } from "../../core/parser/equation-label";
-import { mathExtension } from "../../core/parser/math-backslash";
+import { parsePandocCstSource } from "../cst";
 import {
   _snapToTokenBoundary,
   getDisplayMathContentEnd,
@@ -10,8 +8,7 @@ import {
 } from "./math-source";
 
 function findDisplayMathSyntaxNode(text: string): SyntaxNode {
-  const configured = lezerParser.configure([mathExtension, equationLabelExtension]);
-  const tree = configured.parse(text);
+  const tree = parsePandocCstSource(text);
   let found: SyntaxNode | undefined;
   tree.iterate({
     enter(node) {
@@ -46,14 +43,14 @@ describe("stripMathDelimiters", () => {
 });
 
 describe("getDisplayMathContentEnd", () => {
-  it("returns offset for labeled $$ display math", () => {
+  it("does not interpret a trailing attribute as an equation label", () => {
     const node = findDisplayMathSyntaxNode("$$x^2$$ {#eq:foo}");
-    expect(getDisplayMathContentEnd(node)).toBe(7);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
-  it("returns offset for labeled \\[\\] display math", () => {
+  it("does not interpret a trailing attribute after \\[\\] as an equation label", () => {
     const node = findDisplayMathSyntaxNode("\\[x^2\\] {#eq:foo}");
-    expect(getDisplayMathContentEnd(node)).toBe(7);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
   it("returns undefined for unlabeled display math", () => {
@@ -61,9 +58,9 @@ describe("getDisplayMathContentEnd", () => {
     expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 
-  it("returns offset for multi-line labeled display math", () => {
+  it("does not interpret a multiline trailing attribute as an equation label", () => {
     const node = findDisplayMathSyntaxNode("$$\nx^2\n$$ {#eq:bar}");
-    expect(getDisplayMathContentEnd(node)).toBe(9);
+    expect(getDisplayMathContentEnd(node)).toBeUndefined();
   });
 });
 

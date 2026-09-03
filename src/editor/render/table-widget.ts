@@ -126,6 +126,21 @@ export class TableWidget extends ShellWidget implements
     restoreRenderedTableCell(cell, content, this.macros, referenceContext);
   }
 
+  private refreshInactiveRenderedCells(container: HTMLElement): void {
+    const activeCell = getActiveInlineEditor()?.cell ?? null;
+    const referenceContext = this.createReferenceRenderContext();
+    for (const cell of container.querySelectorAll<HTMLElement>(
+      "[data-section][data-row][data-col]",
+    )) {
+      if (cell === activeCell) continue;
+      this.restoreRenderedCell(
+        cell,
+        this.controller.getRawCellText(readTableCellAddress(cell)),
+        referenceContext,
+      );
+    }
+  }
+
   private createReferenceRenderContext(): InlineReferenceRenderContext | undefined {
     const rootView = this.editorView;
     if (!rootView || typeof rootView.state.field !== "function") {
@@ -278,7 +293,12 @@ export class TableWidget extends ShellWidget implements
   updateDOM(dom: HTMLElement, view: EditorView, from: TableWidget): boolean {
     if (dom.tagName !== "DIV") return false;
 
-    const canReuseDom = this.eq(from);
+    const renderDependenciesChanged = this.renderSignature !== from.renderSignature;
+    const canPreserveActiveDom =
+      getActiveInlineEditor()?.owner === from &&
+      this.tableText === from.tableText &&
+      this.macroSignature === from.macroSignature;
+    const canReuseDom = this.eq(from) || canPreserveActiveDom;
 
     if (canReuseDom) {
       transferTableWidgetSessionOwner(from, this);
@@ -287,6 +307,9 @@ export class TableWidget extends ShellWidget implements
 
       this.editorView = view;
       this.syncContainerAttrs(dom);
+      if (canPreserveActiveDom && renderDependenciesChanged) {
+        this.refreshInactiveRenderedCells(dom);
+      }
       this.bindKeyboardEntry(dom);
       this.shellAdapter.observeContainer(dom, view);
       return true;

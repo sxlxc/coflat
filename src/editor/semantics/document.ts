@@ -19,10 +19,10 @@ import {
   type TrailingHeadingAttributes,
 } from "./heading-attributes";
 import {
-  createDocumentAnalysis,
-  createDocumentArtifacts,
+  buildCstDocumentArtifacts,
+  createProjectedDocumentAnalysisSnapshot,
   type DocumentArtifacts,
-} from "./incremental/engine";
+} from "./cst-document-analysis";
 import { buildEquationSlice } from "./incremental/slices/equation-slice";
 import {
   buildFootnoteSlice,
@@ -123,12 +123,13 @@ export function analyzeDocumentSemantics(
   doc: TextSource,
   tree: Tree,
 ): DocumentSemantics {
-  return createDocumentAnalysis(doc, tree);
+  return createProjectedDocumentAnalysisSnapshot(doc, tree, 0).analysis;
 }
 
 export function analyzeDocumentArtifacts(
   doc: TextSource,
   tree: Tree,
 ): DocumentArtifacts {
-  return createDocumentArtifacts(doc, tree);
+  const snapshot = createProjectedDocumentAnalysisSnapshot(doc, tree, 0);
+  return buildCstDocumentArtifacts(doc, tree, snapshot);
 }

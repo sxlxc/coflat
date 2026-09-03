@@ -5,7 +5,7 @@ import {
   extractReferenceCluster,
   NARRATIVE_REFERENCE_GLOBAL_RE,
 } from "./lib/reference-grammar";
-import { parseMarkdownSource } from "./parser";
+import { parsePandocCstSource } from "./cst/pandoc-syntax-tree";
 import { MARK_NODES } from "./parser/inline-mark-nodes";
 
 export type InlineFragment =
@@ -464,7 +464,7 @@ export function parseInlineFragments(
 ): InlineFragment[] {
   if (!text) return [];
 
-  const tree = parseMarkdownSource(text, "semantic");
+  const tree = parsePandocCstSource(text);
   const doc = tree.topNode;
   const para = doc.firstChild;
   if (!para) {
@@ -542,7 +542,7 @@ function findNeutralGapAnchor(
 function collectInlineNeutralAnchors(text: string): number[] {
   if (!text) return [];
 
-  const tree = parseMarkdownSource(text, "semantic");
+  const tree = parsePandocCstSource(text);
   const para = tree.topNode.firstChild;
   if (!para) return [];
 
@@ -585,7 +585,7 @@ export function findNearestInlineSafeAnchor(
 ): number | null {
   if (!text) return null;
 
-  const tree = parseMarkdownSource(text, "semantic");
+  const tree = parsePandocCstSource(text);
   const para = tree.topNode.firstChild;
   if (!para) return null;
 

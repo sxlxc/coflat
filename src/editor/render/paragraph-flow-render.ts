@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type EditorState,
   type Extension,
@@ -317,7 +317,7 @@ function buildParagraphFlowValue(state: EditorState): ParagraphFlowFieldValue {
   const renderKey = getPreviewRenderDependencySignature(state);
   const candidates: FlowCandidate[] = [];
   const items: Range<Decoration>[] = [];
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   tree.iterate({
     enter(node: SyntaxNodeRef) {
       if (node.name === "Paragraph") {
@@ -353,7 +353,7 @@ function collectParagraphFlowItemsInRanges(
   const renderKey = getPreviewRenderDependencySignature(state);
   const items: Range<Decoration>[] = [];
   for (const range of ranges) {
-    syntaxTree(state).iterate({
+    getPandocSyntaxTree(state).iterate({
       from: range.from,
       to: range.to,
       enter(node: SyntaxNodeRef) {

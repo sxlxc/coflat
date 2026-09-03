@@ -1,5 +1,12 @@
 import { type ChangeSpec, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
+import {
+  clearFrontendPerf,
+  disableFrontendPerf,
+  getFrontendPerfSnapshot,
+} from "../lib/perf";
+import { containerAttributesPlugin } from "../render/container-attributes";
 import {
   getPandocCstUpdateCountForTesting,
   getPandocTree,
@@ -15,6 +22,8 @@ const measuredSamples = 1_000;
 
 interface BenchmarkOperation {
   readonly name: string;
+  /** Eligible for the M6 ordinary-localized-edit release gate. */
+  readonly localized: boolean;
   changes(iteration: number): ChangeSpec;
 }
 
@@ -78,12 +87,14 @@ function operationsFor(doc: string): readonly BenchmarkOperation[] {
   return [
     {
       name: "insert 1-5 prose characters",
+      localized: true,
       changes: (iteration) => iteration % 2 === 0
         ? { from: targetFrom, insert: "tiny" }
         : { from: targetFrom, to: targetFrom + 4 },
     },
     {
       name: "replace inside math body",
+      localized: true,
       changes: (iteration) => ({
         from: mathFrom,
         to: mathFrom + 4,
@@ -92,6 +103,7 @@ function operationsFor(doc: string): readonly BenchmarkOperation[] {
     },
     {
       name: "paired emphasis markup",
+      localized: true,
       changes: (iteration) => iteration % 2 === 0
         ? [
           { from: pairFrom, insert: "**" },
@@ -104,6 +116,7 @@ function operationsFor(doc: string): readonly BenchmarkOperation[] {
     },
     {
       name: "replace theorem sentence text",
+      localized: true,
       changes: (iteration) => ({
         from: theoremFrom,
         to: theoremFrom + 5,
@@ -112,12 +125,14 @@ function operationsFor(doc: string): readonly BenchmarkOperation[] {
     },
     {
       name: "paste/delete short multiline fragment",
+      localized: false,
       changes: (iteration) => iteration % 2 === 0
         ? { from: pasteFrom, insert: pasted }
         : { from: pasteFrom, to: pasteFrom + pasted.length },
     },
     {
       name: "multi-change autocorrect",
+      localized: true,
       changes: (iteration) => [
         {
           from: firstTypoFrom,
@@ -187,10 +202,67 @@ describe.skipIf(!benchmarkEnabled)("Pandoc CST CodeMirror transaction benchmark"
         }
         const result = benchmarkOperation(doc, sizeKiB, operation);
         results.push(result);
+        if (sizeKiB === 700 && operation.localized) {
+          expect(result.p95Ms).toBeLessThanOrEqual(8);
+        }
         process.stdout.write(`\n${JSON.stringify(result)}\n`);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
     process.stdout.write(`\n${JSON.stringify(results, null, 2)}\n`);
+  });
+
+  it("keeps viewport decoration work within one frame on 700 KiB", {
+    timeout: 10 * 60_000,
+  }, () => {
+    const doc = generatedDocument(700 * 1_024);
+    const targetFrom = doc.indexOf("This deterministic paragraph");
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        extensions: [pandocCstField, containerAttributesPlugin],
+      }),
+    });
+
+    const dispatchEdit = (iteration: number) => {
+      view.dispatch({
+        changes: {
+          from: targetFrom,
+          to: targetFrom + 1,
+          insert: iteration % 2 === 0 ? "t" : "T",
+        },
+      });
+    };
+
+    try {
+      disableFrontendPerf();
+      for (let index = 0; index < 20; index++) dispatchEdit(index);
+      clearFrontendPerf();
+      for (let index = 0; index < 50; index++) dispatchEdit(index);
+
+      const durations = getFrontendPerfSnapshot().recent
+        .filter((record) => record.name === "cm6.containerAttributes.rebuild")
+        .map((record) => record.durationMs)
+        .sort((left, right) => left - right);
+      const p95Ms = percentile(durations, 0.95);
+      const result = {
+        fixtureKiB: 700,
+        operation: "viewport container decorations after localized edit",
+        samples: durations.length,
+        p95Ms,
+        maxMs: durations.at(-1) ?? 0,
+      };
+      process.stdout.write(`\n${JSON.stringify(result)}\n`);
+
+      expect(durations).toHaveLength(50);
+      expect(p95Ms).toBeLessThanOrEqual(16.7);
+    } finally {
+      disableFrontendPerf();
+      view.destroy();
+      parent.remove();
+    }
   });
 });

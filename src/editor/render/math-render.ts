@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type EditorState,
   type Extension,
@@ -180,7 +180,7 @@ function displayMathContextClassNames(
     return region.from >= div.openFenceTo && region.to <= contentTo;
   });
   const insideMarkdownBlockquote = (() => {
-    let node: SyntaxNode | null = syntaxTree(state).resolveInner(region.from, -1);
+    let node: SyntaxNode | null = getPandocSyntaxTree(state).resolveInner(region.from, -1);
     while (node) {
       if (node.name === "Blockquote" && region.to <= node.to) return true;
       node = node.parent;

@@ -7,10 +7,10 @@ import {
   fencedDivSurfaceAssemblyPlan,
   fencedDivSurfaceChromePlan,
 } from "./fenced-div-surface";
-import { parseMarkdownSource } from "./parser";
+import { parsePandocTraversalSource } from "./parser";
 
 function firstFencedDiv(source: string) {
-  const node = parseMarkdownSource(source, "html-render").topNode.firstChild;
+  const node = parsePandocTraversalSource(source, "html-render").topNode.firstChild;
   if (!node || node.name !== "FencedDiv") throw new Error("expected fenced div");
   return node;
 }

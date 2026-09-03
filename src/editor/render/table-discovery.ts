@@ -1,54 +1,14 @@
 import {
   EditorView,
-  ViewPlugin,
-  type ViewUpdate,
 } from "@codemirror/view";
 import { CSS } from "../../core/constants/css-classes";
 import { findTablePipePositions } from "../../core/lib/table-inline-span";
 import {
   findTablesInState,
   type TableRange,
-  tableDiscoveryPendingParseField,
 } from "../state/table-discovery";
-import { SyntaxParseScheduler } from "./syntax-parse-scheduler";
 
 export { findTablesInState, type TableRange } from "../state/table-discovery";
-
-class TableDiscoveryParsePlugin {
-  private readonly scheduler: SyntaxParseScheduler;
-  private destroyed = false;
-
-  constructor(private readonly view: EditorView) {
-    this.scheduler = new SyntaxParseScheduler(view);
-    this.schedule();
-  }
-
-  update(update: ViewUpdate): void {
-    if (this.destroyed) return;
-    if (!update.docChanged) return;
-    this.schedule();
-  }
-
-  destroy(): void {
-    this.destroyed = true;
-    this.scheduler.destroy();
-  }
-
-  private schedule(): void {
-    if (this.destroyed) return;
-    const pendingParse = this.view.state.field(tableDiscoveryPendingParseField, false);
-    if (!pendingParse) return;
-    this.scheduler.schedule({
-      targetTo: pendingParse.targetTo,
-      isStillNeeded: () => Boolean(
-        !this.destroyed &&
-        this.view.state.field(tableDiscoveryPendingParseField, false),
-      ),
-    });
-  }
-}
-
-export const tableDiscoveryParsePlugin = ViewPlugin.fromClass(TableDiscoveryParsePlugin);
 
 /**
  * Find the positions of column-separator pipe characters in a table line.

@@ -87,7 +87,7 @@ describe("getReferencePresentationModel", () => {
 
     expect(presentation.getDisplayText("sec:background")).toBe("Section 1");
     expect(presentation.getDisplayText("thm:main")).toBe("Theorem 1");
-    expect(presentation.getDisplayText("eq:main")).toBe("Eq. (1)");
+    expect(presentation.getDisplayText("eq:main")).toBe("eq:main");
     expect(presentation.getDisplayText("karger2000")).toBe("Karger 2000");
     expect(presentation.getPreviewText("thm:main")).toBeUndefined();
     expect(presentation.getPreviewText("karger2000")).toBe(

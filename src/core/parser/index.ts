@@ -1,9 +1,6 @@
-export { algoLineExtension, algoLineIndentDepth, algoLineIndentUnits } from "./algo-line";
-export { equationLabelExtension } from "./equation-label";
-export { countColons, fencedDiv } from "./fenced-div";
+export { countColons } from "./fenced-div";
 export type { FencedDivAttrs } from "./fenced-div-attrs";
 export { extractDivClass, parseFencedDivAttrs } from "./fenced-div-attrs";
-export { footnoteExtension } from "./footnote";
 export {
   type BlockConfig,
   extractRawFrontmatter,
@@ -12,76 +9,80 @@ export {
   type FrontmatterStatus,
   parseFrontmatter,
 } from "./frontmatter";
-export { highlightExtension } from "./highlight";
-export { mathExtension } from "./math-backslash";
-export { removeBlockquote } from "./remove-blockquote";
-export { removeIndentedCode } from "./remove-indented-code";
-export { strikethroughExtension } from "./strikethrough";
-export { tableExtension } from "./table";
-
-import type { Tree } from "@lezer/common";
-import { Autolink, parser as baseMarkdownParser, TaskList } from "@lezer/markdown";
-import { algoLineExtension } from "./algo-line";
-import { equationLabelExtension } from "./equation-label";
-import { fencedDiv } from "./fenced-div";
-import { footnoteExtension } from "./footnote";
-import { highlightExtension } from "./highlight";
-import { mathExtension } from "./math-backslash";
-import { removeIndentedCode } from "./remove-indented-code";
-import { strikethroughExtension } from "./strikethrough";
-import { tableExtension } from "./table";
+import { Parser, type Input, type PartialParse, type Tree, type TreeFragment } from "@lezer/common";
+import { parsePandocCstSource } from "../cst/pandoc-syntax-tree";
 
 /**
- * Coflat syntax extensions shared by every parser profile.
- *
- * Keep new FORMAT.md syntax here unless a surface has a documented reason to
- * parse it differently. Reader/editor parity depends on this being the common
- * source of truth instead of parallel hand-maintained extension arrays.
+ * M6 compatibility values for callers that still pass an `extensions` option
+ * to CodeMirror's Markdown package in test-only feature harnesses. They are
+ * deliberately empty: shipped Markdown structure comes from pandocmd-cst.
  */
-export const coflatSharedMarkdownExtensions = [
-  removeIndentedCode,
-  mathExtension,
-  fencedDiv,
-  algoLineExtension,
-  equationLabelExtension,
-  strikethroughExtension,
-  highlightExtension,
-  footnoteExtension,
-  tableExtension,
-  Autolink,
-  TaskList,
-];
-
-/**
- * Deprecated compatibility export for callers that used to inspect parser
- * profile deltas. Reader and editor now intentionally share the same parser.
- */
-export const semanticOnlyMarkdownExtensions = [];
-
-/**
- * Semantic parser extensions used by the editor state and Node parse helpers.
- * This is the default Coflat syntax model.
- */
+export const coflatSharedMarkdownExtensions: readonly never[] = Object.freeze([]);
+export const semanticOnlyMarkdownExtensions = coflatSharedMarkdownExtensions;
 export const markdownExtensions = coflatSharedMarkdownExtensions;
-
-/**
- * Parser extensions for in-app HTML renderers.
- *
- * Kept as an alias so older call sites can keep naming their surface, while
- * both reader and editor use the exact same Coflat parser profile.
- */
 export const htmlRenderExtensions = coflatSharedMarkdownExtensions;
+
+// Source-compatible names for old test harnesses during their removal. These
+// are not parser configurations and are never installed by the editor.
+const retiredMarkdownExtension = undefined as never;
+export const algoLineExtension = retiredMarkdownExtension;
+export const equationLabelExtension = retiredMarkdownExtension;
+export const fencedDiv = retiredMarkdownExtension;
+export const footnoteExtension = retiredMarkdownExtension;
+export const highlightExtension = retiredMarkdownExtension;
+export const mathExtension = retiredMarkdownExtension;
+export const removeBlockquote = retiredMarkdownExtension;
+export const removeIndentedCode = retiredMarkdownExtension;
+export const strikethroughExtension = retiredMarkdownExtension;
+export const tableExtension = retiredMarkdownExtension;
+
+export function algoLineIndentUnits(lineText: string): number {
+  let units = 0;
+  for (const char of lineText) {
+    if (char === " ") units += 1;
+    else if (char === "\t") units += 2;
+    else break;
+  }
+  return units;
+}
+
+export function algoLineIndentDepth(lineText: string): number {
+  return Math.floor(algoLineIndentUnits(lineText) / 2);
+}
 
 export type MarkdownParserMode = "semantic" | "html-render";
 
-let markdownParser: ReturnType<typeof baseMarkdownParser.configure> | null = null;
+class PandocCstTraversalParser extends Parser {
+  configure(_extensions?: unknown): PandocCstTraversalParser { return this; }
 
-export function getMarkdownParser(mode: MarkdownParserMode = "semantic"): ReturnType<typeof baseMarkdownParser.configure> {
+  createParse(
+    input: Input,
+    _fragments: readonly TreeFragment[],
+    _ranges: readonly { from: number; to: number }[],
+  ): PartialParse {
+    const tree = parsePandocCstSource(input.read(0, input.length));
+    let done = false;
+    let stoppedAt: number | null = null;
+    return {
+      get parsedPos() { return done ? tree.length : 0; },
+      get stoppedAt() { return stoppedAt; },
+      stopAt(position: number) { stoppedAt = position; },
+      advance(): Tree | null {
+        if (done) return null;
+        done = true;
+        return tree;
+      },
+    };
+  }
+}
+
+const markdownParser = new PandocCstTraversalParser();
+
+export function getMarkdownParser(mode: MarkdownParserMode = "semantic"): Parser & { configure(_extensions?: unknown): Parser } {
   void mode;
-  markdownParser ??= baseMarkdownParser.configure(coflatSharedMarkdownExtensions);
   return markdownParser;
 }
 
-export function parseMarkdownSource(source: string, mode: MarkdownParserMode = "semantic"): Tree {
+export function parsePandocTraversalSource(source: string, mode: MarkdownParserMode = "semantic"): Tree {
   return getMarkdownParser(mode).parse(source);
 }

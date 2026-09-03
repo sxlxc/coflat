@@ -3,7 +3,7 @@ import type {
   Text,
   Transaction,
 } from "@codemirror/state";
-import { countColons } from "../../core/parser";
+import { countColons } from "../../core/parser/fenced-div";
 import type {
   FencedBlockInfo,
 } from "../fenced-block/model";

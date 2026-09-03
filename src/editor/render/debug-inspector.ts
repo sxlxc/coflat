@@ -9,7 +9,7 @@
  * - Red: headings (ATXHeading1-6)
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type Extension,
   type Range,
@@ -88,7 +88,7 @@ function buildDebugDecorations(view: EditorView): DecorationSet {
   const widgets: Range<Decoration>[] = [];
 
   for (const { from, to } of view.visibleRanges) {
-    syntaxTree(view.state).iterate({
+    getPandocSyntaxTree(view.state).iterate({
       from,
       to,
       enter(node) {
@@ -110,7 +110,7 @@ function debugShouldUpdate(update: ViewUpdate): boolean {
     update.viewportChanged ||
     update.startState.field(debugActiveField) !==
       update.state.field(debugActiveField) ||
-    syntaxTree(update.state) !== syntaxTree(update.startState)
+    getPandocSyntaxTree(update.state) !== getPandocSyntaxTree(update.startState)
   );
 }
 

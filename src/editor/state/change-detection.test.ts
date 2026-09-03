@@ -66,7 +66,7 @@ describe("createChangeChecker", () => {
     expect(checker(beforeState, afterState)).toBe(true);
   });
 
-  it("returns true when tree checking is enabled", () => {
+  it("ignores retired language-parser reconfiguration when tree checking is enabled", () => {
     const language = new Compartment();
     const checker = createChangeChecker({ tree: true });
     const state = EditorState.create({
@@ -78,10 +78,10 @@ describe("createChangeChecker", () => {
     });
 
     expect(tr.docChanged).toBe(false);
-    expect(checker(tr)).toBe(true);
+    expect(checker(tr)).toBe(false);
   });
 
-  it("supports tree checking across explicit before/after states", () => {
+  it("ignores retired language-parser reconfiguration across explicit states", () => {
     const language = new Compartment();
     const checker = createChangeChecker({ tree: true });
     const beforeState = EditorState.create({
@@ -92,7 +92,7 @@ describe("createChangeChecker", () => {
       effects: language.reconfigure(markdown({ extensions: [strikethroughExtension] })),
     }).state;
 
-    expect(checker(beforeState, afterState)).toBe(true);
+    expect(checker(beforeState, afterState)).toBe(false);
   });
 
   it("uses custom equality for derived values", () => {

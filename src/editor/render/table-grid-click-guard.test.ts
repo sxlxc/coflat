@@ -7,6 +7,7 @@ import { guardTableGridMousePosition } from "./table-grid-click-guard";
 
 const DOC = [
   "before",
+  "",
   "| A | B |",
   "| --- | --- |",
   "| 1 | 2 |",
@@ -54,9 +55,9 @@ function mouseDownOn(target: HTMLElement): MouseEvent {
 describe("guardTableGridMousePosition", () => {
   it("returns the clicked cell end when browser coordinates resolve to another row", () => {
     view = makeView();
-    const cell = findGridCell(view, 4, 1);
-    const line = view.state.doc.line(4);
-    const wrongLine = view.state.doc.line(5);
+    const cell = findGridCell(view, 5, 1);
+    const line = view.state.doc.line(5);
+    const wrongLine = view.state.doc.line(6);
     const cellEnd = line.from + line.text.indexOf("2") + 1;
     const wrongRowPos = wrongLine.from + wrongLine.text.indexOf("4");
     vi.spyOn(view, "posAtCoords").mockReturnValue(wrongRowPos);
@@ -68,8 +69,8 @@ describe("guardTableGridMousePosition", () => {
 
   it("returns null when coordinates already resolve inside the clicked cell", () => {
     view = makeView();
-    const cell = findGridCell(view, 4, 1);
-    const line = view.state.doc.line(4);
+    const cell = findGridCell(view, 5, 1);
+    const line = view.state.doc.line(5);
     const cellPos = line.from + line.text.indexOf("2");
     vi.spyOn(view, "posAtCoords").mockReturnValue(cellPos);
 

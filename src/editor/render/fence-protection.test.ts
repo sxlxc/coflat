@@ -866,10 +866,25 @@ describe("emptyMathBlockBackspaceCleanup ($$)", () => {
       typeThroughInputHandlers(view, "$$");
 
       expect(view.state.doc.toString()).toBe("$$\n\n$$");
-      expect(getActiveStructureEditTarget(view.state)).toMatchObject({
+      // Empty $$ blocks are literal source in the fixed Pandoc dialect, so
+      // paired entry temporarily tracks the exact inserted source range until
+      // the first content character creates the authoritative CST Math node.
+      expect(getActiveStructureEditTarget(view.state)).toEqual({
         kind: "display-math",
+        from: 0,
+        to: 6,
+        contentFrom: 2,
+        contentTo: 4,
       });
       expect(view.state.selection.main.head).toBe(3);
+
+      typeThroughInputHandlers(view, "x=1");
+      expect(view.state.doc.toString()).toBe("$$\nx=1\n$$");
+      expect(getActiveStructureEditTarget(view.state)).toMatchObject({
+        kind: "display-math",
+        from: 0,
+        to: 9,
+      });
     } finally {
       view.destroy();
     }

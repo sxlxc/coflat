@@ -1,4 +1,4 @@
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { getPandocSyntaxTree, pandocSyntaxTreeAvailable } from "../cst";
 import {
   type EditorState,
   type Extension,
@@ -120,7 +120,7 @@ function buildBlockquoteValue(state: EditorState): BlockquoteFieldValue {
   const renderKey = getPreviewRenderDependencySignature(state);
   const items: Range<Decoration>[] = [];
   const candidates: BlockquoteCandidate[] = [];
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   tree.iterate({
     enter(node: SyntaxNodeRef) {
       if (node.name !== "Blockquote") return undefined;
@@ -144,7 +144,7 @@ function collectBlockquoteItemsInRanges(
   const renderKey = getPreviewRenderDependencySignature(state);
   const items: Range<Decoration>[] = [];
   for (const range of ranges) {
-    syntaxTree(state).iterate({
+    getPandocSyntaxTree(state).iterate({
       from: range.from,
       to: range.to,
       enter(node: SyntaxNodeRef) {
@@ -188,8 +188,8 @@ function shouldRebuildBlockquotes(tr: Transaction): boolean {
     getPreviewRenderDependencySignature(tr.startState) !==
       getPreviewRenderDependencySignature(tr.state) ||
     (
-      syntaxTree(tr.state) !== syntaxTree(tr.startState) &&
-      syntaxTreeAvailable(tr.state, tr.state.doc.length)
+      getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState) &&
+      pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length)
     )
   );
 }

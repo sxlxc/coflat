@@ -24,6 +24,7 @@ export interface PandocCstInvalidations {
 
 const noChangedRanges: readonly ChangedRange[] = Object.freeze([]);
 const noSemanticChangedRanges: readonly SemanticChangedRange[] = Object.freeze([]);
+const detachedTrees = new WeakMap<object, SyntaxTree>();
 
 function assertSynchronized(text: string, tree: SyntaxTree): void {
   if (tree.text !== text) {
@@ -49,10 +50,7 @@ function fieldValue(
   });
 }
 
-/**
- * M6-A transaction spine. Existing renderers continue to use Coflat's old
- * parser until their CST inputs have Pandoc-parity coverage and are migrated.
- */
+/** M6 transaction spine: the CST snapshot published with EditorState.doc. */
 export const pandocCstField = StateField.define<PandocCstFieldValue>({
   create(state) {
     const parser = new PandocParser();
@@ -98,7 +96,20 @@ export const pandocCstField = StateField.define<PandocCstFieldValue>({
 });
 
 export function getPandocTree(state: EditorState): SyntaxTree {
-  return state.field(pandocCstField).tree;
+  const installed = state.field(pandocCstField, false);
+  if (installed) return installed.tree;
+
+  // Pure command/unit-test states sometimes install one feature in isolation.
+  // Give those states the same CST semantics without requiring a CodeMirror
+  // language parser. The shipped editor always installs pandocCstField, so
+  // document-changing production transactions still perform exactly one
+  // authoritative update through the field above.
+  let tree = detachedTrees.get(state.doc as object);
+  if (!tree) {
+    tree = new PandocParser().parse(state.doc.toString());
+    detachedTrees.set(state.doc as object, tree);
+  }
+  return tree;
 }
 
 export function getPandocSemantics(state: EditorState): DocumentSemantics {
@@ -106,7 +117,13 @@ export function getPandocSemantics(state: EditorState): DocumentSemantics {
 }
 
 export function getPandocInvalidations(state: EditorState): PandocCstInvalidations {
-  const value = state.field(pandocCstField);
+  const value = state.field(pandocCstField, false);
+  if (!value) {
+    return Object.freeze({
+      changedRanges: noChangedRanges,
+      semanticChangedRanges: noSemanticChangedRanges,
+    });
+  }
   return Object.freeze({
     changedRanges: value.changedRanges,
     semanticChangedRanges: value.semanticChangedRanges,

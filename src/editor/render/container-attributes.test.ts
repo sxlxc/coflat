@@ -1,15 +1,11 @@
 import { markdown } from "@codemirror/lang-markdown";
-import * as language from "@codemirror/language";
 import type { Decoration, DecorationSet } from "@codemirror/view";
 import { EditorView } from "@codemirror/view";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { markdownExtensions } from "../../core/parser";
 import { documentAnalysisField } from "../state/document-analysis";
 import { createTestView, destroyAllTestViews } from "../test-utils";
-import {
-  containerAttributesPlugin,
-  _containerAttributePendingDirtyRegionFieldForTest as pendingDirtyRegionField,
-} from "./container-attributes";
+import { containerAttributesPlugin } from "./container-attributes";
 
 /** Create an EditorView with the markdown parser and containerAttributesPlugin. */
 function createView(doc: string): EditorView {
@@ -100,7 +96,6 @@ function extractTagNames(view: EditorView): string[] {
 afterEach(() => {
   destroyAllTestViews();
   document.body.innerHTML = "";
-  vi.useRealTimers();
 });
 
 describe("containerAttributesPlugin", () => {
@@ -359,7 +354,8 @@ describe("containerAttributesPlugin", () => {
         "still code",
         "plain text",
       ].join("\n"));
-      expect(extractTagNames(view)).toEqual(["code", "code", "code", "code"]);
+      // Pandoc treats an unclosed backtick fence as literal paragraph text.
+      expect(extractTagNames(view)).toEqual(["p", "p", "p", "p"]);
 
       const insertPos = view.state.doc.toString().indexOf("plain text");
       view.dispatch({
@@ -375,75 +371,5 @@ describe("containerAttributesPlugin", () => {
       ]);
     });
 
-    it("clears the pending parse region once the idle parser catches up", async () => {
-      const doc = [
-        "```",
-        ...Array.from({ length: 800 }, (_, index) => `code ${index}`),
-        "plain text",
-      ].join("\n");
-      const view = createView(doc);
-
-      language.forceParsing(view, view.viewport.to, 5);
-
-      const insertPos = view.state.doc.toString().lastIndexOf("plain text");
-      view.dispatch({
-        changes: { from: insertPos, insert: "```\n" },
-      });
-
-      await vi.waitFor(() => {
-        expect(view.state.field(pendingDirtyRegionField)).toBeNull();
-      }, { timeout: 3000 });
-
-      // Viewport lines rendered from the partial tree stay correctly tagged.
-      expect(extractTags(view).at(0)).toEqual({ pos: 0, tag: "code" });
-    });
-
-    it("ignores a queued parse retry after the plugin is destroyed", () => {
-      vi.useFakeTimers();
-      const pendingTimeouts: Array<() => void> = [];
-      let nextTimerId = 1;
-      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation((handler) => {
-        if (typeof handler !== "function") {
-          throw new Error("expected function timeout handler");
-        }
-        if (handler.toString().includes("forceParsing")) {
-          pendingTimeouts.push(() => {
-            handler();
-          });
-        }
-        return nextTimerId++ as unknown as ReturnType<typeof setTimeout>;
-      });
-      const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
-
-      const doc = [
-        "```",
-        ...Array.from({ length: 800 }, (_, index) => `code ${index}`),
-        "plain text",
-      ].join("\n");
-      const view = createView(doc);
-
-      try {
-        language.forceParsing(view, view.viewport.to, 5);
-
-        const insertPos = view.state.doc.toString().lastIndexOf("plain text");
-        view.dispatch({
-          changes: { from: insertPos, insert: "```\n" },
-        });
-
-        view.destroy();
-        if (pendingTimeouts.length > 0) {
-          const stateSpy = vi.spyOn(view, "state", "get").mockImplementation(() => {
-            throw new Error("stale timeout accessed destroyed view state");
-          });
-
-          expect(() => pendingTimeouts[0]()).not.toThrow();
-          expect(clearTimeoutSpy).toHaveBeenCalled();
-          stateSpy.mockRestore();
-        }
-      } finally {
-        setTimeoutSpy.mockRestore();
-        clearTimeoutSpy.mockRestore();
-      }
-    });
   });
 });

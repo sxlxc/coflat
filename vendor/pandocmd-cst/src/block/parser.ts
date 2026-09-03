@@ -19,6 +19,7 @@ export interface BlockCheckpoint {
   readonly line: number;
   readonly offset: number;
   readonly state: "base" | "paragraph" | "container";
+  readonly blockKind: NodeKind | null;
 }
 
 export interface BlockParseResult {
@@ -26,13 +27,51 @@ export interface BlockParseResult {
   readonly checkpoints: readonly BlockCheckpoint[];
 }
 
+const containerBlocks = new Set<NodeKind>([
+  "BlockQuote", "BulletList", "OrderedList", "DefinitionList", "FencedDiv",
+  "NativeHtmlDiv", "FootnoteDefinition", "PipeTable", "SimpleTable",
+  "MultilineTable", "GridTable",
+]);
+
+function checkpointsFor(lines: readonly LineRecord[], blocks: readonly GreenNode[]): readonly BlockCheckpoint[] {
+  const result: BlockCheckpoint[] = [];
+  let blockIndex = 0;
+  let blockFrom = 0;
+  for (let line = 0; line < lines.length; line++) {
+    const offset = lines[line]!.start;
+    while (blockIndex < blocks.length && offset >= blockFrom + blocks[blockIndex]!.length) {
+      blockFrom += blocks[blockIndex]!.length;
+      blockIndex++;
+    }
+    const block = blocks[blockIndex] ?? null;
+    result.push(Object.freeze({
+      line,
+      offset,
+      state: block === null ? "base" : block.kind === "Paragraph" ? "paragraph" : containerBlocks.has(block.kind) ? "container" : "base",
+      blockKind: block?.kind ?? null,
+    }));
+  }
+  return Object.freeze(result);
+}
+
+export function checkpointsForTree(text: string, root: GreenNode): readonly BlockCheckpoint[] {
+  return checkpointsFor(scanLines(text), root.children);
+}
+
 export function scanLines(text: string): readonly LineRecord[] {
   const lines: LineRecord[] = [];
   let start = 0;
   while (start < text.length) {
-    const lf = text.indexOf("\n", start);
-    const end = lf < 0 ? text.length : lf + 1;
-    const contentEnd = lf < 0 ? end : (lf > start && text.charCodeAt(lf - 1) === 13 ? lf - 1 : lf);
+    let contentEnd = start;
+    while (contentEnd < text.length) {
+      const code = text.charCodeAt(contentEnd);
+      if (code === 10 || code === 13) break;
+      contentEnd++;
+    }
+    const hasEnding = contentEnd < text.length;
+    const end = hasEnding
+      ? contentEnd + (text[contentEnd] === "\r" && text[contentEnd + 1] === "\n" ? 2 : 1)
+      : text.length;
     lines.push({ start, contentEnd, end, content: text.slice(start, contentEnd), ending: text.slice(contentEnd, end) });
     start = end;
   }
@@ -72,8 +111,10 @@ function fencedBlock(lines: readonly LineRecord[], from: number, close: number |
 }
 
 function colonDiv(lines: readonly LineRecord[], from: number, close: number | null, match: RegExpExecArray, text: string): GreenNode {
-  const first = lines[from]!, marker = match[1]!, children: GreenNode[] = [leaf("FenceMark", marker.length)];
-  if (first.content.length > marker.length) children.push(...parseInlines(first.content.slice(marker.length)));
+  const first = lines[from]!, indent = match[1]!, marker = match[2]!, children: GreenNode[] = [];
+  if (indent) children.push(leaf("Whitespace", indent.length));
+  children.push(leaf("FenceMark", marker.length));
+  if (first.content.length > indent.length + marker.length) children.push(...parseInlines(first.content.slice(indent.length + marker.length)));
   children.push(...ending(first));
   const bodyEnd = close ?? lines.length;
   if (bodyEnd > from + 1) {
@@ -82,7 +123,7 @@ function colonDiv(lines: readonly LineRecord[], from: number, close: number | nu
     children.push(...parseBlocks(text.slice(innerStart, innerEnd)).root.children);
   }
   if (close !== null) children.push(...opaqueLine(lines[close]!, "FenceMark"));
-  return green("FencedDiv", children, props([fenceCharacter, ":"], [fenceLength, marker.length], [fenceInfo, match[2]!.trim()], [fenceClosed, close !== null]));
+  return green("FencedDiv", children, props([fenceCharacter, ":"], [fenceLength, marker.length], [fenceInfo, match[3]!.trim()], [fenceClosed, close !== null]));
 }
 
 function heading(line: LineRecord, match: RegExpExecArray): GreenNode {
@@ -194,9 +235,23 @@ function tableRow(line: LineRecord): GreenNode {
   return green("TableRow", children);
 }
 
+function pipeTableAlignments(value: string): ("center" | "left" | "right" | "default")[] | null {
+  let content = value.trim();
+  if (content.startsWith("|")) content = content.slice(1);
+  if (content.endsWith("|")) content = content.slice(0, -1);
+  const cells = content.split("|").map(cell => cell.trim());
+  if (cells.length === 0 || cells.some(cell => !/^:?-{3,}:?$/.test(cell))) return null;
+  return cells.map(cell => cell.startsWith(":") && cell.endsWith(":")
+    ? "center"
+    : cell.startsWith(":")
+      ? "left"
+      : cell.endsWith(":")
+        ? "right"
+        : "default");
+}
+
 function pipeTable(lines: readonly LineRecord[], from: number, to: number): GreenNode {
-  const delimiter = lines[from + 1]!.content.split("|").map(value => value.trim()).filter(Boolean);
-  const alignments = delimiter.map(value => value.startsWith(":") && value.endsWith(":") ? "center" : value.startsWith(":") ? "left" : value.endsWith(":") ? "right" : "default") as ("center" | "left" | "right" | "default")[];
+  const alignments = pipeTableAlignments(lines[from + 1]!.content)!;
   const children: GreenNode[] = [green("TableHead", [tableRow(lines[from]!), tableRow(lines[from + 1]!)])];
   if (to > from + 2) children.push(green("TableBody", Array.from({ length: to - from - 2 }, (_, i) => tableRow(lines[from + i + 2]!))));
   return green("PipeTable", children, props([tableAlignments, Object.freeze(alignments)], [tableColumnCount, alignments.length]));
@@ -212,17 +267,31 @@ function romanValue(source: string): number {
   return result;
 }
 
+function validOrderedMarker(marker: string): boolean {
+  const delimiter = marker.at(-1);
+  const value = marker.slice(0, -1);
+  return !(delimiter === "." && /^[A-Z]$/.test(value));
+}
+
 function listBlock(lines: readonly LineRecord[], from: number, to: number, ordered: boolean): GreenNode {
   const children: GreenNode[] = [];
+  const markerAt = (line: LineRecord, orderedMarker: boolean): RegExpExecArray | null => {
+    if (!orderedMarker) return /^( *)[-+*][ \t]+/.exec(line.content);
+    const match = /^( *)((?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)])[ \t]+/.exec(line.content);
+    return match && validOrderedMarker(match[2]!) ? match : null;
+  };
+  const firstMarker = markerAt(lines[from]!, ordered);
+  const baseIndent = firstMarker?.[1]?.length ?? 0;
   let i = from;
   let loose = false;
   let firstStart = 1, delimiter: "." | ")" = ".", style = "decimal";
   while (i < to) {
     const line = lines[i]!;
-    const match = ordered
+    const rawMatch = ordered
       ? /^( {0,3})((?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)([.)]))([ \t]+)(.*)$/.exec(line.content)
       : /^( {0,3})([-+*])([ \t]+)(.*)$/.exec(line.content);
-    if (!match) { i++; continue; }
+    const match = ordered && rawMatch && !validOrderedMarker(rawMatch[2]!) ? null : rawMatch;
+    if (!match || match[1]!.length !== baseIndent) { i++; continue; }
     const itemChildren: GreenNode[] = [];
     const indent = match[1]!.length;
     if (indent) itemChildren.push(leaf("Whitespace", indent));
@@ -237,13 +306,72 @@ function listBlock(lines: readonly LineRecord[], from: number, to: number, order
       itemChildren.push(...parseInlines(body.slice(task[0].length)));
     } else itemChildren.push(...parseInlines(body));
     itemChildren.push(...ending(line));
-    const next = i + 1;
-    let continuation = next;
+    let continuation = i + 1;
     while (continuation < to) {
       const candidate = lines[continuation]!;
-      if ((ordered ? /^( {0,3})(?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)][ \t]+/.test(candidate.content) : /^( {0,3})[-+*][ \t]+/.test(candidate.content))) break;
-      if (/^[ \t]*$/.test(candidate.content)) loose = true;
-      itemChildren.push(...inlineLine(candidate)); continuation++;
+      const nestedBullet = markerAt(candidate, false);
+      const nestedOrdered = markerAt(candidate, true);
+      const nestedMarker = nestedBullet ?? nestedOrdered;
+      if (nestedMarker && nestedMarker[1]!.length === baseIndent) break;
+      if (nestedMarker && nestedMarker[1]!.length > baseIndent) {
+        const nestedIndent = nestedMarker[1]!.length;
+        let nestedEnd = continuation + 1;
+        while (nestedEnd < to) {
+          const following = lines[nestedEnd]!;
+          const followingMarker = markerAt(following, false) ?? markerAt(following, true);
+          if (followingMarker && followingMarker[1]!.length <= baseIndent) break;
+          // A less-indented nonblank line resumes the parent item.
+          if (!followingMarker && following.content.trim() && /^ */.exec(following.content)![0].length < nestedIndent) break;
+          nestedEnd++;
+        }
+        itemChildren.push(listBlock(lines, continuation, nestedEnd, nestedOrdered !== null));
+        continuation = nestedEnd;
+        continue;
+      }
+      if (/^[ \t]*$/.test(candidate.content)) {
+        loose = true;
+        itemChildren.push(...inlineLine(candidate)); continuation++;
+        continue;
+      }
+      const previous = itemChildren.at(-1);
+      if (previous?.kind === "LineEnding") {
+        itemChildren[itemChildren.length - 1] = green("SoftBreak", [previous]);
+      }
+      const continuationIndent = /^(?: +|\t)/.exec(candidate.content)?.[0] ?? "";
+      const nestedDiv = fencedDivOpener(candidate.content);
+      if (nestedDiv) {
+        const close = fencedDivClose(lines, continuation, nestedDiv, to);
+        const nestedEnd = close === null ? to : close + 1;
+        const nestedSource = lines.slice(continuation, nestedEnd)
+          .map(nestedLine => nestedLine.content + nestedLine.ending).join("");
+        itemChildren.push(...parseBlocks(nestedSource).root.children);
+        continuation = nestedEnd;
+        continue;
+      }
+      const mathOpener = /^(?:\$\$|\\\[|\\\\\[)[ \t]*$/.exec(candidate.content.slice(continuationIndent.length))?.[0]?.trim();
+      if (mathOpener) {
+        const close = mathOpener === "$$" ? "$$" : mathOpener.startsWith("\\\\") ? "\\\\]" : "\\]";
+        let mathEnd = continuation + 1;
+        while (mathEnd < to) {
+          const closingLine = lines[mathEnd]!.content.trim();
+          if (closingLine === close) { mathEnd++; break; }
+          mathEnd++;
+        }
+        if (mathEnd > continuation + 1 && lines[mathEnd - 1]!.content.trim() === close) {
+          // The opening line's list-continuation indentation is structural, not
+          // inline space. Keep it losslessly as a separate leaf so Pandoc's
+          // projection does not acquire a Space before display math.
+          if (continuationIndent) itemChildren.push(leaf("Whitespace", continuationIndent.length));
+          const mathSource = candidate.content.slice(continuationIndent.length) + candidate.ending
+            + lines.slice(continuation + 1, mathEnd).map(mathLine => mathLine.content + mathLine.ending).join("");
+          itemChildren.push(...parseInlines(mathSource));
+          continuation = mathEnd;
+          continue;
+        }
+      }
+      if (continuationIndent) itemChildren.push(leaf("Whitespace", continuationIndent.length));
+      itemChildren.push(...parseInlines(candidate.content.slice(continuationIndent.length)), ...ending(candidate));
+      continuation++;
     }
     const itemProps: [typeof taskChecked, boolean][] = task ? [[taskChecked, task[1]!.toLocaleLowerCase() === "x"]] : [];
     children.push(green("ListItem", itemChildren, props(...itemProps)));
@@ -292,7 +420,15 @@ function definitionList(lines: readonly LineRecord[], from: number, to: number):
       body.push(leaf("Delimiter", 1), leaf("Whitespace", match[2]!.length), ...parseInlines(match[3]!), ...ending(line));
       children.push(green("DefinitionBody", body)); i++;
       while (i < to && /^(?: {2,}|\t)/.test(lines[i]!.content)) {
-        children[children.length - 1] = green("DefinitionBody", [...children[children.length - 1]!.children, ...inlineLine(lines[i]!)]); i++;
+        const previousBody = children[children.length - 1]!;
+        const bodyChildren = [...previousBody.children];
+        const previousEnding = bodyChildren.at(-1);
+        if (previousEnding?.kind === "LineEnding") bodyChildren[bodyChildren.length - 1] = green("SoftBreak", [previousEnding]);
+        const continuation = lines[i]!;
+        const indent = /^(?: +|\t)/.exec(continuation.content)?.[0] ?? "";
+        if (indent) bodyChildren.push(leaf("Whitespace", indent.length));
+        bodyChildren.push(...parseInlines(continuation.content.slice(indent.length)), ...ending(continuation));
+        children[children.length - 1] = green("DefinitionBody", bodyChildren); i++;
       }
     }
   }
@@ -323,7 +459,26 @@ function genericTable(kind: "SimpleTable" | "MultilineTable" | "GridTable", line
       columns = Math.max(columns, pieces.filter(Boolean).length);
     }
   }
-  return green(kind, [green("TableBody", rows)], props([tableColumnCount, columns]));
+  let headEnd = 0;
+  if (kind === "SimpleTable") {
+    headEnd = Math.min(2, rows.length);
+  } else if (kind === "MultilineTable") {
+    const separator = lines.slice(from + 1, to).findIndex(line => /^(?:-{3,}[ \t]+)+-{3,}[ \t]*$/.test(line.content));
+    headEnd = separator < 0 ? 1 : separator + 2;
+  } else {
+    const separator = lines.slice(from, to).findIndex(line => /^\+(?:[=:]+\+)+[ \t]*$/.test(line.content));
+    headEnd = separator < 0 ? 1 : separator + 1;
+  }
+  const children: GreenNode[] = [];
+  if (headEnd) children.push(green("TableHead", rows.slice(0, headEnd)));
+  if (headEnd < rows.length) children.push(green("TableBody", rows.slice(headEnd)));
+  const alignments = Array.from({ length: columns }, (_, index) =>
+    kind === "GridTable" ? "default" : kind === "MultilineTable" || index === 0 ? "left" : "default"
+  ) as ("left" | "right" | "center" | "default")[];
+  return green(kind, children, props(
+    [tableColumnCount, columns],
+    [tableAlignments, Object.freeze(alignments)],
+  ));
 }
 
 function quoteBlock(lines: readonly LineRecord[], from: number, to: number): GreenNode {
@@ -341,7 +496,25 @@ function quoteBlock(lines: readonly LineRecord[], from: number, to: number): Gre
   }
   const structuralQuoteContainers = new Set<NodeKind>(["Document", "BlockQuote", "BulletList", "OrderedList", "DefinitionList", "NativeHtmlDiv", "FencedDiv"]);
   const inject = (node: GreenNode, start: number): GreenNode => {
-    if (!node.children.length) return node;
+    if (!node.children.length) {
+      // Inline constructs may span physical quote lines (for example a code
+      // span whose closing backtick occurs on the next line). In that case a
+      // stripped `>` prefix falls inside one opaque leaf rather than on a
+      // child boundary. Split the leaf around every such prefix so the quote
+      // remains lossless without changing the inline construct's extent.
+      const inside = [...prefixes.entries()].filter(([offset]) => offset > start && offset < start + node.length);
+      if (inside.length === 0) return node;
+      const children: GreenNode[] = [];
+      let cursor = start;
+      for (const [offset, prefix] of inside) {
+        if (offset > cursor) children.push(leaf(node.kind, offset - cursor, node.properties));
+        children.push(...prefix);
+        prefixes.delete(offset);
+        cursor = offset;
+      }
+      if (cursor < start + node.length) children.push(leaf(node.kind, start + node.length - cursor, node.properties));
+      return green(node.kind, children, node.properties);
+    }
     const children: GreenNode[] = [];
     let cursor = start;
     for (const child of node.children) {
@@ -372,31 +545,66 @@ function paragraph(lines: readonly LineRecord[], from: number, to: number, text:
   return green("Paragraph", parseInlines(source(lines, from, to, text)));
 }
 
-function isBlockStart(lines: readonly LineRecord[], at: number): boolean {
+function fencedDivOpener(value: string): RegExpExecArray | null {
+  // Pandoc accepts one class-like token or one braced attribute list. Extra
+  // trailing prose makes the line ordinary paragraph text.
+  return /^( {0,3})(:{3,})[ \t]*(\{[^}\r\n]*\}|[^\s:{}]+)[ \t]*$/.exec(value);
+}
+
+function fencedDivClose(
+  lines: readonly LineRecord[],
+  from: number,
+  opener: RegExpExecArray,
+  to = lines.length,
+): number | null {
+  const fenceStack = [opener[2]!.length];
+  for (let line = from + 1; line < to; line++) {
+    const value = lines[line]!.content;
+    const nested = fencedDivOpener(value);
+    if (nested) {
+      fenceStack.push(nested[2]!.length);
+      continue;
+    }
+    const closing = /^( {0,3})(:{3,})[ \t]*$/.exec(value);
+    if (closing && closing[2]!.length >= fenceStack.at(-1)!) {
+      fenceStack.pop();
+      if (fenceStack.length === 0) return line;
+    }
+  }
+  return null;
+}
+
+function isBlockStart(lines: readonly LineRecord[], at: number, text: string): boolean {
   const value = lines[at]?.content ?? "";
-  return /^[ \t]*$/.test(value) || /^( {0,3})(#{1,6})(?:[ \t]+|$)/.test(value) || /^( {0,3})(`{3,}|~{3,}|:{3,})/.test(value)
-    || /^( {0,3})>/.test(value) || /^( {0,3})(?:[-+*][ \t]+|(?:\d+|#)[.)][ \t]+)/.test(value)
-    || /^ {0,3}\[[^\]]+\]:/.test(value) || /^ {0,3}\[\^[^\]]+\]:/.test(value)
-    || /^ {0,3}(?:<div\b|<\/div>|\\begin\{|\\\[)/i.test(value);
+  return /^[ \t]*$/.test(value) || /^( {0,3})(#{1,6})(?:[ \t]+|$)/.test(value) || /^( {0,3})(`{3,}|~{3,})/.test(value) || fencedDivOpener(value) !== null
+    || /^( {0,3})(?:[-+*][ \t]+|(?:\d+|#)[.)][ \t]+)/.test(value)
+    || referenceAt(lines, at, text) !== null || /^ {0,3}\[\^[^\]]+\]:/.test(value)
+    || /^ {0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t/>])|<!--|<!DOCTYPE\b|<\?|\\begin\{|\\\[)/i.test(value);
 }
 
 /** Parse block structure for a complete document or nested native container body. */
 export function parseBlocks(text: string): BlockParseResult {
-  const lines = scanLines(text), blocks: GreenNode[] = [], checkpoints: BlockCheckpoint[] = [];
+  const lines = scanLines(text), blocks: GreenNode[] = [];
   let i = 0;
   while (i < lines.length) {
-    checkpoints.push({ line: i, offset: lines[i]!.start, state: "base" });
     const line = lines[i]!, value = line.content;
     if (/^[ \t]*$/.test(value)) {
       let end = i + 1; while (end < lines.length && /^[ \t]*$/.test(lines[end]!.content)) end++;
       blocks.push(blankBlock(lines, i, end)); i = end; continue;
     }
-    if (i === 0 && /^---[ \t]*$/.test(value)) {
+    if (i === 0 && /^\uFEFF?---[ \t]*$/.test(value)) {
       let close = i + 1; while (close < lines.length && !/^(?:---|\.\.\.)[ \t]*$/.test(lines[close]!.content)) close++;
       if (close < lines.length) {
         close++;
         const children: GreenNode[] = [];
-        for (let n = i; n < close; n++) children.push(...opaqueLine(lines[n]!, n === i || n === close - 1 ? "Delimiter" : "OpaqueBody"));
+        for (let n = i; n < close; n++) {
+          const metadataLine = lines[n]!;
+          if (n === i && metadataLine.content.startsWith("\uFEFF")) {
+            children.push(leaf("Text", 1), leaf("Delimiter", metadataLine.content.length - 1), ...ending(metadataLine));
+          } else {
+            children.push(...opaqueLine(metadataLine, n === i || n === close - 1 ? "Delimiter" : "OpaqueBody"));
+          }
+        }
         blocks.push(green("YamlMetadata", children)); i = close; continue;
       }
     }
@@ -409,20 +617,29 @@ export function parseBlocks(text: string): BlockParseResult {
     if (fence) {
       const marker = fence[2]!, pattern = new RegExp(`^ {0,3}${marker[0] === "`" ? "`" : "~"}{${marker.length},}[ \\t]*$`);
       let close: number | null = null; for (let n = i + 1; n < lines.length; n++) if (pattern.test(lines[n]!.content)) { close = n; break; }
-      blocks.push(fencedBlock(lines, i, close, fence)); i = close === null ? lines.length : close + 1; continue;
-    }
-    const div = /^:{3,}(.*)$/.exec(value);
-    if (div) {
-      const opener = /^(:{3,})(.*)$/.exec(value)!;
-      let close: number | null = null, depth = 1;
-      for (let n = i + 1; n < lines.length; n++) {
-        if (/^:{3,}\S/.test(lines[n]!.content)) depth++;
-        else if (/^:{3,}[ \t]*$/.test(lines[n]!.content) && --depth === 0) { close = n; break; }
+      if (close !== null) {
+        blocks.push(fencedBlock(lines, i, close, fence)); i = close + 1; continue;
       }
-      blocks.push(colonDiv(lines, i, close, opener, text)); i = close === null ? lines.length : close + 1; continue;
+    }
+    const div = fencedDivOpener(value);
+    if (div) {
+      const close = fencedDivClose(lines, i, div);
+      blocks.push(colonDiv(lines, i, close, div, text)); i = close === null ? lines.length : close + 1; continue;
     }
     const atx = /^( {0,3})(#{1,6})([ \t]*)(.*)$/.exec(value);
     if (atx && (atx[3]!.length > 0 || atx[4]!.length === 0)) { blocks.push(heading(line, atx)); i++; continue; }
+    if (/^(?:-{3,}[ \t]+)+-{3,}[ \t]*$/.test(value) && i + 2 < lines.length) {
+      let headerSeparator = i + 1;
+      while (headerSeparator < lines.length && !/^(?:-{3,}[ \t]+)+-{3,}[ \t]*$/.test(lines[headerSeparator]!.content)) headerSeparator++;
+      if (headerSeparator < lines.length) {
+        let end = headerSeparator + 1;
+        while (end < lines.length) {
+          if (/^(?:-{3,}[ \t]+)+-{3,}[ \t]*$/.test(lines[end]!.content)) { end++; break; }
+          end++;
+        }
+        blocks.push(genericTable("MultilineTable", lines, i, end)); i = end; continue;
+      }
+    }
     if (i + 1 < lines.length && value.trim()) {
       const marker = /^( {0,3})(=+|-+)[ \t]*$/.exec(lines[i + 1]!.content);
       if (marker) { blocks.push(setext(lines, i, marker)); i += 2; continue; }
@@ -438,11 +655,18 @@ export function parseBlocks(text: string): BlockParseResult {
       if (footnote[3]!.length) children.push(leaf("Whitespace", footnote[3]!.length));
       children.push(...parseInlines(footnote[4]!)); children.push(...ending(line));
       let end = i + 1;
-      while (end < lines.length && /^(?: {2,}|\t)/.test(lines[end]!.content)) { children.push(...inlineLine(lines[end]!)); end++; }
+      while (end < lines.length && /^(?: {2,}|\t)/.test(lines[end]!.content)) {
+        const previousEnding = children.at(-1);
+        if (previousEnding?.kind === "LineEnding") children[children.length - 1] = green("SoftBreak", [previousEnding]);
+        const continuation = lines[end]!;
+        const indent = /^(?: +|\t)/.exec(continuation.content)?.[0] ?? "";
+        if (indent) children.push(leaf("Whitespace", indent.length));
+        children.push(...parseInlines(continuation.content.slice(indent.length)), ...ending(continuation)); end++;
+      }
       blocks.push(green("FootnoteDefinition", children, props([footnoteLabel, normalizeLabel(footnote[2]!)]))); i = end; continue;
     }
     if (/^( {0,3})>/.test(value)) {
-      let end = i + 1; while (end < lines.length && (/^( {0,3})>/.test(lines[end]!.content) || !isBlockStart(lines, end))) end++;
+      let end = i + 1; while (end < lines.length && (/^( {0,3})>/.test(lines[end]!.content) || !isBlockStart(lines, end, text))) end++;
       blocks.push(quoteBlock(lines, i, end)); i = end; continue;
     }
     if (i + 1 < lines.length && /^ {0,3}:[ \t]+/.test(lines[i + 1]!.content)) {
@@ -454,13 +678,39 @@ export function parseBlocks(text: string): BlockParseResult {
       let end = i + 1; while (end < lines.length && (/^( {0,3})\(@(?:[^)]+)?\)[ \t]+/.test(lines[end]!.content) || /^(?: {2,}|\t)/.test(lines[end]!.content))) end++;
       blocks.push(exampleList(lines, i, end)); i = end; continue;
     }
-    const bullet = /^( {0,3})[-+*][ \t]+/.test(value), ordered = /^( {0,3})(?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)][ \t]+/.test(value);
+    const bullet = /^( {0,3})[-+*][ \t]+/.test(value);
+    const orderedMatch = /^( {0,3})((?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)])[ \t]+/.exec(value);
+    const ordered = orderedMatch !== null && validOrderedMarker(orderedMatch[2]!);
     if (bullet || ordered) {
+      const listIndent = /^( {0,3})/.exec(value)?.[1]?.length ?? 0;
       let end = i + 1;
-      while (end < lines.length && !(/^[ \t]*$/.test(lines[end]!.content) && end + 1 < lines.length && !/^(?: {2,}|\t)/.test(lines[end + 1]!.content)) && !(/^( {0,3})#{1,6}[ \t]/.test(lines[end]!.content))) end++;
+      while (end < lines.length) {
+        const candidate = lines[end]!;
+        if (/^( {0,3})#{1,6}[ \t]/.test(candidate.content)) break;
+        const candidateBullet = /^( {0,3})[-+*][ \t]+/.exec(candidate.content);
+        const candidateOrderedMatch = /^( {0,3})((?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)])[ \t]+/.exec(candidate.content);
+        const candidateOrdered = candidateOrderedMatch !== null
+          && validOrderedMarker(candidateOrderedMatch[2]!);
+        const candidateIndent = (candidateBullet ?? candidateOrderedMatch)?.[1]?.length;
+        if (
+          candidateIndent === listIndent
+          && (candidateBullet !== null || candidateOrdered)
+          && candidateOrdered !== ordered
+        ) break;
+        if (/^[ \t]*$/.test(candidate.content) && end + 1 < lines.length) {
+          const next = lines[end + 1]!.content;
+          const nextOrdered = /^( {0,3})((?:\d+|#|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)])[ \t]+/.exec(next);
+          const nextListItem = /^( {0,3})[-+*][ \t]+/.test(next)
+            || nextOrdered !== null && validOrderedMarker(nextOrdered[2]!);
+          if (!nextListItem && !/^(?: {2,}|\t)/.test(next)) break;
+        } else if (/^[ \t]*$/.test(candidate.content)) {
+          break;
+        }
+        end++;
+      }
       blocks.push(listBlock(lines, i, end, ordered)); i = end; continue;
     }
-    if (i + 1 < lines.length && value.includes("|") && /^ {0,3}\|?[ \t]*:?-{3,}:?(?:[ \t]*\|[ \t]*:?-{3,}:?)+[ \t]*\|?[ \t]*$/.test(lines[i + 1]!.content)) {
+    if (i + 1 < lines.length && value.includes("|") && pipeTableAlignments(lines[i + 1]!.content)) {
       let end = i + 2; while (end < lines.length && lines[end]!.content.includes("|") && lines[end]!.content.trim()) end++;
       blocks.push(pipeTable(lines, i, end)); i = end; continue;
     }
@@ -475,11 +725,31 @@ export function parseBlocks(text: string): BlockParseResult {
     }
     if (/^ {0,3}(?:Table:|:)\s+/.test(value)) {
       const prefix = /^ {0,3}(?:Table:|:)\s+/.exec(value)![0];
-      blocks.push(green("TableCaption", [leaf("Delimiter", prefix.length), ...parseInlines(value.slice(prefix.length)), ...ending(line)])); i++; continue;
+      const caption = value.slice(prefix.length);
+      const attrMatch = /^(.*?)([ \t]+)(\{[^}\r\n]*\})([ \t]*)$/.exec(caption);
+      const attr = attrMatch ? parseAttributeList(attrMatch[3]!) : null;
+      const children: GreenNode[] = [leaf("Delimiter", prefix.length)];
+      children.push(...parseInlines(attr ? attrMatch![1]! : caption));
+      if (attr) {
+        children.push(leaf("Whitespace", attrMatch![2]!.length), attr);
+        if (attrMatch![4]!.length) children.push(leaf("Whitespace", attrMatch![4]!.length));
+      }
+      children.push(...ending(line));
+      blocks.push(green("TableCaption", children)); i++; continue;
     }
     if (/^ {0,3}\|/.test(value)) {
       let end = i + 1; while (end < lines.length && /^ {0,3}\|/.test(lines[end]!.content)) end++;
-      const rows: GreenNode[] = []; for (let n = i; n < end; n++) rows.push(green("LineBlockLine", inlineLine(lines[n]!)));
+      const rows: GreenNode[] = [];
+      for (let n = i; n < end; n++) {
+        const lineBlockLine = /^( {0,3})\|([ \t]?)(.*)$/.exec(lines[n]!.content)!;
+        rows.push(green("LineBlockLine", [
+          ...(lineBlockLine[1]!.length ? [leaf("Whitespace", lineBlockLine[1]!.length)] : []),
+          leaf("Delimiter", 1),
+          ...(lineBlockLine[2]!.length ? [leaf("Whitespace", lineBlockLine[2]!.length)] : []),
+          ...parseInlines(lineBlockLine[3]!),
+          ...ending(lines[n]!),
+        ]));
+      }
       blocks.push(green("LineBlock", rows)); i = end; continue;
     }
     if (/^(?: {4}|\t)/.test(value)) {
@@ -502,18 +772,50 @@ export function parseBlocks(text: string): BlockParseResult {
         blocks.push(green("NativeHtmlDiv", children, props([htmlTagName, "div"]))); i = end; continue;
       }
     }
-    if (/^ {0,3}(?:\\begin\{|\\\[|\\\]|\\[A-Za-z]+(?:\{|\s|$))/.test(value)) {
+    const texEnvironment = /^ {0,3}\\begin\{([^}\r\n]+)\}/.exec(value);
+    if (texEnvironment) {
+      const closePattern = new RegExp(`^ {0,3}\\\\end\\{${texEnvironment[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\}[ \\t]*$`);
+      let end = i + 1;
+      while (end < lines.length && !closePattern.test(lines[end]!.content)) end++;
+      if (end < lines.length) end++;
+      const children: GreenNode[] = [];
+      for (let n = i; n < end; n++) children.push(...opaqueLine(lines[n]!, "OpaqueBody"));
+      blocks.push(green("Paragraph", [green("RawInline", children, props([rawFormat, "tex"]))])); i = end; continue;
+    }
+    const bracketMath = /^( {0,3})(\\\[|\\\\\[)/.exec(value);
+    if (bracketMath) {
+      const opener = bracketMath[2]!;
+      const closer = opener.startsWith("\\\\") ? "\\\\]" : "\\]";
+      let closeLine = i;
+      let closeAt = value.indexOf(closer, bracketMath[1]!.length + opener.length);
+      while (closeAt < 0 && ++closeLine < lines.length) {
+        closeAt = lines[closeLine]!.content.indexOf(closer);
+      }
+      if (closeAt >= 0) {
+        let end = closeLine + 1;
+        while (end < lines.length && !isBlockStart(lines, end, text)) end++;
+        const children: GreenNode[] = [];
+        if (bracketMath[1]!.length) children.push(leaf("Whitespace", bracketMath[1]!.length));
+        const paragraphSource = text.slice(lines[i]!.start + bracketMath[1]!.length, lines[end - 1]!.end);
+        children.push(...parseInlines(paragraphSource));
+        blocks.push(green("Paragraph", children)); i = end; continue;
+      }
+    }
+    if (/^ {0,3}(?:\\\[|\\\]|\\[A-Za-z]+(?:\{|\s|$))/.test(value)) {
       blocks.push(green("RawBlock", opaqueLine(line, "OpaqueBody"), props([rawFormat, "tex"]))); i++; continue;
     }
-    if (/^ {0,3}<[A-Za-z!/]/.test(value)) {
+    // A URI/email autolink starts with an ASCII letter too, but it is not an
+    // HTML block. Require an actual tag boundary after the tag name.
+    if (/^ {0,3}<(?:\/?[A-Za-z][A-Za-z0-9-]*(?:[ \t/>])|!--|!DOCTYPE\b|\?)/i.test(value)) {
       blocks.push(green("RawBlock", opaqueLine(line, "OpaqueBody"), props([rawFormat, "html"]))); i++; continue;
     }
     let end = i + 1;
-    while (end < lines.length && !isBlockStart(lines, end)) {
+    while (end < lines.length && !isBlockStart(lines, end, text)) {
       if (end + 1 < lines.length && /^( {0,3})(=+|-+)[ \t]*$/.test(lines[end + 1]!.content)) break;
       end++;
     }
     blocks.push(paragraph(lines, i, end, text)); i = end;
   }
-  return { root: greenDocument(blocks), checkpoints: Object.freeze(checkpoints) };
+  const root = greenDocument(blocks);
+  return { root, checkpoints: checkpointsFor(lines, blocks) };
 }

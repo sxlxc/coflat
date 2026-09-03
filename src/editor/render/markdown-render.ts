@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocInvalidations, getPandocSyntaxTree } from "../cst";
 import {
   type EditorSelection,
   type EditorState,
@@ -19,7 +19,6 @@ import type { SyntaxNodeRef, Tree } from "@lezer/common";
 import { CSS } from "../../core/constants/css-classes";
 import { measureSync } from "../lib/perf";
 import { containsRange } from "../lib/range-helpers";
-import { computeAnalyzableFrontier } from "../semantics/incremental/engine";
 import {
   buildDecorations,
   decorationHidden,
@@ -38,7 +37,6 @@ import {
   openRenderedLinkAtEvent,
 } from "./link-handler";
 import {
-  addActiveLineTypingSupplements,
   CURSOR_SENSITIVE_NODES,
   MARKDOWN_HANDLERS,
   type MarkdownHandlerContext,
@@ -207,7 +205,7 @@ function collectMarkdownDirtyRangesInState(
 ): void {
   // Plain syntaxTree: interactive paths must never force a whole-document
   // parse; the viewport plugin re-renders on tree progress instead.
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const seenRanges = new Set<string>();
   const pushUniqueRange = (from: number, to: number) => {
     const key = `${from}:${to}`;
@@ -263,7 +261,7 @@ function collectCursorContextSnapshot(
   }
 
   const { from, to } = state.selection.main;
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const entriesByKey = new Map<string, CursorContextEntry>();
 
   const positions = from === to ? [from] : [from, to];
@@ -484,6 +482,14 @@ function computeMarkdownDocChangeRangesBetweenUncached(
     collectMarkdownDirtyRangesInState(state, fromB, toB, pushRange);
   });
 
+  // Structural interpretation may change far from the literal edit (for
+  // example, inserting an unclosed fence). The authoritative CST already
+  // computes those old/new invalidations, so rendering consumes them instead
+  // of guessing with a Markdown side scanner.
+  for (const range of getPandocInvalidations(state).changedRanges) {
+    pushRange(range.newFrom, range.newTo);
+  }
+
   return mergeRanges(dirtyRanges);
 }
 
@@ -542,7 +548,7 @@ function collectMarkdownItemsForState(
     items: [],
     cursorInHeading: false,
   };
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const seenNodes = new Set<string>();
 
   for (const { from, to } of ranges) {
@@ -560,8 +566,6 @@ function collectMarkdownItemsForState(
       },
     });
   }
-  addActiveLineTypingSupplements(ctx, ranges);
-
   return ctx.items;
 }
 
@@ -591,7 +595,7 @@ function collectHardBreakSpans(
   state: EditorState,
   ranges: readonly VisibleRange[],
 ): VisibleRange[] {
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const spans: VisibleRange[] = [];
   const seen = new Set<number>();
   for (const { from, to } of ranges) {
@@ -643,19 +647,10 @@ export function _linkDecorationCacheSizeForTest(): number {
 
 interface MarkdownLineBreakFieldValue {
   readonly decorations: DecorationSet;
-  /** Parse frontier the HardBreak collection has covered so far. */
-  readonly frontier: number;
-}
-
-function markdownParseFrontier(state: EditorState): number {
-  return computeAnalyzableFrontier(state.doc.length, syntaxTree(state));
 }
 
 function buildMarkdownLineBreakValue(state: EditorState): MarkdownLineBreakFieldValue {
-  return {
-    decorations: buildMarkdownLineBreakDecorations(state),
-    frontier: markdownParseFrontier(state),
-  };
+  return { decorations: buildMarkdownLineBreakDecorations(state) };
 }
 
 function applyMarkdownLineBreakDirtyRanges(
@@ -676,7 +671,7 @@ function updateMarkdownLineBreakValue(
     return buildMarkdownLineBreakValue(tr.state);
   }
 
-  const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
+  const treeChanged = getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState);
   const frozen = Boolean(tr.state.field(markdownRevealFrozenField, false));
 
   if (!tr.docChanged) {
@@ -684,56 +679,28 @@ function updateMarkdownLineBreakValue(
       ? NO_SEED_RANGES
       : computeMarkdownContextChangeRangesForTransition(tr);
     if (treeChanged) {
-      const newFrontier = markdownParseFrontier(tr.state);
-      if (contextRanges.length > 0 || newFrontier <= value.frontier) {
-        // Context changes coinciding with parse progress are rare, and a
-        // frontier that failed to advance means the tree was replaced rather
-        // than extended; both keep the previous full-rebuild behavior.
-        return buildMarkdownLineBreakValue(tr.state);
-      }
-      // Doc-unchanged parse progress is prefix-stable: only the newly parsed
-      // window can contain HardBreaks that were not collected yet.
-      const delta = normalizeDirtyRange(value.frontier, newFrontier, tr.state.doc.length);
-      let decorations = removeDecorationsInRanges(value.decorations, [delta]);
-      // Breaks ending exactly at the old frontier were fully parsed before and
-      // survive the removal above; drop their re-collected twins.
-      const items = collectMarkdownLineBreakItems(tr.state, [delta])
-        .filter((item) => item.to > value.frontier);
-      if (items.length > 0) {
-        decorations = decorations.update({ add: items, sort: true });
-      }
-      return { decorations, frontier: newFrontier };
+      return buildMarkdownLineBreakValue(tr.state);
     }
     if (contextRanges.length === 0) return value;
-    return {
-      decorations: applyMarkdownLineBreakDirtyRanges(
-        value.decorations,
-        tr.state,
-        contextRanges,
-      ),
-      frontier: value.frontier,
-    };
+    return { decorations: applyMarkdownLineBreakDirtyRanges(
+      value.decorations,
+      tr.state,
+      contextRanges,
+    ) };
   }
 
-  // Doc changed: mapped decorations can sit beyond the new parse frontier, so
-  // keep the smaller of the mapped frontier and the parsed prefix — the
-  // progress path above re-validates anything in between on later ticks.
-  const frontier = Math.min(
-    tr.changes.mapPos(value.frontier, -1),
-    markdownParseFrontier(tr.state),
-  );
   if (
     !treeChanged &&
     (frozen || computeMarkdownContextChangeRangesForTransition(tr).length === 0)
   ) {
-    return { decorations: value.decorations.map(tr.changes), frontier };
+    return { decorations: value.decorations.map(tr.changes) };
   }
   const dirtyRanges = computeMarkdownDocChangeRangesForTransition(tr);
   if (dirtyRanges === null) {
     return buildMarkdownLineBreakValue(tr.state);
   }
   if (dirtyRanges.length === 0) {
-    return { decorations: value.decorations.map(tr.changes), frontier };
+    return { decorations: value.decorations.map(tr.changes) };
   }
   return {
     decorations: applyMarkdownLineBreakDirtyRanges(
@@ -741,7 +708,6 @@ function updateMarkdownLineBreakValue(
       tr.state,
       dirtyRanges,
     ),
-    frontier,
   };
 }
 
@@ -749,9 +715,7 @@ function updateMarkdownLineBreakValue(
  * Residual StateField for the HardBreak hides only: replace decorations that
  * cross line breaks may not come from a ViewPlugin, so they keep the previous
  * StateField substrate while everything else moved to the viewport-scoped
- * plugin below. The value tracks the parse frontier already collected so
- * doc-unchanged tree-progress ticks only scan the newly parsed window instead
- * of rebuilding over the whole document.
+ * plugin below.
  */
 const markdownLineBreakHideField = StateField.define<MarkdownLineBreakFieldValue>({
   create(state) {

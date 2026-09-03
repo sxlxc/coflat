@@ -3,13 +3,10 @@ import { join, relative } from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { CSS } from "../../src/core/constants/css-classes";
 import {
-  getMarkdownParser,
-  parseFrontmatter,
-} from "../../src/core/parser";
-import {
   defaultThemePresetKey,
   themePresetKeys,
 } from "../../src/editor/theme-config";
+import { PandocParser } from "../../vendor/pandocmd-cst/src/index";
 import {
   DEFAULT_PARITY_SOURCE,
   PARITY_SOURCE_KEY,
@@ -58,7 +55,7 @@ interface PixelMatchOptions {
   readonly exact?: boolean;
 }
 
-const corpusParser = getMarkdownParser("html-render");
+const corpusParser = new PandocParser();
 let cachedCorpusDocuments:
   | { readonly dir: string; readonly sources: readonly CorpusSource[] }
   | null = null;
@@ -656,8 +653,11 @@ function lineNumberAt(lineStarts: readonly number[], pos: number): number {
 
 function collectCorpusSegments(source: string): CorpusSegment[] {
   const lineStarts = buildLineStarts(source);
-  const frontmatterEnd = parseFrontmatter(source).end;
   const tree = corpusParser.parse(source);
+  const topLevelBlocks = tree.topLevelBlocks();
+  const frontmatterEnd = topLevelBlocks[0]?.kind === "YamlMetadata"
+    ? topLevelBlocks[0].to
+    : 0;
   const segments: CorpusSegment[] = [];
 
   function addSegment(from: number, to: number): void {
@@ -674,16 +674,11 @@ function collectCorpusSegments(source: string): CorpusSegment[] {
     addSegment(0, frontmatterEnd);
   }
 
-  let child = tree.topNode.firstChild;
-  while (child) {
-    if (child.name === "FootnoteDef") {
-      child = child.nextSibling;
-      continue;
-    }
+  for (const child of topLevelBlocks) {
+    if (child.kind === "FootnoteDefinition") continue;
     if (child.to > frontmatterEnd) {
       addSegment(Math.max(child.from, frontmatterEnd), child.to);
     }
-    child = child.nextSibling;
   }
 
   return segments;

@@ -151,13 +151,13 @@ describe("collectMathRanges", () => {
     expect(countSourceMarks(ranges)).toBeGreaterThan(0);
   });
 
-  it("keeps rendered labeled display math visible when structure edit is active", () => {
-    const doc = "before\n\n$$\nx^2\n$$ {#eq:test}\n\nafter";
+  it("keeps rendered multiline display math visible when structure edit is active", () => {
+    const doc = "before\n\n$$\nx^2\n$$\n\nafter";
     view = createMathView(doc, 0);
     activateDisplayMathSourceView(view, 11);
     const ranges = collectMathRanges(view);
     expect(countWidgets(ranges)).toBe(1);
-    expect(countSourceMarks(ranges)).toBeGreaterThan(1);
+    expect(countSourceMarks(ranges)).toBeGreaterThan(0);
   });
 
   it("rebuilds quoted display math when the cursor enters an inactive blockquote flow", () => {
@@ -177,14 +177,14 @@ describe("collectMathRanges", () => {
     ).toHaveLength(1);
   });
 
-  it("keeps display-math label/body on cf-math-source but delimiters on cf-source-delimiter during structure edit (#789)", () => {
-    const doc = "before\n\n$$\nx^2\n$$ {#eq:test}\n\nafter";
+  it("keeps the display-math body on cf-math-source but delimiters on cf-source-delimiter during structure edit (#789)", () => {
+    const doc = "before\n\n$$\nx^2\n$$\n\nafter";
     view = createMathView(doc, 0);
     activateDisplayMathSourceView(view, 11);
     const ranges = collectMathRanges(view);
     expect(countWidgets(ranges)).toBe(1);
     expect(countMarksWithClass(ranges, CSS.sourceDelimiter)).toBe(2);
-    expect(countMarksWithClass(ranges, CSS.mathSource)).toBe(2);
+    expect(countMarksWithClass(ranges, CSS.mathSource)).toBe(1);
   });
 
   it("collects multiple math expressions", () => {

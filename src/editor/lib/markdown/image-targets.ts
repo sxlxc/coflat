@@ -1,9 +1,9 @@
-import { parseMarkdownSource } from "../../../core/parser";
+import { parsePandocCstSource } from "../../../core/cst/pandoc-syntax-tree";
 
 export function collectImageTargets(content: string): string[] {
   const targets: string[] = [];
   const seen = new Set<string>();
-  const tree = parseMarkdownSource(content, "html-render");
+  const tree = parsePandocCstSource(content);
 
   tree.iterate({
     enter(node) {

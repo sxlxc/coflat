@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import type {
   EditorState,
   Transaction,
@@ -60,7 +60,7 @@ function statePairChanged(
   docChanged: boolean,
 ): boolean {
   if (options.doc && docChanged) return true;
-  if (options.tree && syntaxTree(afterState) !== syntaxTree(beforeState)) {
+  if (options.tree && getPandocSyntaxTree(afterState) !== getPandocSyntaxTree(beforeState)) {
     return true;
   }
   return selectedStateValuesChanged(beforeState, afterState, selectors);

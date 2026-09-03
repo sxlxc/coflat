@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import { type EditorState } from "@codemirror/state";
 import { type EditorView, ViewPlugin } from "@codemirror/view";
 import { collectFencedDivs } from "./fenced-block/model";
@@ -138,7 +138,7 @@ function collectBlockImageStops(
   const seen = new Set<string>();
   const stops: HiddenWidgetStop[] = [];
   const collectInRange = (from?: number, to?: number): void => {
-    syntaxTree(state).iterate({
+    getPandocSyntaxTree(state).iterate({
       from,
       to,
       enter(node) {

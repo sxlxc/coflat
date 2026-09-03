@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import type { EditorState, Range, Transaction } from "@codemirror/state";
 import type { Decoration, DecorationSet } from "@codemirror/view";
 import type { SyntaxNode, Tree } from "@lezer/common";
@@ -34,7 +34,7 @@ export function enclosingFlowBlockquote(
   from: number,
   to: number,
 ): SyntaxNode | null {
-  let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, -1);
+  let node: SyntaxNode | null = getPandocSyntaxTree(state).resolveInner(from, -1);
   while (node) {
     if (isTopLevelBlockquote(node) && to <= node.to) return node;
     node = node.parent;
@@ -92,7 +92,7 @@ export function applyFlowSelectionPatch<
     changed: readonly Candidate[],
   ) => readonly Range<Decoration>[],
 ): DecorationSet | null {
-  if (syntaxTree(tr.state) !== value.tree) return null;
+  if (getPandocSyntaxTree(tr.state) !== value.tree) return null;
   const changed: Candidate[] = [];
   for (const candidate of value.candidates) {
     const before = revealed(tr.startState, candidate);

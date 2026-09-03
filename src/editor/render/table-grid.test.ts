@@ -15,10 +15,12 @@ import {
 
 const DOC = [
   "before",
+  "",
   "| A | B |",
   "| --- | --- |",
   "| 1 | 2 |",
   "| 3 | 4 |",
+  "",
   "after",
 ].join("\n");
 
@@ -63,8 +65,8 @@ describe("getTableDeleteRange", () => {
   it("returns a row delete range for fully selected body rows", () => {
     view = makeView();
     const table = findTablesInState(view.state)[0];
-    const row1 = view.state.doc.line(4);
-    const row2 = view.state.doc.line(5);
+    const row1 = view.state.doc.line(5);
+    const row2 = view.state.doc.line(6);
 
     expect(getTableDeleteRange(view.state, table, row1.from, row2.to)).toEqual({
       from: row1.from,
@@ -76,7 +78,7 @@ describe("getTableDeleteRange", () => {
   it("returns null for partial body-row selections", () => {
     view = makeView();
     const table = findTablesInState(view.state)[0];
-    const row1 = view.state.doc.line(4);
+    const row1 = view.state.doc.line(5);
 
     expect(getTableDeleteRange(view.state, table, row1.from + 2, row1.to)).toBeNull();
   });
@@ -101,8 +103,8 @@ describe("gridClickGuard (#617)", () => {
     // Verify that the cell bounds logic correctly identifies the last
     // column's editable range — this is what the click guard uses.
     view = makeView();
-    // Line 4: "| 1 | 2 |" — last column cell content is "2"
-    const line = view.state.doc.line(4);
+    // Line 5: "| 1 | 2 |" — last column cell content is "2"
+    const line = view.state.doc.line(5);
     const pipes = findPipePositions(line.text);
     expect(pipes.length).toBeGreaterThanOrEqual(3); // |, |, |
 
@@ -131,8 +133,8 @@ describe("gridContextMenuHandler cross-row guard (#696)", () => {
     // right-clicking whitespace in the last column targets the correct cell.
     // We verify the same cell-bounds logic works for the last column.
     view = makeView();
-    // Line 4: "| 1 | 2 |" — last column (col 1), content "2"
-    const line = view.state.doc.line(4);
+    // Line 5: "| 1 | 2 |" — last column (col 1), content "2"
+    const line = view.state.doc.line(5);
     const pipes = findPipePositions(line.text);
     expect(pipes.length).toBeGreaterThanOrEqual(3);
 
@@ -141,15 +143,15 @@ describe("gridContextMenuHandler cross-row guard (#696)", () => {
     const cellText = view.state.sliceDoc(lastCellContentStart, lastCellContentEnd).trim();
     expect(cellText).toBe("2");
 
-    // Dispatching to the end of the correct cell should land on line 4
+    // Dispatching to the end of the correct cell should land on line 5
     view.dispatch({ selection: { anchor: lastCellContentEnd - 1 }, scrollIntoView: false });
     const cursorLine = view.state.doc.lineAt(view.state.selection.main.head);
-    expect(cursorLine.number).toBe(4);
+    expect(cursorLine.number).toBe(5);
   });
 
   it("cell marks on all rows carry data-col for DOM-based cross-row detection", () => {
     view = makeView();
-    // Both body rows (lines 4 and 5) should have data-col on their cells
+    // Both body rows (lines 5 and 6) should have data-col on their cells
     const cells = view.dom.querySelectorAll<HTMLElement>(".cf-grid-cell");
     const colsByRow = new Map<number, number[]>();
     for (const cell of cells) {
@@ -159,8 +161,8 @@ describe("gridContextMenuHandler cross-row guard (#696)", () => {
       cols.push(Number(cell.dataset.col));
       colsByRow.set(lineNum, cols);
     }
-    // Body rows 4 and 5 should each have cells with data-col
-    for (const row of [4, 5]) {
+    // Body rows 5 and 6 should each have cells with data-col
+    for (const row of [5, 6]) {
       const cols = colsByRow.get(row);
       expect(cols).toBeDefined();
       expect(cols?.length).toBeGreaterThanOrEqual(2);
@@ -333,13 +335,15 @@ describe("table-grid dirty table diff (#858)", () => {
 describe("deleteSelectedTableSelection", () => {
   it("deletes selected body rows while preserving header and separator", () => {
     view = makeView();
-    selectLines(view, 4, 5);
+    selectLines(view, 5, 6);
 
     expect(deleteSelectedTableSelection(view)).toBe(true);
     expect(view.state.doc.toString()).toBe([
       "before",
+      "",
       "| A | B |",
       "| --- | --- |",
+      "",
       "after",
     ].join("\n"));
   });

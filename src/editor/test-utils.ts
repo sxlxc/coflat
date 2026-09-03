@@ -1,4 +1,3 @@
-import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorState, type Extension, type StateEffect } from "@codemirror/state";
 import { type DecorationSet, EditorView } from "@codemirror/view";
 import type { Tree } from "@lezer/common";
@@ -6,6 +5,7 @@ import { vi } from "vitest";
 import type { CslJsonItem } from "../core/citations/csl-json.js";
 import type { BlockPlugin } from "./plugins/plugin-types.js";
 import type { BibStore } from "./state/bib-data.js";
+import { getPandocSyntaxTree } from "./cst/pandoc-syntax-tree.js";
 
 // ── CslJsonItem fixture factory ───────────────────────────────────────────────
 
@@ -112,15 +112,9 @@ export function createEditorState(
 
 export function ensureFullSyntaxTree(
   state: EditorState,
-  timeout = 5000,
+  _timeout = 5000,
 ): Tree {
-  const tree = ensureSyntaxTree(state, state.doc.length, timeout);
-  if (!tree) {
-    throw new Error(
-      `failed to fully parse test document (${state.doc.length} characters)`,
-    );
-  }
-  return tree;
+  return getPandocSyntaxTree(state);
 }
 
 export function applyStateEffects(

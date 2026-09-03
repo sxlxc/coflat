@@ -1,225 +1,135 @@
-import { ChangeSet } from "@codemirror/state";
-import { type DocumentAnalysis, stringTextSource } from "../document-model";
-import { markdownSemanticsParser } from "../markdown-parser";
-import { coalesceChangedRanges } from "./dirty-windows";
+import { PandocParser, type SyntaxTree, type TextChange } from "pandocmd-cst";
+import { projectPandocSyntaxTree } from "../../../core/cst/pandoc-syntax-tree";
 import {
-  buildDocumentArtifacts,
-  createDocumentAnalysisSnapshot,
-  createDocumentAnalysisSnapshotFromAnalysis,
-  createDocumentArtifacts,
-  type DocumentAnalysisSnapshot,
+  buildCstDocumentArtifacts,
+  createCstDocumentAnalysisSnapshot,
+  type CstDocumentAnalysisSnapshot,
   type DocumentArtifacts,
-  drainPendingDocumentAnalysis,
-  updateDocumentAnalysisSnapshot,
-} from "./engine";
-import type { RawChangedRange, SemanticDelta } from "./types";
+} from "../cst-document-analysis";
+import { type DocumentAnalysis, stringTextSource } from "../document-model";
+import { createDocumentAnalysisSnapshotFromAnalysis } from "./snapshot-finalize";
 
+/**
+ * Bounded standalone cache for reader/indexer callers. It uses the same
+ * authoritative CST parser as the editor and publishes one complete semantic
+ * snapshot per text version; there is no parse frontier or pending analysis.
+ */
 export interface CachedDocumentAnalysis {
   readonly version: number;
   readonly text: string;
   readonly analysis: DocumentAnalysis;
-  readonly snapshot: DocumentAnalysisSnapshot;
+  readonly snapshot: CstDocumentAnalysisSnapshot;
+  readonly parser: PandocParser;
+  readonly tree: SyntaxTree;
 }
 
 export interface CachedDocumentArtifacts {
   readonly version: number;
   readonly text: string;
   readonly artifacts: DocumentArtifacts;
+  readonly analysis: CachedDocumentAnalysis;
 }
 
 const MAX_SHARED_DOCUMENT_ANALYSIS_ENTRIES = 64;
 const sharedDocumentAnalysisCache = new Map<string, CachedDocumentAnalysis>();
 const sharedDocumentArtifactsCache = new Map<string, CachedDocumentArtifacts>();
 
+function singleTextChange(previousText: string, nextText: string): TextChange {
+  let prefix = 0;
+  const prefixLimit = Math.min(previousText.length, nextText.length);
+  while (
+    prefix < prefixLimit
+    && previousText.charCodeAt(prefix) === nextText.charCodeAt(prefix)
+  ) prefix++;
+
+  let oldSuffix = previousText.length;
+  let newSuffix = nextText.length;
+  while (
+    oldSuffix > prefix
+    && newSuffix > prefix
+    && previousText.charCodeAt(oldSuffix - 1) === nextText.charCodeAt(newSuffix - 1)
+  ) {
+    oldSuffix--;
+    newSuffix--;
+  }
+  return { oldFrom: prefix, oldTo: oldSuffix, newFrom: prefix, newTo: newSuffix };
+}
+
+function createCached(
+  text: string,
+  previous?: CachedDocumentAnalysis,
+): CachedDocumentAnalysis {
+  if (previous?.text === text) return previous;
+
+  const parser = previous?.parser ?? new PandocParser();
+  const tree = previous
+    ? parser.update(text, previous.tree, [singleTextChange(previous.text, text)]).tree
+    : parser.parse(text);
+  const doc = stringTextSource(text);
+  const projectedTree = projectPandocSyntaxTree(tree);
+  const snapshot = createCstDocumentAnalysisSnapshot(
+    doc,
+    projectedTree,
+    tree,
+    previous?.snapshot,
+  );
+  return {
+    version: previous ? previous.version + 1 : 0,
+    text,
+    analysis: snapshot.analysis,
+    snapshot,
+    parser,
+    tree,
+  };
+}
+
 export function getCachedDocumentAnalysis(
   text: string,
   previous?: CachedDocumentAnalysis,
 ): CachedDocumentAnalysis {
-  if (previous?.text === text) {
-    return drainCachedDocumentAnalysis(previous);
-  }
-
-  const doc = stringTextSource(text);
-  const tree = markdownSemanticsParser.parse(text);
-  if (!previous) {
-    const snapshot = createDocumentAnalysisSnapshot(doc, tree);
-    return {
-      version: 0,
-      text,
-      analysis: snapshot.analysis,
-      snapshot,
-    };
-  }
-
-  const snapshot = drainPendingDocumentAnalysis(
-    updateDocumentAnalysisSnapshot(
-      previous.snapshot,
-      doc,
-      tree,
-      buildTextSemanticDelta(previous.text, text),
-    ),
-    doc,
-    tree,
-  );
-  return {
-    version: previous.version + 1,
-    text,
-    analysis: snapshot.analysis,
-    snapshot,
-  };
-}
-
-/**
- * Readers are one-shot renders with no tree-progress or idle-drain
- * transactions, so the unchanged-text fast path must not short-circuit to a
- * snapshot the doc-changed budget left partially reconciled: consume any
- * remaining pending regions before reuse.
- */
-function drainCachedDocumentAnalysis(
-  previous: CachedDocumentAnalysis,
-): CachedDocumentAnalysis {
-  if (previous.snapshot.incrementalState.pendingRegions.length === 0) {
-    return previous;
-  }
-  const doc = stringTextSource(previous.text);
-  const tree = markdownSemanticsParser.parse(previous.text);
-  const snapshot = drainPendingDocumentAnalysis(previous.snapshot, doc, tree);
-  if (snapshot === previous.snapshot) {
-    return previous;
-  }
-  return {
-    version: previous.version,
-    text: previous.text,
-    analysis: snapshot.analysis,
-    snapshot,
-  };
+  return createCached(text, previous);
 }
 
 export function rememberCachedDocumentAnalysis(
   text: string,
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
+  analysis: DocumentAnalysis | CstDocumentAnalysisSnapshot,
   previous?: CachedDocumentAnalysis,
 ): CachedDocumentAnalysis {
-  const adoptedAnalysis = unwrapCachedAnalysis(analysis);
-  if (previous?.text === text && previous.analysis === adoptedAnalysis) {
-    return previous;
-  }
+  const adoptedAnalysis = "analysis" in analysis ? analysis.analysis : analysis;
+  if (previous?.text === text && previous.analysis === adoptedAnalysis) return previous;
 
-  const snapshot = adoptDocumentAnalysisSnapshot(text, analysis);
-  return {
-    version:
-      previous && previous.text !== text
-        ? previous.version + 1
-        : previous?.version ?? 0,
-    text,
-    analysis: snapshot.analysis,
-    snapshot,
-  };
+  const parsed = createCached(text, previous?.text === text ? undefined : previous);
+  if (parsed.analysis === adoptedAnalysis) return parsed;
+  const doc = stringTextSource(text);
+  const projectedTree = projectPandocSyntaxTree(parsed.tree);
+  const base = createDocumentAnalysisSnapshotFromAnalysis(
+    doc,
+    projectedTree,
+    adoptedAnalysis,
+  ) as CstDocumentAnalysisSnapshot;
+  Object.defineProperty(base, "cstVersion", {
+    value: parsed.tree.version,
+    enumerable: true,
+  });
+  const snapshot = Object.freeze(base);
+  return { ...parsed, analysis: adoptedAnalysis, snapshot };
 }
 
 export function getCachedDocumentArtifacts(
   text: string,
   previous?: CachedDocumentArtifacts,
 ): CachedDocumentArtifacts {
-  if (previous?.text === text) {
-    if (
-      previous.artifacts.analysisSnapshot.incrementalState.pendingRegions.length === 0
-    ) {
-      return previous;
-    }
-    const doc = stringTextSource(text);
-    const tree = markdownSemanticsParser.parse(text);
-    const snapshot = drainPendingDocumentAnalysis(
-      previous.artifacts.analysisSnapshot,
-      doc,
-      tree,
-    );
-    if (snapshot === previous.artifacts.analysisSnapshot) {
-      return previous;
-    }
-    return {
-      version: previous.version,
-      text,
-      artifacts: buildDocumentArtifacts(snapshot, doc, tree),
-    };
-  }
-
+  if (previous?.text === text) return previous;
+  const analysis = createCached(text, previous?.analysis);
   const doc = stringTextSource(text);
-  const tree = markdownSemanticsParser.parse(text);
-  if (!previous) {
-    return {
-      version: 0,
-      text,
-      artifacts: createDocumentArtifacts(doc, tree),
-    };
-  }
-
-  const snapshot = drainPendingDocumentAnalysis(
-    updateDocumentAnalysisSnapshot(
-      previous.artifacts.analysisSnapshot,
-      doc,
-      tree,
-      buildTextSemanticDelta(previous.text, text),
-    ),
+  const artifacts = buildCstDocumentArtifacts(
     doc,
-    tree,
+    projectPandocSyntaxTree(analysis.tree),
+    analysis.snapshot,
   );
-  return {
-    version: previous.version + 1,
-    text,
-    artifacts: buildDocumentArtifacts(snapshot, doc, tree),
-  };
+  return { version: analysis.version, text, artifacts, analysis };
 }
 
-function getCachedDocumentArtifactsFromAnalysis(
-  text: string,
-  previous?: CachedDocumentAnalysis,
-): CachedDocumentArtifacts {
-  const doc = stringTextSource(text);
-  const tree = markdownSemanticsParser.parse(text);
-
-  if (!previous) {
-    return {
-      version: 0,
-      text,
-      artifacts: createDocumentArtifacts(doc, tree),
-    };
-  }
-
-  if (previous.text === text) {
-    return {
-      version: previous.version,
-      text,
-      artifacts: buildDocumentArtifacts(
-        drainPendingDocumentAnalysis(previous.snapshot, doc, tree),
-        doc,
-        tree,
-      ),
-    };
-  }
-
-  const snapshot = drainPendingDocumentAnalysis(
-    updateDocumentAnalysisSnapshot(
-      previous.snapshot,
-      doc,
-      tree,
-      buildTextSemanticDelta(previous.text, text),
-    ),
-    doc,
-    tree,
-  );
-  return {
-    version: previous.version + 1,
-    text,
-    artifacts: buildDocumentArtifacts(snapshot, doc, tree),
-  };
-}
-
-/**
- * Shared non-CM6 accessor for callers that know a stable document path.
- * The underlying analysis still comes from the incremental engine; this
- * wrapper only owns cross-caller cache lookup/adoption.
- */
 export function getDocumentAnalysis(
   text: string,
   cacheKey?: string,
@@ -230,50 +140,47 @@ export function getDocumentAnalysis(
 export function getDocumentAnalysisSnapshot(
   text: string,
   cacheKey?: string,
-): DocumentAnalysisSnapshot {
-  const normalizedCacheKey = normalizeCacheKey(cacheKey);
-  if (!normalizedCacheKey) {
-    return getCachedDocumentAnalysis(text).snapshot;
+): CstDocumentAnalysisSnapshot {
+  const key = normalizeCacheKey(cacheKey);
+  if (!key) return createCached(text).snapshot;
+  const cached = createCached(text, lruGet(sharedDocumentAnalysisCache, key));
+  lruSet(sharedDocumentAnalysisCache, key, cached);
+  const artifacts = sharedDocumentArtifactsCache.get(key);
+  if (artifacts?.text !== text || artifacts.analysis !== cached) {
+    sharedDocumentArtifactsCache.delete(key);
   }
-
-  const cached = getCachedDocumentAnalysis(
-    text,
-    getSharedCachedDocumentAnalysis(normalizedCacheKey),
-  );
-  setSharedCachedDocumentAnalysis(normalizedCacheKey, cached);
-  invalidateSharedDocumentArtifacts(normalizedCacheKey, cached);
   return cached.snapshot;
 }
 
-/**
- * Shared non-CM6 accessor for callers that need both semantic analysis and
- * `DocumentIR`. This keeps IR consumers on the same cached incremental
- * analysis source as the indexer and citation paths while rebuilding the IR
- * projection from the current text/tree.
- */
 export function getDocumentArtifacts(
   text: string,
   cacheKey?: string,
 ): DocumentArtifacts {
-  const normalizedCacheKey = normalizeCacheKey(cacheKey);
-  if (!normalizedCacheKey) {
-    return getCachedDocumentArtifacts(text).artifacts;
-  }
+  const key = normalizeCacheKey(cacheKey);
+  if (!key) return getCachedDocumentArtifacts(text).artifacts;
 
-  const cachedArtifacts = getSharedCachedDocumentArtifacts(normalizedCacheKey);
-  const cached = cachedArtifacts
-    ? getCachedDocumentArtifacts(text, cachedArtifacts)
-    : getCachedDocumentArtifactsFromAnalysis(
-        text,
-        getSharedCachedDocumentAnalysis(normalizedCacheKey),
-      );
-  setSharedCachedDocumentArtifacts(normalizedCacheKey, cached);
-  return cached.artifacts;
+  const cachedArtifacts = lruGet(sharedDocumentArtifactsCache, key);
+  if (cachedArtifacts?.text === text) return cachedArtifacts.artifacts;
+  const analysis = createCached(text, lruGet(sharedDocumentAnalysisCache, key));
+  lruSet(sharedDocumentAnalysisCache, key, analysis);
+  const doc = stringTextSource(text);
+  const artifacts = buildCstDocumentArtifacts(
+    doc,
+    projectPandocSyntaxTree(analysis.tree),
+    analysis.snapshot,
+  );
+  lruSet(sharedDocumentArtifactsCache, key, {
+    version: analysis.version,
+    text,
+    artifacts,
+    analysis,
+  });
+  return artifacts;
 }
 
 export function rememberDocumentAnalysis(
   text: string,
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
+  analysis: DocumentAnalysis | CstDocumentAnalysisSnapshot,
   cacheKey?: string,
 ): DocumentAnalysis {
   return rememberDocumentAnalysisSnapshot(text, analysis, cacheKey).analysis;
@@ -281,21 +188,19 @@ export function rememberDocumentAnalysis(
 
 export function rememberDocumentAnalysisSnapshot(
   text: string,
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
+  analysis: DocumentAnalysis | CstDocumentAnalysisSnapshot,
   cacheKey?: string,
-): DocumentAnalysisSnapshot {
-  const normalizedCacheKey = normalizeCacheKey(cacheKey);
-  if (!normalizedCacheKey) {
-    return adoptDocumentAnalysisSnapshot(text, analysis);
-  }
-
+): CstDocumentAnalysisSnapshot {
+  const key = normalizeCacheKey(cacheKey);
   const cached = rememberCachedDocumentAnalysis(
     text,
     analysis,
-    getSharedCachedDocumentAnalysis(normalizedCacheKey),
+    key ? lruGet(sharedDocumentAnalysisCache, key) : undefined,
   );
-  setSharedCachedDocumentAnalysis(normalizedCacheKey, cached);
-  invalidateSharedDocumentArtifacts(normalizedCacheKey, cached);
+  if (key) {
+    lruSet(sharedDocumentAnalysisCache, key, cached);
+    sharedDocumentArtifactsCache.delete(key);
+  }
   return cached.snapshot;
 }
 
@@ -304,179 +209,23 @@ export function clearDocumentAnalysisCache(): void {
   sharedDocumentArtifactsCache.clear();
 }
 
-function unwrapCachedAnalysis(
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
-): DocumentAnalysis {
-  return isCachedAnalysisSnapshot(analysis) ? analysis.analysis : analysis;
-}
-
-function isCachedAnalysisSnapshot(
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
-): analysis is DocumentAnalysisSnapshot {
-  return "analysis" in analysis && "incrementalState" in analysis;
-}
-
-function adoptDocumentAnalysisSnapshot(
-  text: string,
-  analysis: DocumentAnalysis | DocumentAnalysisSnapshot,
-): DocumentAnalysisSnapshot {
-  if (isCachedAnalysisSnapshot(analysis)) {
-    return analysis;
-  }
-
-  const doc = stringTextSource(text);
-  const tree = markdownSemanticsParser.parse(text);
-  return createDocumentAnalysisSnapshotFromAnalysis(doc, tree, analysis);
-}
-
-function buildTextSemanticDelta(
-  previousText: string,
-  nextText: string,
-): SemanticDelta {
-  const rawChangedRanges = collectChangedRanges(previousText, nextText);
-  const changes = ChangeSet.of(
-    rawChangedRanges.map((range) => ({
-      from: range.fromOld,
-      to: range.toOld,
-      insert: nextText.slice(range.fromNew, range.toNew),
-    })),
-    previousText.length,
-  );
-
-  return {
-    rawChangedRanges,
-    dirtyWindows: coalesceChangedRanges(rawChangedRanges),
-    docChanged: rawChangedRanges.length > 0,
-    syntaxTreeChanged: rawChangedRanges.length > 0,
-    globalInvalidation: false,
-    plainInlineTextOnlyChange: false,
-    mapOldToNew(pos, assoc = -1) {
-      return changes.mapPos(pos, assoc);
-    },
-    mapNewToOld(pos, assoc = -1) {
-      return changes.invertedDesc.mapPos(pos, assoc);
-    },
-  };
-}
-
 function normalizeCacheKey(cacheKey?: string): string | undefined {
-  if (!cacheKey || cacheKey.length === 0) {
-    return undefined;
-  }
-  return cacheKey;
+  return cacheKey && cacheKey.length > 0 ? cacheKey : undefined;
 }
 
-function getSharedCachedDocumentAnalysis(
-  cacheKey: string,
-): CachedDocumentAnalysis | undefined {
-  const cached = sharedDocumentAnalysisCache.get(cacheKey);
-  if (!cached) {
-    return undefined;
-  }
-
-  // Simple LRU refresh so long-lived sessions do not grow the shared cache
-  // without bound.
-  sharedDocumentAnalysisCache.delete(cacheKey);
-  sharedDocumentAnalysisCache.set(cacheKey, cached);
-  return cached;
+function lruGet<T>(cache: Map<string, T>, key: string): T | undefined {
+  const value = cache.get(key);
+  if (value === undefined) return undefined;
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
 }
 
-function setSharedCachedDocumentAnalysis(
-  cacheKey: string,
-  cached: CachedDocumentAnalysis,
-): void {
-  sharedDocumentAnalysisCache.set(cacheKey, cached);
-  if (sharedDocumentAnalysisCache.size <= MAX_SHARED_DOCUMENT_ANALYSIS_ENTRIES) {
-    return;
+function lruSet<T>(cache: Map<string, T>, key: string, value: T): void {
+  cache.set(key, value);
+  while (cache.size > MAX_SHARED_DOCUMENT_ANALYSIS_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
   }
-
-  const oldestCacheKey = sharedDocumentAnalysisCache.keys().next().value;
-  if (oldestCacheKey !== undefined) {
-    sharedDocumentAnalysisCache.delete(oldestCacheKey);
-  }
-}
-
-function getSharedCachedDocumentArtifacts(
-  cacheKey: string,
-): CachedDocumentArtifacts | undefined {
-  const cached = sharedDocumentArtifactsCache.get(cacheKey);
-  if (!cached) {
-    return undefined;
-  }
-
-  sharedDocumentArtifactsCache.delete(cacheKey);
-  sharedDocumentArtifactsCache.set(cacheKey, cached);
-  return cached;
-}
-
-function setSharedCachedDocumentArtifacts(
-  cacheKey: string,
-  cached: CachedDocumentArtifacts,
-): void {
-  sharedDocumentArtifactsCache.set(cacheKey, cached);
-  setSharedCachedDocumentAnalysis(cacheKey, {
-    version: cached.version,
-    text: cached.text,
-    analysis: cached.artifacts.analysis,
-    snapshot: cached.artifacts.analysisSnapshot,
-  });
-
-  if (sharedDocumentArtifactsCache.size <= MAX_SHARED_DOCUMENT_ANALYSIS_ENTRIES) {
-    return;
-  }
-
-  const oldestCacheKey = sharedDocumentArtifactsCache.keys().next().value;
-  if (oldestCacheKey !== undefined) {
-    sharedDocumentArtifactsCache.delete(oldestCacheKey);
-  }
-}
-
-function invalidateSharedDocumentArtifacts(
-  cacheKey: string,
-  cached: CachedDocumentAnalysis,
-): void {
-  const artifacts = sharedDocumentArtifactsCache.get(cacheKey);
-  if (
-    artifacts?.text === cached.text
-    && artifacts.artifacts.analysis === cached.analysis
-  ) {
-    return;
-  }
-  sharedDocumentArtifactsCache.delete(cacheKey);
-}
-
-function collectChangedRanges(
-  previousText: string,
-  nextText: string,
-): readonly RawChangedRange[] {
-  if (previousText === nextText) {
-    return [];
-  }
-
-  let prefix = 0;
-  const maxPrefix = Math.min(previousText.length, nextText.length);
-  while (
-    prefix < maxPrefix
-    && previousText.charCodeAt(prefix) === nextText.charCodeAt(prefix)
-  ) {
-    prefix++;
-  }
-
-  let previousSuffix = previousText.length;
-  let nextSuffix = nextText.length;
-  while (
-    previousSuffix > prefix
-    && nextSuffix > prefix
-    && previousText.charCodeAt(previousSuffix - 1) === nextText.charCodeAt(nextSuffix - 1)
-  ) {
-    previousSuffix--;
-    nextSuffix--;
-  }
-
-  return [{
-    fromOld: prefix,
-    toOld: previousSuffix,
-    fromNew: prefix,
-    toNew: nextSuffix,
-  }];
 }

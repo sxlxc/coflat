@@ -274,7 +274,7 @@ describe("tableSwapColLeft / tableSwapColRight (Alt-ArrowLeft / Alt-ArrowRight)"
     expect(pressKey(view, "ArrowRight", { altKey: true })).toBe(true);
     expect(view.state.doc.toString()).toBe([
       "|   R | L   |",
-      "| --: | :-- |",
+      "| ---: | :--- |",
       "|  bb | a   |",
     ].join("\n"));
     expect(view.state.selection.main.head).toBe(getCell(view, 3, 1).from);
@@ -283,7 +283,7 @@ describe("tableSwapColLeft / tableSwapColRight (Alt-ArrowLeft / Alt-ArrowRight)"
     expect(pressKey(view, "ArrowLeft", { altKey: true })).toBe(true);
     expect(view.state.doc.toString()).toBe([
       "| L   |   R |",
-      "| :-- | --: |",
+      "| :--- | ---: |",
       "| a   |  bb |",
     ].join("\n"));
     expect(view.state.selection.main.head).toBe(getCell(view, 3, 0).from);
@@ -367,22 +367,22 @@ describe("setColumnAlignment", () => {
     expect(setColumnAlignment("center")(view)).toBe(true);
     expect(view.state.doc.toString()).toBe([
       "| A   | B   |",
-      "| --- | :-: |",
+      "| --- | :---: |",
       "| 1   | 22  |",
       "| 333 | 4   |",
     ].join("\n"));
 
     forceParsing(view, view.state.doc.length, 5000);
     expect(setColumnAlignment("right")(view)).toBe(true);
-    expect(view.state.doc.line(2).text).toBe("| --- | --: |");
+    expect(view.state.doc.line(2).text).toBe("| --- | ----: |");
 
     forceParsing(view, view.state.doc.length, 5000);
     expect(setColumnAlignment("left")(view)).toBe(true);
-    expect(view.state.doc.line(2).text).toBe("| --- | :-- |");
+    expect(view.state.doc.line(2).text).toBe("| --- | :---- |");
 
     forceParsing(view, view.state.doc.length, 5000);
     expect(setColumnAlignment("none")(view)).toBe(true);
-    expect(view.state.doc.toString()).toBe(BASE_DOC);
+    expect(view.state.doc.toString()).toBe(BASE_DOC.replace("| --- | --- |", "| --- | ----- |"));
   });
 
   it("is a no-op (but handled) when the alignment is already set", () => {
@@ -398,7 +398,7 @@ describe("setColumnAlignment", () => {
 
     setCursor(view, getCell(view, 1, 0).from);
     expect(tableAlignColumnCenter(view)).toBe(true);
-    expect(view.state.doc.line(2).text).toBe("| :-: | --- |");
+    expect(view.state.doc.line(2).text).toBe("| :---: | --- |");
     expect(view.state.doc.line(1).text).toBe("| A | B |");
   });
 
@@ -416,7 +416,7 @@ describe("alignTables (Mod-Shift-a)", () => {
     "intro",
     "",
     "| A | Longer |",
-    "| - | - |",
+    "| --- | --- |",
     "| aaaa | b |",
     "",
     "middle",

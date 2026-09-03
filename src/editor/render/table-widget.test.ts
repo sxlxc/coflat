@@ -546,7 +546,7 @@ describe("TableWidget negative / edge-case", () => {
   });
 
   it("eq returns true even when tableFrom differs (position is not part of identity)", () => {
-    // eq() only checks tableText and macroSignature; tableFrom is updated lazily
+    // eq() checks content/render dependencies; tableFrom is updated lazily
     // in toDOM() via bestTable heuristic, not used for widget identity.
     const text = "| A |\n|---|\n| 1 |";
     const widgetA = new TableWidget(makeTable(), text, 0, {});

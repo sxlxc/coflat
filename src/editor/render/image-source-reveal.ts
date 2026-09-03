@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   type ChangeSet,
   type EditorState,
@@ -42,7 +42,7 @@ export function mapActiveSourceTargetThroughChanges(
 
 function findSelectionImageNode(state: EditorState): SyntaxNode | null {
   const selection = state.selection.main;
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const positions = selection.from === selection.to
     ? [selection.from]
     : [selection.from, selection.to];
@@ -85,7 +85,7 @@ export function addActiveImageSourceDecorations(
   target: ActiveImageSourceTarget,
   items: Range<Decoration>[],
 ): void {
-  syntaxTree(state).iterate({
+  getPandocSyntaxTree(state).iterate({
     from: target.from,
     to: target.to,
     enter(node) {

@@ -248,13 +248,13 @@ describe("mountEditor", () => {
     const parent = document.createElement("div");
     const editor = mountEditor({
       parent,
-      doc: "$$x$$ {#eq:one}\n\nSee [@eq:one].",
+      doc: "# Result {#sec:one}\n\nSee [@sec:one].",
       mode: "rich",
     });
 
     try {
       const reference = parent.querySelector<HTMLElement>("[data-reference-widget]");
-      expect(reference?.textContent).toBe("Eq. (1)");
+      expect(reference?.textContent).toBe("Section 1");
 
       reference?.dispatchEvent(new MouseEvent("mouseover", {
         bubbles: true,

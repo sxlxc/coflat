@@ -4,8 +4,11 @@ import {
   getCachedDocumentAnalysis,
   rememberCachedDocumentAnalysis,
 } from "../semantics/incremental/cached-document-analysis";
-import type { DocumentAnalysisSnapshot } from "../semantics/incremental/engine";
-import * as incrementalEngine from "../semantics/incremental/engine";
+import {
+  type CstDocumentAnalysisSnapshot,
+  getDocumentAnalysisRevision,
+  getDocumentAnalysisSliceRevision,
+} from "../semantics/cst-document-analysis";
 import { analyzeMarkdownDocument } from "../semantics/markdown-analysis";
 import {
   extractFileIndex,
@@ -64,14 +67,14 @@ describe("cached document analysis", () => {
     const after = getCachedDocumentAnalysis("# Title\n\nParagraph with [@ref].\n", before);
 
     expect(after.version).toBe(before.version + 1);
-    expect(incrementalEngine.getDocumentAnalysisRevision(after.snapshot)).toBe(
-      incrementalEngine.getDocumentAnalysisRevision(before.snapshot) + 1,
+    expect(getDocumentAnalysisRevision(after.snapshot)).toBe(
+      getDocumentAnalysisRevision(before.snapshot) + 1,
     );
-    expect(incrementalEngine.getDocumentAnalysisSliceRevision(after.snapshot, "references")).toBe(
-      incrementalEngine.getDocumentAnalysisSliceRevision(before.snapshot, "references") + 1,
+    expect(getDocumentAnalysisSliceRevision(after.snapshot, "references")).toBe(
+      getDocumentAnalysisSliceRevision(before.snapshot, "references") + 1,
     );
-    expect(incrementalEngine.getDocumentAnalysisSliceRevision(after.snapshot, "headings")).toBe(
-      incrementalEngine.getDocumentAnalysisSliceRevision(before.snapshot, "headings"),
+    expect(getDocumentAnalysisSliceRevision(after.snapshot, "headings")).toBe(
+      getDocumentAnalysisSliceRevision(before.snapshot, "headings"),
     );
   });
 
@@ -216,7 +219,7 @@ Some remark content.
   });
 
   describe("equation labels", () => {
-    it("extracts an equation label", () => {
+    it("does not extract an unsupported trailing equation label", () => {
       const content = `Some text.
 
 $$ e^{i\\pi} + 1 = 0 $$ {#eq:euler}
@@ -225,20 +228,17 @@ More text.`;
       const result = extractFileIndex(content, "math.md");
 
       const equations = result.entries.filter((e) => e.type === "equation");
-      expect(equations).toHaveLength(1);
-      expect(equations[0].label).toBe("eq:euler");
+      expect(equations).toHaveLength(0);
     });
 
-    it("extracts multiple equation labels", () => {
+    it("does not extract multiple unsupported trailing equation labels", () => {
       const content = `$$ a^2 + b^2 = c^2 $$ {#eq:pythag}
 
 $$ F = ma $$ {#eq:newton}`;
       const result = extractFileIndex(content, "formulas.md");
 
       const equations = result.entries.filter((e) => e.type === "equation");
-      expect(equations).toHaveLength(2);
-      expect(equations[0].label).toBe("eq:pythag");
-      expect(equations[1].label).toBe("eq:newton");
+      expect(equations).toHaveLength(0);
     });
   });
 
@@ -390,7 +390,7 @@ Real theorem.
       expect(theorems[0].label).toBe("real-thm");
     });
 
-    it("ignores equation labels inside fenced code blocks", () => {
+    it("does not infer equation labels inside or outside fenced code blocks", () => {
       const content = `\`\`\`latex
 $$ x^2 $$ {#eq:fake}
 \`\`\`
@@ -399,8 +399,7 @@ $$ y^2 $$ {#eq:real}`;
       const result = extractFileIndex(content, "test.md");
 
       const equations = result.entries.filter((e) => e.type === "equation");
-      expect(equations).toHaveLength(1);
-      expect(equations[0].label).toBe("eq:real");
+      expect(equations).toHaveLength(0);
     });
 
     it("ignores references inside fenced code blocks", () => {
@@ -453,7 +452,7 @@ See [@eq:class] for the class equation.`;
       expect(types).toContain("heading");
       expect(types).toContain("definition");
       expect(types).toContain("theorem");
-      expect(types).toContain("equation");
+      expect(types).not.toContain("equation");
 
       expect(result.references.length).toBeGreaterThanOrEqual(3);
     });
@@ -485,11 +484,6 @@ See [@eq:class] for the class equation.`;
 
       expect(indexedTargets).toEqual([
         {
-          type: "equation",
-          label: artifacts.ir.math[0]?.label,
-          title: undefined,
-        },
-        {
           type: "heading",
           label: "sec:intro",
           title: artifacts.ir.sections[0]?.heading,
@@ -505,7 +499,7 @@ See [@eq:class] for the class equation.`;
       );
     });
 
-    it("derives headings, equations, blocks, and references from the IR projection", () => {
+  it("derives headings, blocks, and references from the IR projection", () => {
       const content = [
         "# Intro {#sec:intro}",
         "",
@@ -532,12 +526,6 @@ See [@eq:class] for the class equation.`;
           label: artifacts.ir.blocks[0]?.label,
           title: artifacts.ir.blocks[0]?.title,
           content: artifacts.ir.blocks[0]?.content,
-        },
-        {
-          type: "equation",
-          label: artifacts.ir.math[0]?.label,
-          title: undefined,
-          content: artifacts.ir.math[0]?.latex,
         },
         {
           type: "heading",
@@ -676,14 +664,14 @@ New definition.
     const updated = updateFileInIndex(files, "doc.md", "# Title\n\nParagraph with [@ref].\n");
     const afterAnalysis = requireFileAnalysis(updated.get("doc.md"));
 
-    expect(incrementalEngine.getDocumentAnalysisRevision(afterAnalysis)).toBe(
-      incrementalEngine.getDocumentAnalysisRevision(beforeAnalysis) + 1,
+    expect(getDocumentAnalysisRevision(afterAnalysis)).toBe(
+      getDocumentAnalysisRevision(beforeAnalysis) + 1,
     );
-    expect(incrementalEngine.getDocumentAnalysisSliceRevision(afterAnalysis, "references")).toBe(
-      incrementalEngine.getDocumentAnalysisSliceRevision(beforeAnalysis, "references") + 1,
+    expect(getDocumentAnalysisSliceRevision(afterAnalysis, "references")).toBe(
+      getDocumentAnalysisSliceRevision(beforeAnalysis, "references") + 1,
     );
-    expect(incrementalEngine.getDocumentAnalysisSliceRevision(afterAnalysis, "headings")).toBe(
-      incrementalEngine.getDocumentAnalysisSliceRevision(beforeAnalysis, "headings"),
+    expect(getDocumentAnalysisSliceRevision(afterAnalysis, "headings")).toBe(
+      getDocumentAnalysisSliceRevision(beforeAnalysis, "headings"),
     );
   });
 
@@ -696,9 +684,9 @@ New definition.
     const updated = updateFileInIndex(files, "doc.md", "# Title\n\nParagraph with [@ref].\n");
     const afterAnalysis = requireFileAnalysis(updated.get("doc.md"));
 
-    expect((beforeAnalysis as DocumentAnalysisSnapshot).analysis).toBe(adoptedAnalysis);
-    expect(incrementalEngine.getDocumentAnalysisRevision(afterAnalysis)).toBe(
-      incrementalEngine.getDocumentAnalysisRevision(beforeAnalysis) + 1,
+    expect((beforeAnalysis as CstDocumentAnalysisSnapshot).analysis).toBe(adoptedAnalysis);
+    expect(getDocumentAnalysisRevision(afterAnalysis)).toBe(
+      getDocumentAnalysisRevision(beforeAnalysis) + 1,
     );
     expect(updated.get("doc.md")?.references[0]?.ids).toEqual(["ref"]);
   });
@@ -823,8 +811,8 @@ describe("BackgroundIndexer", () => {
     const afterFileIndex = await indexer.getFileIndex("doc.md");
     const afterAnalysis = requireFileAnalysis(afterFileIndex);
 
-    expect(incrementalEngine.getDocumentAnalysisRevision(afterAnalysis)).toBe(
-      incrementalEngine.getDocumentAnalysisRevision(beforeAnalysis) + 1,
+    expect(getDocumentAnalysisRevision(afterAnalysis)).toBe(
+      getDocumentAnalysisRevision(beforeAnalysis) + 1,
     );
     expect(afterFileIndex?.references[0]?.ids).toEqual(["ref"]);
   });

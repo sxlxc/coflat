@@ -1,4 +1,4 @@
-import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
+import { ensurePandocSyntaxTree, getPandocSyntaxTree } from "../cst";
 import {
   type ChangeDesc,
   type EditorState,
@@ -49,7 +49,7 @@ export const externalDocumentReferenceCatalogField =
   });
 
 function completeSyntaxTree(state: EditorState) {
-  return ensureSyntaxTree(state, state.doc.length, 1000) ?? syntaxTree(state);
+  return ensurePandocSyntaxTree(state, state.doc.length, 1000) ?? getPandocSyntaxTree(state);
 }
 
 function getEffectiveNumbering(state: EditorState): NumberingScheme {

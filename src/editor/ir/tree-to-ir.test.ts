@@ -168,29 +168,27 @@ describe("treeToIR: blocks from fenced divs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Math (labeled equations)
+// Math in the fixed Pandoc dialect
 // ---------------------------------------------------------------------------
 
-describe("treeToIR: math from labeled equations", () => {
-  it("extracts labeled display math", () => {
-    const ir = parseDoc("$$x^2 + y^2 = z^2$$ {#eq:pyth}\n");
+describe("treeToIR: math", () => {
+  it("extracts display math without inventing Coflat-only labels", () => {
+    const ir = parseDoc("$$x^2 + y^2 = z^2$$\n");
 
     expect(ir.math).toHaveLength(1);
     expect(ir.math[0].latex).toBe("x^2 + y^2 = z^2");
     expect(ir.math[0].display).toBe(true);
-    expect(ir.math[0].label).toBe("eq:pyth");
-    expect(ir.math[0].number).toBe(1);
+    expect(ir.math[0].label).toBeUndefined();
+    expect(ir.math[0].number).toBeUndefined();
   });
 
-  it("numbers multiple equations sequentially", () => {
-    const doc = "$$a$$ {#eq:a}\n\n$$b$$ {#eq:b}\n";
+  it("retains multiple unlabelled equations in source order", () => {
+    const doc = "$$a$$\n\n$$b$$\n";
     const ir = parseDoc(doc);
 
     expect(ir.math).toHaveLength(2);
-    expect(ir.math[0].number).toBe(1);
-    expect(ir.math[0].label).toBe("eq:a");
-    expect(ir.math[1].number).toBe(2);
-    expect(ir.math[1].label).toBe("eq:b");
+    expect(ir.math.map(math => math.latex)).toEqual(["a", "b"]);
+    expect(ir.math.every(math => math.label === undefined && math.number === undefined)).toBe(true);
   });
 });
 
@@ -358,7 +356,7 @@ describe("treeToIR: mixed document", () => {
       "Statement here.",
       ":::",
       "",
-      "$$x^2 + y^2$$ {#eq:pyth}",
+      "$$x^2 + y^2$$",
       "",
       "## Details",
       "",
@@ -388,7 +386,7 @@ describe("treeToIR: mixed document", () => {
 
     // Math
     expect(ir.math).toHaveLength(1);
-    expect(ir.math[0].label).toBe("eq:pyth");
+    expect(ir.math[0].label).toBeUndefined();
 
     // References (bracketed + narrative)
     expect(ir.references.length).toBeGreaterThanOrEqual(2);

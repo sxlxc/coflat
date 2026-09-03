@@ -83,7 +83,7 @@ function isSeparatorRow(line: string): boolean {
   const cells = splitRow(line);
   return (
     cells.length > 0 &&
-    cells.every((c) => /^:?-+:?$/.test(c.trim()))
+    cells.every((c) => /^:?-{3,}:?$/.test(c.trim()))
   );
 }
 
@@ -150,16 +150,15 @@ export function parseTable(lines: readonly string[]): ParsedTable | null {
 
 /** Build a separator cell string for the given alignment. */
 export function alignmentToSeparator(alignment: Alignment, width: number): string {
-  const dashes = Math.max(width, 3);
   switch (alignment) {
     case "left":
-      return ":" + "-".repeat(dashes - 1);
+      return ":" + "-".repeat(Math.max(width - 1, 3));
     case "right":
-      return "-".repeat(dashes - 1) + ":";
+      return "-".repeat(Math.max(width - 1, 3)) + ":";
     case "center":
-      return ":" + "-".repeat(Math.max(dashes - 2, 1)) + ":";
+      return ":" + "-".repeat(Math.max(width - 2, 3)) + ":";
     case "none":
-      return "-".repeat(dashes);
+      return "-".repeat(Math.max(width, 3));
   }
 }
 

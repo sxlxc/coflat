@@ -1346,12 +1346,13 @@ test("public demo reader surface shows shared hover previews", async ({ page }) 
     "page",
   );
 
-  const equationReference = reader.locator('[data-ref-key="eq:format-live"]').first();
-  await expect(equationReference).toBeVisible();
-  await equationReference.hover();
+  const theoremReference = reader.locator('[data-ref-key="thm:format-live"]').first();
+  await expect(theoremReference).toBeVisible();
+  await theoremReference.hover();
 
   const tooltip = page.locator('.cf-hover-preview-tooltip[data-visible="true"]');
-  await expect(tooltip).toContainText("E = mc^2");
+  await expect(tooltip).toContainText("Theorem 1");
+  await expect(tooltip).toContainText("editor and reader");
   await expectTooltipWithinViewport(page, tooltip);
 });
 
@@ -1361,7 +1362,7 @@ test("public format guide keeps reader and editor code block wrapping aligned", 
 
     await page.goto("/examples/simple/index.html?doc=format&surface=reader");
     const readerCode = page.locator("#reader .cf-doc-code-block code", {
-      hasText: "markdown+fenced_divs",
+      hasText: "markdown+tex_math_double_backslash",
     }).first();
     await expect(readerCode).toBeVisible();
     expectPreWrapMetrics(
@@ -1372,7 +1373,7 @@ test("public format guide keeps reader and editor code block wrapping aligned", 
     await page.goto("/examples/simple/index.html?doc=format&surface=editor");
     await expect(page.locator("#editor .cm-editor")).toBeVisible();
     const editorCode = page.locator("#editor .cm-line.cf-codeblock-last", {
-      hasText: "markdown+fenced_divs",
+      hasText: "markdown+tex_math_double_backslash",
     }).first();
     await expect(editorCode).toBeVisible();
     expectPreWrapMetrics(
@@ -1809,7 +1810,7 @@ test("public demo table cell editing does not inherit page-height scrolling", as
     rowHeight: el.closest("tr")?.getBoundingClientRect().height ?? 0,
   }));
 
-  await cell.dblclick();
+  await cell.click();
   const activeCell = page.locator(".cf-table-cell-editing");
   await expect(activeCell).toBeVisible();
 
@@ -1948,15 +1949,15 @@ test("public demo hydrates bibliography citations", async ({ page }) => {
 test("public demo shows hover panels for cross-references", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 826 });
   await page.goto("/examples/simple/index.html");
-  const gaussianReference = page.locator('[aria-label="[@eq:gaussian]"]').first();
-  await scrollThroughUntil(page, [1000, 1200, 1400, 1600, 1800, 2000, 2200], gaussianReference);
-  await expect(gaussianReference).toBeVisible();
+  const theoremReference = page.locator('[aria-label="[@thm:fundamental]"]').first();
+  await scrollThroughUntil(page, [1000, 1200, 1400, 1600, 1800, 2000, 2200], theoremReference);
+  await expect(theoremReference).toBeVisible();
 
-  await gaussianReference.hover();
+  await theoremReference.hover();
 
   const tooltip = page.locator('.cf-hover-preview-tooltip[data-visible="true"]');
-  await expect(tooltip).toContainText("Eq. (1)");
-  await expect(tooltip).toContainText("e^{-x^2}");
+  await expect(tooltip).toContainText("Fundamental Theorem");
+  await expect(tooltip).toContainText("For all");
   await expectTooltipWithinViewport(page, tooltip);
 });
 
@@ -2130,7 +2131,6 @@ test("theme presets keep reader and CM6 rich editor surfaces visually aligned", 
     [".parity-reader strong", ".parity-editor .cf-bold", ["font-weight"]],
     [".parity-reader em", ".parity-editor .cf-italic", ["font-style"]],
     [".parity-reader del", ".parity-editor .cf-strikethrough", ["text-decoration-line"]],
-    [".parity-reader mark", ".parity-editor .cf-highlight", ["background-color", "border-radius", "color", "padding-left", "padding-right"]],
     [".parity-reader .cf-doc-code-token", ".parity-editor .cf-inline-code", ["background-color", "border-radius", "font-family", "font-size", "padding-left", "padding-right"]],
     [".parity-reader .cf-doc-paragraph .cf-doc-inline-math", ".parity-editor .cf-paragraph-flow-widget .cf-doc-paragraph .cf-doc-inline-math", ["color", "font-size", "font-style", "font-weight"]],
     [".parity-reader .cf-doc-paragraph .cf-doc-inline-math .katex", ".parity-editor .cf-paragraph-flow-widget .cf-doc-paragraph .cf-doc-inline-math .katex", ["color", "font-size", "font-style", "font-weight"]],
@@ -2196,6 +2196,9 @@ test("theme presets keep reader and CM6 rich editor surfaces visually aligned", 
   for (const preset of PARITY_PIXEL_PRESETS) {
     await setParitySource(page, NESTED_MATH_PARITY_SOURCE);
     await page.goto(`/tests/e2e/fixtures/parity.html${preset === "default" ? "" : `?preset=${preset}`}`);
+    await expect(page.locator(".parity-reader mark, .parity-editor .cf-highlight")).toHaveCount(0);
+    await expect(page.locator(".parity-reader")).toContainText("==highlighted text==");
+    await expect(page.locator(".parity-editor")).toContainText("==highlighted text==");
     for (const [readerSelector, editorSelector, properties] of stylePairs) {
       await expectStylesMatch(readerSelector, editorSelector, properties);
     }
@@ -2787,6 +2790,7 @@ test("public showcase keeps reader and CM6 rich editor block geometry aligned", 
     );
     const missingReaderRows = editorRows.filter((editor) =>
       !editor.className.includes("cf-block-header") &&
+      !(editor.from === editor.to && editor.text === "") &&
       !readerRows.some((reader) => rangesOverlap(editor, reader))
     );
     const mismatches = comparableReaderRows.flatMap((reader) => {

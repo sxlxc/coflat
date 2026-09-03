@@ -15,15 +15,15 @@ describe("documentAnalysisField perf spans", () => {
     clearFrontendPerf();
   });
 
-  it("records create and syntax-tree spans for initial analysis", () => {
+  it("records the CST projection span for initial analysis", () => {
     const state = createEditorState("# Alpha\n\nBody\n", {
       extensions: [markdown(), documentAnalysisField],
     });
     void state.field(documentAnalysisField);
 
     const spanNames = getFrontendPerfSnapshot().recent.map((record) => record.name);
-    expect(spanNames).toContain("cm6.documentAnalysis.create");
-    expect(spanNames).toContain("cm6.documentAnalysis.ensureSyntaxTree");
+    expect(spanNames).toContain("cm6.documentAnalysis.cstProjection");
+    expect(spanNames).not.toContain("cm6.documentAnalysis.ensureSyntaxTree");
   });
 
   it("records text materialization after repeated text-source slices", () => {
@@ -57,7 +57,7 @@ describe("documentAnalysisField perf spans", () => {
     expect(spanNames).not.toContain("cm6.documentAnalysis.text.materialize");
   });
 
-  it("records update and slice merge spans for semantic updates", () => {
+  it("records one CST projection span for semantic updates", () => {
     const state = createEditorState("# Alpha\n\nBody\n", {
       extensions: [markdown(), documentAnalysisField],
     });
@@ -69,7 +69,7 @@ describe("documentAnalysisField perf spans", () => {
     void updated.field(documentAnalysisField);
 
     const spanNames = getFrontendPerfSnapshot().recent.map((record) => record.name);
-    expect(spanNames).toContain("cm6.documentAnalysis.update");
-    expect(spanNames).toContain("cm6.documentAnalysis.update.sliceMerge");
+    expect(spanNames).toContain("cm6.documentAnalysis.cstProjection");
+    expect(spanNames).not.toContain("cm6.documentAnalysis.update.sliceMerge");
   });
 });

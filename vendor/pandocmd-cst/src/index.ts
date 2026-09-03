@@ -15,7 +15,7 @@ export {
 } from "./nodes.js";
 export {
   PandocParser, SyntaxTreeImpl, serializeTree,
-  type ParseUpdate, type ResolveBias, type SyntaxNode, type SyntaxTree, type TreeCursor, type TreeVisitor,
+  type ParseMetrics, type ParseUpdate, type ResolveBias, type SyntaxNode, type SyntaxTree, type TreeCursor, type TreeVisitor,
 } from "./tree.js";
 export type {
   DocumentSemantics, ExampleResolution, FootnoteResolution, HeadingInfo, ReferenceResolution,

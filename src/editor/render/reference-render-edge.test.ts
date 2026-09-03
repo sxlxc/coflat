@@ -92,11 +92,12 @@ describe("collectReferenceRanges edge-cases", () => {
     view = createPluginView(doc, 0);
     expect(view.dom.querySelector("[data-reference-widget]")).not.toBeNull();
 
-    // Typing a fence opener on a line without "@" turns the rest of the
-    // document into code; the same doc-changed transaction's pending
-    // consumption removes the reference from the analysis while the
-    // doc-change dirty ranges stay empty (no "@" near the edit).
-    view.dispatch({ changes: { from: 0, insert: "```\n" } });
+    // Add a complete fence in one multi-change transaction. Pandoc does not
+    // classify an unclosed backtick fence as a code block.
+    view.dispatch({ changes: [
+      { from: 0, insert: "```\n" },
+      { from: doc.length, insert: "\n```" },
+    ] });
 
     // Test premise: the reference is gone from the analysis in-transaction.
     expect(view.state.field(documentAnalysisField).references).toHaveLength(0);

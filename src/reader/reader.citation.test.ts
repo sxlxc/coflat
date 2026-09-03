@@ -125,7 +125,7 @@ describe("reader citations", () => {
     expect(html).not.toContain("cf-bibliography");
   });
 
-  it("excludes nocite keys that resolve to local reference targets", () => {
+  it("keeps nocite keys when a trailing math attribute is not a local target", () => {
     const src = [
       "---",
       "nocite: \"@eq:gaussian\"",
@@ -140,10 +140,10 @@ describe("reader citations", () => {
     const { html } = renderToHtml(src, ctxWith(["eq:gaussian"]), {
       resolveReferences: true,
     });
-    expect(html).not.toContain("cf-bibliography");
+    expect(html).toContain("cf-bibliography");
   });
 
-  it("prefers local reference targets over colliding citation keys for the bibliography", () => {
+  it("treats a citation key colliding only with an unsupported math label as a citation", () => {
     const src = [
       "$$",
       "x^2",
@@ -155,8 +155,8 @@ describe("reader citations", () => {
       resolveReferences: true,
     });
 
-    expect(html).toContain("(1)");
-    expect(html).not.toContain("cf-bibliography");
-    expect(html).not.toContain("<i>eq:gaussian</i>");
+    expect(html).toContain("[1]");
+    expect(html).toContain("cf-bibliography");
+    expect(html).toContain("<i>eq:gaussian</i>");
   });
 });

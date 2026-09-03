@@ -64,10 +64,7 @@ describe("buildDocumentReferenceCatalog", () => {
       kind: "block",
       displayLabel: "Theorem 1",
     });
-    expect(getPreferredDocumentReferenceTarget(catalog, "eq:main")).toMatchObject({
-      kind: "equation",
-      displayLabel: "Eq. (1)",
-    });
+    expect(getPreferredDocumentReferenceTarget(catalog, "eq:main")).toBeUndefined();
   });
 
   it("preserves duplicate and preferred target lookup when mapping positions", () => {
@@ -108,9 +105,6 @@ describe("buildDocumentReferenceCatalog", () => {
       displayLabel: "Theorem 1",
       from: theorem.from + 8,
     });
-    expect(getPreferredDocumentReferenceTarget(mapped, "eq:main")).toMatchObject({
-      kind: "equation",
-      displayLabel: "Eq. (1)",
-    });
+    expect(getPreferredDocumentReferenceTarget(mapped, "eq:main")).toBeUndefined();
   });
 });

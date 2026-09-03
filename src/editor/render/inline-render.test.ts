@@ -308,10 +308,10 @@ describe("renderInlineMarkdown — strikethrough", () => {
 });
 
 describe("renderInlineMarkdown — highlight", () => {
-  it("renders ==text== as <mark>", () => {
+  it("keeps disabled ==highlight== syntax literal", () => {
     const html = render("==highlighted==");
-    expect(html).toContain('<mark class="cf-highlight">');
-    expect(html).toContain("highlighted");
+    expect(html).not.toContain("<mark");
+    expect(html).toContain("==highlighted==");
   });
 });
 

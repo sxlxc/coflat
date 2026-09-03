@@ -36,7 +36,7 @@ describe("collectReferenceRanges", () => {
     expect(widgetClass(ref)).toBe("CrossrefWidget");
   });
 
-  it("routes bracketed equation reference to CrossrefWidget", () => {
+  it("routes a source-only equation reference to UnresolvedRefWidget", () => {
     const doc = [
       "$$E = mc^2$$ {#eq:energy}",
       "",
@@ -49,7 +49,7 @@ describe("collectReferenceRanges", () => {
       (r) => view.state.sliceDoc(r.from, r.to) === "[@eq:energy]",
     );
     expectPresent(ref, "reference range");
-    expect(widgetClass(ref)).toBe("CrossrefWidget");
+    expect(widgetClass(ref)).toBe("UnresolvedRefWidget");
   });
 
   it("defaults bracketed bibliography ids to UnresolvedRefWidget", () => {
@@ -221,7 +221,7 @@ describe("collectReferenceRanges", () => {
       "First.",
       ":::",
       "",
-      "::: {.table #tbl:apps} Application table.",
+      '::: {.table #tbl:apps title="Application table."}',
       "",
       "| Class | Runtime |",
       "| --- | --- |",

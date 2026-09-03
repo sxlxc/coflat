@@ -78,8 +78,8 @@ import { appendParagraphDom, createParagraphDom } from "../../core/paragraph-sur
 import {
   type FrontmatterConfig,
   parseFrontmatter,
-  parseMarkdownSource,
-} from "../../core/parser";
+} from "../../core/parser/frontmatter";
+import { parsePandocCstSource } from "../../core/cst/pandoc-syntax-tree";
 import {
   blockTitleOverridesFromConfig,
   computeBlockNumbers,
@@ -142,7 +142,7 @@ export function renderPreviewBlockContentToDom(
 ): void {
   container.textContent = "";
 
-  const tree = parseMarkdownSource(text, "html-render");
+  const tree = parsePandocCstSource(text);
   const semantics = analyzeDocumentSemantics(stringTextSource(text), tree);
   const config = options.config ?? parseFrontmatter(text).config;
   const blockNumbers = computeBlockNumbers(

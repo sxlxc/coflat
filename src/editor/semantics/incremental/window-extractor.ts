@@ -306,9 +306,10 @@ export function collectStructuralWindow(
     }
   }
 
-  if (options?.includeNarrativeRefs !== false) {
-    collectNarrativeRefsInWindow(doc, result.excludedRanges, range, result.narrativeRefs);
-  }
+  // Citation/reference candidates are projected from authoritative CST nodes
+  // as Link nodes and collected above. Do not run a document-side reference
+  // scanner: Markdown structure has one source of truth in M6.
+  void options;
 
   return result;
 }

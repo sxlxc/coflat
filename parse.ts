@@ -1,23 +1,16 @@
 /**
  * `@chaoxu/coflat/parse` — Node-importable parsing utilities.
  *
- * No DOM, no React, no CodeMirror view. Reuses the same Lezer markdown
- * parser the editor uses internally so that escape rules and code-span
- * exclusion are honored consistently. See READER.md "Lezer is the parser.
- * Regex is a sieve." for the policy.
+ * No DOM, no React, no CodeMirror view. Structural extraction reads the same
+ * immutable Pandoc CST used by the editor, so syntax eligibility and opaque
+ * regions cannot diverge from the authoritative document snapshot.
  */
 
-import type { SyntaxNodeRef } from "@lezer/common";
-
 import { isMap, isScalar, parse as parseYaml, parseDocument as parseYamlDocument, stringify as stringifyYaml } from "yaml";
-import { NODE } from "./src/core/constants/node-types";
+import { PandocParser, type SyntaxNode as PandocSyntaxNode } from "pandocmd-cst";
 import { buildLineOffsets, lineAt } from "./src/core/lib/line-offsets";
-import {
-  BRACKETED_REFERENCE_EXACT_RE,
-  NARRATIVE_REFERENCE_GLOBAL_RE,
-  parseReferenceClusterBody,
-} from "./src/core/lib/reference-grammar";
-import { extractRawFrontmatter, parseMarkdownSource } from "./src/core/parser";
+import { parsePandocCstSource } from "./src/core/cst/pandoc-syntax-tree";
+import { extractRawFrontmatter } from "./src/core/parser/frontmatter";
 import { parseFrontmatter as parseCoflatFrontmatter } from "./src/core/parser/frontmatter";
 import type {
   DocumentReferenceTarget,
@@ -70,131 +63,16 @@ export interface ExtractedReference {
   readonly bracketed?: boolean;
 }
 
-function getUrlChild(node: SyntaxNodeRef): { from: number; to: number } | null {
-  const url = node.node.getChild("URL");
-  if (!url) return null;
-  return { from: url.from, to: url.to };
+function directChild(node: PandocSyntaxNode, kind: PandocSyntaxNode["kind"]): PandocSyntaxNode | null {
+  for (const child of node.children()) if (child.kind === kind) return child;
+  return null;
 }
 
-function emitLinkOrRef(
-  source: string,
-  node: SyntaxNodeRef,
-  out: ExtractedReference[],
-): void {
-  // A Link node covers both `[text](href)` and the citation cluster `[@key]`
-  // because they look like links to the markdown parser. Try the citation
-  // cluster grammar first; if it matches the *exact* shape `[…]`, this is a
-  // bracketed reference, not a link.
-  const raw = source.slice(node.from, node.to);
-  const clusterMatch = BRACKETED_REFERENCE_EXACT_RE.exec(raw);
-  if (clusterMatch) {
-    const body = clusterMatch[1] ?? "";
-    const parts = parseReferenceClusterBody(body);
-    if (parts) {
-      for (const part of parts) {
-        // markerFrom/markerTo are offsets within `body`; body starts at
-        // node.from + 1 (after the opening `[`).
-        const from = node.from + 1 + part.markerFrom;
-        const to = node.from + 1 + part.markerTo;
-        const key = part.id;
-        out.push({
-          kind: "crossref",
-          raw: source.slice(from, to),
-          from,
-          to,
-          key,
-          bracketed: true,
-        });
-      }
-      return;
-    }
-  }
-
-  const url = getUrlChild(node);
-  if (!url) return;
-  const href = source.slice(url.from, url.to);
-  out.push({
-    kind: "link",
-    raw,
-    from: node.from,
-    to: node.to,
-    href,
-  });
-}
-
-function emitImage(
-  source: string,
-  node: SyntaxNodeRef,
-  out: ExtractedReference[],
-): void {
-  const url = getUrlChild(node);
-  if (!url) return;
-  out.push({
-    kind: "image",
-    raw: source.slice(node.from, node.to),
-    from: node.from,
-    to: node.to,
-    href: source.slice(url.from, url.to),
-  });
-}
-
-function emitAutolink(
-  source: string,
-  node: SyntaxNodeRef,
-  out: ExtractedReference[],
-): void {
-  const url = getUrlChild(node);
-  // Autolink uses URL child for the inside of `<...>`.
-  const href = url
-    ? source.slice(url.from, url.to)
-    : source.slice(node.from + 1, node.to - 1);
-  out.push({
-    kind: "link",
-    raw: source.slice(node.from, node.to),
-    from: node.from,
-    to: node.to,
-    href,
-  });
-}
-
-/** Ranges to skip when scanning paragraph text for bare `@key` (narrative refs). */
-type Range = { from: number; to: number };
-
-function inRanges(pos: number, ranges: readonly Range[]): boolean {
-  for (const r of ranges) {
-    if (pos >= r.from && pos < r.to) return true;
-  }
-  return false;
-}
-
-/**
- * Lezer-markdown does not tokenize bare `@key` narrative refs. Apply the
- * narrative-ref regex sieve over the entire source, then filter out matches
- * that fall inside ranges the parser has already claimed (code, math, links,
- * footnote refs, fenced divs' fence/attrs, etc.). This matches the policy:
- * Lezer is the parser; regex is only a sieve over text the parser has
- * already determined is plain inline.
- */
-function collectNarrativeRefs(
-  source: string,
-  excludedRanges: readonly Range[],
-  out: ExtractedReference[],
-): void {
-  for (const match of source.matchAll(NARRATIVE_REFERENCE_GLOBAL_RE)) {
-    const from = match.index ?? 0;
-    if (inRanges(from, excludedRanges)) continue;
-    const id = match[1] ?? "";
-    if (!id) continue;
-    const to = from + match[0].length;
-    out.push({
-      kind: "crossref",
-      raw: source.slice(from, to),
-      from,
-      to,
-      key: id,
-      bracketed: false,
-    });
-  }
+function linkDestination(node: PandocSyntaxNode): string | null {
+  const destination = directChild(node, "LinkDestination");
+  if (!destination) return null;
+  const raw = destination.text();
+  return raw.startsWith("<") && raw.endsWith(">") ? raw.slice(1, -1) : raw;
 }
 
 /**
@@ -205,51 +83,58 @@ function collectNarrativeRefs(
  * server indexers.
  */
 export function extractReferences(source: string): ExtractedReference[] {
-  const tree = parseMarkdownSource(source, "semantic");
+  const tree = new PandocParser().parse(source);
   const out: ExtractedReference[] = [];
-  const excluded: Range[] = [];
-
-  // Lezer's markdown parser doesn't know about frontmatter; the leading
-  // `---\n...\n---` block parses as HorizontalRule + headings. Exclude
-  // it textually so bare `@key` in YAML values isn't extracted as a ref.
-  const frontmatter = extractRawFrontmatter(source);
-  if (frontmatter) excluded.push({ from: 0, to: frontmatter.end });
 
   tree.iterate({
     enter(node) {
-      switch (node.name) {
-        case NODE.Link:
-          emitLinkOrRef(source, node, out);
-          // Whatever this node turned into, its span is claimed.
-          excluded.push({ from: node.from, to: node.to });
+      switch (node.kind) {
+        case "Link": {
+          const href = linkDestination(node);
+          if (href !== null) out.push({ kind: "link", raw: node.text(), from: node.from, to: node.to, href });
           return false;
-        case NODE.Image:
-          emitImage(source, node, out);
-          excluded.push({ from: node.from, to: node.to });
+        }
+        case "Image": {
+          const href = linkDestination(node);
+          if (href !== null) out.push({ kind: "image", raw: node.text(), from: node.from, to: node.to, href });
           return false;
-        case "Autolink":
-          emitAutolink(source, node, out);
-          excluded.push({ from: node.from, to: node.to });
+        }
+        case "AutoLink":
+          out.push({ kind: "link", raw: node.text(), from: node.from, to: node.to, href: node.text().slice(1, -1) });
           return false;
-        case NODE.InlineCode:
-        case NODE.InlineMath:
-        case NODE.DisplayMath:
-        case NODE.FencedCode:
-        case NODE.FootnoteRef:
-        case NODE.HTMLBlock:
-        case "CommentBlock":
-        case NODE.FencedDivFence:
-        case NODE.FencedDivAttributes:
-        case NODE.Frontmatter:
-          excluded.push({ from: node.from, to: node.to });
+        case "Citation":
+          for (const item of node.children()) {
+            if (item.kind !== "CitationItem") continue;
+            const key = directChild(item, "CitationKey");
+            if (!key || key.from === 0 || source[key.from - 1] !== "@") continue;
+            out.push({
+              kind: "crossref",
+              raw: source.slice(key.from - 1, key.to),
+              from: key.from - 1,
+              to: key.to,
+              key: key.text(),
+              bracketed: true,
+            });
+          }
           return false;
+        case "ExampleReference": {
+          const key = directChild(node, "CitationKey");
+          if (!key || key.from === 0 || source[key.from - 1] !== "@") return false;
+          out.push({
+            kind: "crossref",
+            raw: source.slice(key.from - 1, key.to),
+            from: key.from - 1,
+            to: key.to,
+            key: key.text(),
+            bracketed: false,
+          });
+          return false;
+        }
         default:
           return undefined;
       }
     },
   });
-
-  collectNarrativeRefs(source, excluded, out);
 
   out.sort((a, b) => a.from - b.from || a.to - b.to);
   return out;
@@ -366,7 +251,7 @@ export function buildReferenceCatalog(
   source: string,
   _options: ReferenceCatalogOptions = {},
 ): ReferenceCatalog {
-  const tree = parseMarkdownSource(source, "semantic");
+  const tree = parsePandocCstSource(source);
   const analysis = analyzeDocumentSemantics(stringTextSource(source), tree);
   const lineOffsets = buildLineOffsets(source);
   const frontmatter = parseCoflatFrontmatter(source);
@@ -435,7 +320,7 @@ export function analyzeReferences(source: string): ReferenceCatalog {
 
 /** Return the first level-1 ATX heading text using the Coflat Lezer parser. */
 export function extractFirstH1(source: string): string | null {
-  const tree = parseMarkdownSource(source, "semantic");
+  const tree = parsePandocCstSource(source);
   const headings = analyzeHeadings(stringTextSource(source), tree);
   return headings.find((heading) => heading.level === 1)?.text ?? null;
 }

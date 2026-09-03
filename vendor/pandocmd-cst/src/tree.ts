@@ -2,8 +2,8 @@ import { PANDOCMD_PARSER_VERSION, PANDOCMD_READER_FORMAT } from "./dialect.js";
 import type { ChangedRange, SemanticChangedRange, TextChange, UnchangedSegment } from "./changes.js";
 import { mergeChangedRanges, validateChanges } from "./changes.js";
 import { LineIndex } from "./line-index.js";
-import { green, greenDocumentChildAt, greenDocumentReplace, normalizedReferenceLabel, sameGreenShape, type GreenNode, type NodeKind, type NodeProperty, type SourceRange } from "./nodes.js";
-import { parseBlocks, type BlockCheckpoint, type BlockParseResult } from "./block/parser.js";
+import { fenceClosed, green, greenDocument, greenDocumentChildAt, greenDocumentChildAtIndex, greenDocumentReplace, normalizedReferenceLabel, sameGreenShape, type GreenNode, type NodeKind, type NodeProperty, type SourceRange } from "./nodes.js";
+import { checkpointsForTree, parseBlocks, type BlockCheckpoint, type BlockParseResult } from "./block/parser.js";
 import { DocumentSemanticsImpl, type DocumentSemantics, type SemanticSnapshot } from "./semantic/index.js";
 
 export type ResolveBias = "left" | "right";
@@ -68,7 +68,7 @@ class SyntaxNodeImpl implements SyntaxNode {
   readonly #parent: SyntaxNodeImpl | null;
   readonly #index: number;
   readonly from: number;
-  #children: readonly SyntaxNodeImpl[] | null = null;
+  #children: Array<SyntaxNodeImpl | undefined> | null = null;
 
   constructor(tree: SyntaxTreeImpl, node: GreenNode, parent: SyntaxNodeImpl | null, index: number, from: number) {
     this[internalTree] = tree; this[internalGreen] = node; this.#parent = parent; this.#index = index; this.from = from;
@@ -79,15 +79,36 @@ class SyntaxNodeImpl implements SyntaxNode {
   get childCount(): number { return this[internalGreen].children.length; }
   get treeToken(): object { return this[internalTree].token; }
   #childNodes(): readonly SyntaxNodeImpl[] {
-    if (this.#children) return this.#children;
+    if (this.#children && Object.isFrozen(this.#children)) return this.#children as readonly SyntaxNodeImpl[];
     let offset = this.from;
-    const result = this[internalGreen].children.map((child, index) => {
-      const red = new SyntaxNodeImpl(this[internalTree], child, this, index, offset);
-      offset += child.length; return red;
-    });
-    return this.#children = Object.freeze(result);
+    const result = this.#children ?? new Array<SyntaxNodeImpl | undefined>(this.childCount);
+    let index = 0;
+    for (const child of this[internalGreen].children) {
+      result[index] ??= new SyntaxNodeImpl(this[internalTree], child, this, index, offset);
+      offset += child.length;
+      index++;
+    }
+    this.#children = Object.freeze(result) as unknown as Array<SyntaxNodeImpl | undefined>;
+    return this.#children as readonly SyntaxNodeImpl[];
   }
-  child(index: number): SyntaxNode | null { return this.#childNodes()[index] ?? null; }
+  child(index: number): SyntaxNode | null {
+    if (!Number.isInteger(index) || index < 0 || index >= this.childCount) return null;
+    const cached = this.#children?.[index];
+    if (cached) return cached;
+    if (this.kind !== "Document") return this.#childNodes()[index] ?? null;
+    const located = greenDocumentChildAtIndex(this[internalGreen], index);
+    if (!located) return null;
+    const result = new SyntaxNodeImpl(
+      this[internalTree],
+      located.child,
+      this,
+      index,
+      this.from + located.from,
+    );
+    const children = this.#children ??= new Array<SyntaxNodeImpl | undefined>(this.childCount);
+    children[index] = result;
+    return result;
+  }
   firstChild(): SyntaxNode | null { return this.child(0); }
   lastChild(): SyntaxNode | null { return this.child(this.childCount - 1); }
   nextSibling(): SyntaxNode | null { return this.#parent?.child(this.#index + 1) ?? null; }
@@ -173,7 +194,18 @@ export class SyntaxTreeImpl implements SyntaxTree {
       if (descend) for (const child of node.children()) visit(child);
       leave?.(node);
     };
-    visit(this.root);
+    const descend = enter?.(this.root) !== false;
+    if (descend && range.from < range.to && this.length > 0) {
+      const located = greenDocumentChildAt(this.greenRoot, Math.min(range.from, this.length - 1));
+      if (located) {
+        for (let index = located.index; index < this.root.childCount; index++) {
+          const child = this.root.child(index);
+          if (!child || child.from >= range.to) break;
+          visit(child);
+        }
+      }
+    }
+    leave?.(this.root);
   }
   changedRanges(previous: SyntaxTree): readonly ChangedRange[] {
     if (previous === this) return Object.freeze([]);
@@ -235,19 +267,32 @@ function indexGreen(node: GreenNode, from: number, index: Map<string, GreenNode>
   for (const child of node.children) { indexGreen(child, cursor, index); cursor += child.length; }
 }
 
-function reuseGreen(node: GreenNode, from: number, newText: string, oldText: string, oldIndex: ReadonlyMap<string, GreenNode>, segments: readonly UnchangedSegment[]): GreenNode {
+function reuseGreen(
+  node: GreenNode,
+  from: number,
+  newText: string,
+  oldText: string,
+  oldIndex: ReadonlyMap<string, GreenNode>,
+  segments: readonly UnchangedSegment[],
+  metrics: { reused: number },
+): GreenNode {
   const oldRange = oldRangeFor(from, from + node.length, segments);
   if (oldRange) {
     const candidate = oldIndex.get(`${oldRange[0]}:${oldRange[1]}:${node.kind}`);
-    if (candidate && oldText.slice(oldRange[0], oldRange[1]) === newText.slice(from, from + node.length) && sameGreenShape(candidate, node)) return candidate;
+    if (candidate && oldText.slice(oldRange[0], oldRange[1]) === newText.slice(from, from + node.length) && sameGreenShape(candidate, node)) {
+      metrics.reused++;
+      return candidate;
+    }
   }
   if (!node.children.length) return node;
   let cursor = from, changed = false;
   const children = node.children.map(child => {
-    const reused = reuseGreen(child, cursor, newText, oldText, oldIndex, segments);
+    const reused = reuseGreen(child, cursor, newText, oldText, oldIndex, segments, metrics);
     cursor += child.length; if (reused !== child) changed = true; return reused;
   });
-  return changed ? green(node.kind, children, node.properties) : node;
+  return changed
+    ? node.kind === "Document" ? greenDocument(children) : green(node.kind, children, node.properties)
+    : node;
 }
 
 function semanticChanges(previous: SyntaxTreeImpl, next: SyntaxTreeImpl, segments: readonly UnchangedSegment[]): readonly SemanticChangedRange[] {
@@ -325,6 +370,7 @@ function structuralChangedRanges(previous: SyntaxTreeImpl, next: SyntaxTreeImpl,
 interface LocalizedBlockResult extends BlockParseResult {
   readonly changed: ChangedRange;
   readonly semanticRelevant: boolean;
+  readonly linesScanned: number;
 }
 
 function greenHasSemantic(node: GreenNode): boolean {
@@ -334,27 +380,93 @@ function greenHasSemantic(node: GreenNode): boolean {
   return false;
 }
 
+function mappedCheckpoints(
+  newText: string,
+  previous: SyntaxTreeImpl,
+  root: GreenNode,
+  changes: readonly TextChange[],
+): readonly BlockCheckpoint[] {
+  const changesLineCount = changes.some(change =>
+    /[\r\n]/.test(previous.text.slice(change.oldFrom, change.oldTo))
+      || /[\r\n]/.test(newText.slice(change.newFrom, change.newTo))
+  );
+  if (changesLineCount) return checkpointsForTree(newText, root);
+  const mapOffset = (offset: number): number => {
+    let delta = 0;
+    for (const change of changes) {
+      if (offset < change.oldFrom) break;
+      if (offset <= change.oldTo) return change.newFrom;
+      delta += (change.newTo - change.newFrom) - (change.oldTo - change.oldFrom);
+    }
+    return offset + delta;
+  };
+  return Object.freeze(previous.checkpoints.map(checkpoint => Object.freeze({
+    ...checkpoint,
+    offset: mapOffset(checkpoint.offset),
+  })));
+}
+
 function localizedBlockParse(newText: string, previous: SyntaxTreeImpl, changes: readonly TextChange[]): LocalizedBlockResult | null {
-  if (changes.length !== 1) return null;
-  const change = changes[0]!;
-  const oldChangedText = previous.text.slice(change.oldFrom, change.oldTo);
-  const newChangedText = newText.slice(change.newFrom, change.newTo);
-  if (/[\r\n]/.test(oldChangedText) || /[\r\n]/.test(newChangedText)) return null;
-  const located = greenDocumentChildAt(previous.greenRoot, change.oldFrom);
+  if (changes.length === 0) return null;
+  const firstChange = changes[0]!;
+  const lookupOffset = firstChange.oldFrom === previous.length && previous.length > 0
+    ? previous.length - 1
+    : firstChange.oldFrom;
+  const located = greenDocumentChildAt(previous.greenRoot, lookupOffset);
   const block = located?.child, blockFrom = located?.from ?? 0, blockIndex = located?.index ?? -1;
-  if (!block || !new Set<NodeKind>(["Paragraph", "AtxHeading", "SetextHeading", "FencedCodeBlock", "IndentedCodeBlock"]).has(block.kind)) return null;
-  const delta = (change.newTo - change.newFrom) - (change.oldTo - change.oldFrom);
-  const blockTo = blockFrom + block.length, newBlockTo = blockTo + delta;
+  const localKinds = new Set<NodeKind>([
+    "Paragraph", "AtxHeading", "SetextHeading", "FencedCodeBlock", "IndentedCodeBlock",
+    "BlockQuote", "BulletList", "OrderedList", "DefinitionList", "LineBlock", "FencedDiv",
+    "NativeHtmlDiv", "PipeTable", "SimpleTable", "MultilineTable", "GridTable",
+  ]);
+  if (!block || !localKinds.has(block.kind)) return null;
+  const blockTo = blockFrom + block.length;
+  if (blockFrom > 0) {
+    const firstLineEnd = previous.text.indexOf("\n", blockFrom);
+    const touchesFirstLine = changes.some(change =>
+      change.oldFrom <= (firstLineEnd < 0 ? blockTo : firstLineEnd)
+    );
+    const prefixWithoutEnding = previous.text.slice(0, blockFrom).replace(/(?:\r\n|\r|\n)$/, "");
+    const previousLineFrom = Math.max(
+      prefixWithoutEnding.lastIndexOf("\n"),
+      prefixWithoutEnding.lastIndexOf("\r"),
+    ) + 1;
+    const followsNonblankLine = prefixWithoutEnding.slice(previousLineFrom).trim().length > 0;
+    // The edited block's first line can become a Setext underline for the
+    // preceding paragraph (for example, splitting `- item` after `- `).
+    // Reparse both blocks through the full path rather than replacing only
+    // the block that owned the line in the old tree.
+    if (touchesFirstLine && followsNonblankLine) return null;
+  }
+  let delta = 0;
+  for (const change of changes) {
+    if (change.oldFrom < blockFrom || change.oldTo > blockTo) return null;
+    // A boundary edit can absorb text from an adjacent block even when the
+    // reparsed old block still has the same kind. Reparse the document in
+    // that case so, for example, deleting a heading's final line ending lets
+    // the following blank line become the heading's new terminator.
+    if (
+      (change.oldFrom === blockFrom && blockFrom > 0)
+      || (change.oldTo === blockTo && blockTo < previous.length)
+    ) return null;
+    delta += (change.newTo - change.newFrom) - (change.oldTo - change.oldFrom);
+  }
+  const newBlockTo = blockTo + delta;
   if (newBlockTo < blockFrom || newBlockTo > newText.length || newBlockTo - blockFrom > 4096) return null;
   const parsedBlock = parseBlocks(newText.slice(blockFrom, newBlockTo));
   if (parsedBlock.root.children.length !== 1 || parsedBlock.root.children[0]!.kind !== block.kind) return null;
-  const root = greenDocumentReplace(previous.greenRoot, blockIndex, parsedBlock.root.children[0]!);
-  if (root.length !== newText.length) return null;
   const newBlock = parsedBlock.root.children[0]!;
+  if (
+    (block.kind === "FencedDiv" || block.kind === "FencedCodeBlock")
+    && block.properties[fenceClosed.id] !== newBlock.properties[fenceClosed.id]
+  ) return null;
+  const root = greenDocumentReplace(previous.greenRoot, blockIndex, newBlock);
+  if (root.length !== newText.length) return null;
   return {
-    root, checkpoints: Object.freeze([]),
+    root, checkpoints: mappedCheckpoints(newText, previous, root, changes),
     changed: { oldFrom: blockFrom, oldTo: blockTo, newFrom: blockFrom, newTo: newBlockTo },
     semanticRelevant: greenHasSemantic(block) || greenHasSemantic(newBlock),
+    linesScanned: parsedBlock.checkpoints.length,
   };
 }
 
@@ -376,7 +488,20 @@ function semanticRelevant(tree: SyntaxTreeImpl, ranges: readonly ChangedRange[],
   return false;
 }
 
-export interface ParseUpdate { readonly tree: SyntaxTree; readonly changedRanges: readonly ChangedRange[]; readonly semanticChangedRanges: readonly SemanticChangedRange[] }
+export interface ParseMetrics {
+  readonly mode: "localized" | "full-fallback";
+  readonly linesScanned: number;
+  readonly blocksRebuilt: number;
+  readonly greenNodesReused: number;
+  readonly referenceDependentsReevaluated: number;
+}
+
+export interface ParseUpdate {
+  readonly tree: SyntaxTree;
+  readonly changedRanges: readonly ChangedRange[];
+  readonly semanticChangedRanges: readonly SemanticChangedRange[];
+  readonly metrics: ParseMetrics;
+}
 
 export class PandocParser {
   #version = 0;
@@ -391,9 +516,10 @@ export class PandocParser {
     const localized = localizedBlockParse(newText, previous, changes);
     const parsed = localized ?? parseBlocks(newText);
     let reusedRoot = parsed.root;
+    const reuseMetrics = { reused: 0 };
     if (!localized) {
       const oldIndex = new Map<string, GreenNode>(); indexGreen(previous.greenRoot, 0, oldIndex);
-      reusedRoot = reuseGreen(parsed.root, 0, newText, previous.text, oldIndex, segments);
+      reusedRoot = reuseGreen(parsed.root, 0, newText, previous.text, oldIndex, segments, reuseMetrics);
     }
     const metadata: UpdateMetadata = {
       previousToken: previous.token,
@@ -409,7 +535,14 @@ export class PandocParser {
       ? semanticChanges(previous, tree, segments)
       : Object.freeze([]);
     metadata.semantic = semantic;
-    return Object.freeze({ tree, changedRanges: changed, semanticChangedRanges: semantic });
+    const metrics: ParseMetrics = Object.freeze({
+      mode: localized ? "localized" : "full-fallback",
+      linesScanned: localized ? localized.linesScanned : tree.lines.lineCount,
+      blocksRebuilt: localized ? 1 : parsed.root.children.length,
+      greenNodesReused: localized ? Math.max(0, previous.greenRoot.children.length - 1) : reuseMetrics.reused,
+      referenceDependentsReevaluated: semantic.filter(range => range.kinds.includes("reference-resolution")).length,
+    });
+    return Object.freeze({ tree, changedRanges: changed, semanticChangedRanges: semantic, metrics });
   }
 }
 

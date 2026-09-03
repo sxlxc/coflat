@@ -6,7 +6,7 @@ import {
   pickedCompletion,
   startCompletion,
 } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import { type EditorState, type Extension, Facet } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
@@ -83,7 +83,7 @@ function findTokenEnd(after: string): number {
 }
 
 function isForbiddenCompletionContext(state: EditorState, pos: number): boolean {
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const safePos = Math.max(0, Math.min(pos, state.doc.length));
 
   for (const bias of [1, -1, 0] as const) {

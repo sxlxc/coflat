@@ -14,7 +14,7 @@
  * Only crossing a fenced-div boundary or changing focus triggers a rebuild.
  */
 
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { getPandocSyntaxTree, pandocSyntaxTreeAvailable } from "../cst";
 import {
   type EditorState,
   type Extension,
@@ -68,7 +68,7 @@ function computeActivePath(state: EditorState): string {
   if (!focused) return "";
 
   const cursor = state.selection.main;
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const parts: string[] = [];
 
   let node = tree.resolveInner(cursor.from);
@@ -261,8 +261,8 @@ const fenceGuideField = StateField.define<FenceGuideState>({
   update({ decorations, activePath }, tr) {
     // Tree changed: rebuild only when the parse is complete.
     // During progressive parsing, defer to avoid redundant rebuilds (#720).
-    if (syntaxTree(tr.state) !== syntaxTree(tr.startState)) {
-      if (syntaxTreeAvailable(tr.state, tr.state.doc.length)) {
+    if (getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState)) {
+      if (pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length)) {
         return createFenceGuideState(tr.state);
       }
       // Tree not yet complete — map positions if doc changed, else keep cached.

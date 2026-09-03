@@ -21,11 +21,11 @@ export type NodeKind =
 
 export interface SourceRange { readonly from: number; readonly to: number }
 
-declare const nodePropertyType: unique symbol;
+const nodePropertyType: unique symbol = Symbol("pandocmd.nodePropertyType");
 
 /** A nominal, typed key for immutable syntax metadata. */
 export class NodeProperty<T> {
-  declare readonly [nodePropertyType]?: T;
+  readonly [nodePropertyType]?: T;
   readonly id: string;
   constructor(id: string) { this.id = id; }
 }
@@ -73,6 +73,9 @@ export interface GreenNode {
   /** @internal Engine backing; never exposed through the public CST API. */
   readonly backing: LezerTree;
 }
+
+const EMPTY_CHILDREN = Object.freeze([]) as readonly GreenNode[];
+const EMPTY_PROPERTIES: PropertyBag = Object.freeze({});
 
 const nodeTypes = new Map<NodeKind, NodeType>();
 function nodeType(kind: NodeKind): NodeType {
@@ -150,7 +153,10 @@ function vectorArray(root: ChildVectorNode | null): readonly GreenNode[] {
 function nodeWithLength(kind: NodeKind, children: readonly GreenNode[], length: number, properties: PropertyBag, lazyBacking: boolean): GreenNode {
   let cached: LezerTree | undefined;
   const node = {
-    kind, length, children, properties: Object.freeze({ ...properties }),
+    kind,
+    length,
+    children,
+    properties: Object.isFrozen(properties) ? properties : Object.freeze(properties),
     get backing(): LezerTree { return cached ??= backing(kind, children, length); },
   };
   if (!lazyBacking) cached = backing(kind, children, length);
@@ -174,6 +180,10 @@ export function greenDocumentReplace(document: GreenNode, index: number, child: 
 /** Locate a top-level child by source offset in logarithmic time. */
 export function greenDocumentChildAt(document: GreenNode, offset: number): { readonly child: GreenNode; readonly index: number; readonly from: number } | null {
   let node = persistentVectors.get(document.children as object);
+  if (node === undefined) {
+    node = childVector([...document.children]);
+    persistentVectors.set(document.children as object, node);
+  }
   if (!node || offset < 0 || offset >= node.length) return null;
   let index = 0, from = 0;
   while (!node.value) {
@@ -183,35 +193,57 @@ export function greenDocumentChildAt(document: GreenNode, offset: number): { rea
   return { child: node.value, index, from };
 }
 
+/** Locate a top-level child by index without materializing the document vector. */
+export function greenDocumentChildAtIndex(document: GreenNode, target: number): { readonly child: GreenNode; readonly from: number } | null {
+  let node = persistentVectors.get(document.children as object);
+  if (node === undefined) {
+    node = childVector([...document.children]);
+    persistentVectors.set(document.children as object, node);
+  }
+  if (!node || target < 0 || target >= node.count) return null;
+  let index = target, from = 0;
+  while (!node.value) {
+    if (index < node.left!.count) {
+      node = node.left!;
+    } else {
+      index -= node.left!.count;
+      from += node.left!.length;
+      node = node.right!;
+    }
+  }
+  return { child: node.value, from };
+}
+
 export function green(
   kind: NodeKind,
   children: readonly GreenNode[],
-  properties: PropertyBag = {},
+  properties: PropertyBag = EMPTY_PROPERTIES,
 ): GreenNode {
   let length = 0;
   for (const child of children) length += child.length;
-  const owned = Object.freeze([...children]);
+  // Green-node constructors are internal. Ownership of a newly-built child
+  // array is transferred here, avoiding a second allocation for every node.
+  const owned = Object.isFrozen(children) ? children : Object.freeze(children);
   return nodeWithLength(kind, owned, length, properties, true);
 }
 
 /** Internal zero-copy constructor. The caller transfers ownership of children. */
-export function greenOwned(kind: NodeKind, children: GreenNode[], properties: PropertyBag = {}): GreenNode {
+export function greenOwned(kind: NodeKind, children: GreenNode[], properties: PropertyBag = EMPTY_PROPERTIES): GreenNode {
   let length = 0;
   for (const child of children) length += child.length;
   Object.freeze(children);
   return nodeWithLength(kind, children, length, properties, true);
 }
 
-export function leaf(kind: NodeKind, length: number, properties: PropertyBag = {}): GreenNode {
+export function leaf(kind: NodeKind, length: number, properties: PropertyBag = EMPTY_PROPERTIES): GreenNode {
   if (length <= 0) throw new RangeError(`Leaf ${kind} must have positive length`);
-  const children = Object.freeze([]) as readonly GreenNode[];
-  return nodeWithLength(kind, children, length, properties, true);
+  return nodeWithLength(kind, EMPTY_CHILDREN, length, properties, true);
 }
 
 export function props(...entries: readonly (readonly [NodeProperty<unknown>, unknown])[]): PropertyBag {
   const result: Record<string, unknown> = {};
   for (const [property, value] of entries) result[property.id] = value;
-  return result;
+  return Object.freeze(result);
 }
 
 export function sameGreenShape(a: GreenNode, b: GreenNode): boolean {

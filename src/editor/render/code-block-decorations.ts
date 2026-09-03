@@ -1,4 +1,4 @@
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { getPandocSyntaxTree, pandocSyntaxTreeAvailable } from "../cst";
 import {
   type ChangeDesc,
   EditorState,
@@ -213,8 +213,8 @@ export function computeCodeBlockDirtyRegion(
   let filterFrom = Number.POSITIVE_INFINITY;
   let filterTo = Number.NEGATIVE_INFINITY;
 
-  const oldTree = syntaxTree(tr.startState);
-  const newTree = syntaxTree(tr.state);
+  const oldTree = getPandocSyntaxTree(tr.startState);
+  const newTree = getPandocSyntaxTree(tr.state);
 
   tr.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
     // Start with the literal changed range in the new document
@@ -435,8 +435,8 @@ export const codeBlockDecorationField = createDecorationStateField({
       if (!docChangeTouchesCodeBlockContent(blocks, tr.changes)) {
         return value.map(tr.changes);
       }
-      const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
-      const treeReady = syntaxTreeAvailable(tr.state, tr.state.doc.length);
+      const treeChanged = getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState);
+      const treeReady = pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length);
 
       if (treeChanged && treeReady) {
         return incrementalCodeBlockUpdate(value, tr);
@@ -449,8 +449,8 @@ export const codeBlockDecorationField = createDecorationStateField({
     }
 
     if (
-      syntaxTree(tr.state) !== syntaxTree(tr.startState) &&
-      syntaxTreeAvailable(tr.state, tr.state.doc.length)
+      getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState) &&
+      pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length)
     ) {
       return buildCodeBlockDecorations(tr.state);
     }

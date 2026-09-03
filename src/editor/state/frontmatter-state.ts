@@ -7,16 +7,16 @@
  * Rendering (Typora-style title widget / YAML reveal) lives in
  * `render/frontmatter-render.ts`.
  */
-import { EditorState, StateField, type Text } from "@codemirror/state";
+import { EditorState, StateField } from "@codemirror/state";
 
 import {
   type BlockConfig,
   type FrontmatterConfig,
   type FrontmatterResult,
   type FrontmatterStatus,
-  isFrontmatterDelimiterLine,
-  parseFrontmatter,
+  parseFrontmatterFromTree,
 } from "../../core/parser/frontmatter";
+import { getPandocTree } from "../cst";
 import { mergeConfigs, projectConfigFacet } from "../project-config";
 
 export { type FrontmatterConfig, type NumberingScheme } from "../../core/parser/frontmatter";
@@ -39,31 +39,9 @@ interface FrontmatterStateInternal extends FrontmatterState {
 
 /** Parse frontmatter from an EditorState's document. */
 function parseFrontmatterFromState(state: EditorState): FrontmatterResult {
-  const frontmatterPrefix = sliceFrontmatterPrefix(state.doc);
-  return frontmatterPrefix === null
-    ? { config: {}, end: -1, status: { state: "missing" } }
-    : parseFrontmatter(frontmatterPrefix);
-}
-
-function sliceFrontmatterPrefix(doc: Text): string | null {
-  const firstLine = doc.line(1);
-  const firstLineText = firstLine.text.charCodeAt(0) === 0xfeff
-    ? firstLine.text.slice(1)
-    : firstLine.text;
-  if (!isFrontmatterDelimiterLine(firstLineText) || doc.lines < 2) {
-    return null;
-  }
-
-  for (let lineNumber = 2; lineNumber <= doc.lines; lineNumber += 1) {
-    const line = doc.line(lineNumber);
-    if (!isFrontmatterDelimiterLine(line.text)) {
-      continue;
-    }
-    const end = line.number < doc.lines ? line.to + 1 : line.to;
-    return doc.sliceString(0, end);
-  }
-
-  return null;
+  // YAML parsing is scoped to the CST-owned opaque body and cannot alter
+  // Markdown boundaries.
+  return parseFrontmatterFromTree(getPandocTree(state));
 }
 
 function normalizeBlockConfig(config: BlockConfig): BlockConfig {

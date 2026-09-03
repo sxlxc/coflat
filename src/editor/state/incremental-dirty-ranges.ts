@@ -19,8 +19,9 @@ export function mergeDirtyRanges(ranges: readonly DirtyRange[]): DirtyRange[] {
 export function dirtyRangesFromChanges(
   changes: ChangeSet,
   expandRange: DirtyRangeExpander,
+  coordinateSpace: "old" | "new" = "new",
 ): DirtyRange[] {
-  return documentRangesFromChanges(changes, expandRange);
+  return documentRangesFromChanges(changes, expandRange, coordinateSpace);
 }
 
 export function expandChangeRange(

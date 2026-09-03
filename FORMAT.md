@@ -1,16 +1,16 @@
 # Coflat Document Format
 
-Pandoc Markdown with a fixed set of Pandoc extensions and pandoc-crossref conventions for mathematical writing. This document specifies the canonical input format the editor expects.
+Pandoc Markdown with one fixed dialect for mathematical writing. This document specifies the canonical input format the editor expects.
 
-Canonical documents must be parseable by Pandoc. Coflat semantics are encoded with Pandoc-native constructs such as YAML metadata, fenced divs, attributes, citations, raw LaTeX, and tables, plus pandoc-crossref-style labels for equations and cross-references. Non-Pandoc authoring sugar is not part of the canonical format.
+Canonical documents must be parseable by Pandoc. Coflat semantics are encoded with Pandoc-native constructs such as YAML metadata, fenced divs, attributes, citations, raw LaTeX, and tables. Non-Pandoc authoring sugar is not part of the canonical format.
 
 The canonical reader profile is:
 
 ```text
-markdown+fenced_divs+raw_tex+grid_tables+pipe_tables+tex_math_dollars+tex_math_single_backslash+mark
+markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex
 ```
 
-The canonical filter profile runs `pandoc-crossref` before `citeproc` when exporting through Pandoc, because equation, figure, table, and block references use citation-like syntax.
+The editor and reader use the immutable CST and its version-bound semantic indexes. Pandoc plus the Lua pipeline remains the publication-rendering authority.
 
 ## Rules for Agents
 
@@ -19,12 +19,12 @@ LLM agents do not know Coflat from training data and default to GitHub-flavored 
 Ordered by how often agents get them wrong:
 
 1. **One paragraph = one source line.** A single source newline inside a paragraph is preserved visually by the reader and editor, so hard-wrapped prose renders with ragged line breaks. Never wrap prose at a source-column width; a blank line starts a new paragraph. See "Paragraphs and Line Breaks".
-2. **Never use `>` blockquotes.** They are a removed feature (no math, no nesting with fenced divs). Use a fenced div instead: `::: {.blockquote}` ... `:::`.
+2. **Use standard Pandoc structure.** Blockquotes, definition lists, indented code, and reference-style links are accepted by the fixed dialect. Use fenced divs when the content needs theorem-like semantics or a stable block id.
 3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text, not markdown or math.
 4. **Nest divs with more colons outside.** The outer div uses more colons than the inner (`::::` outside, `:::` inside); same-count nesting misparses. Every div needs its matching explicit closer with the same colon count as its opener.
-5. **Math uses `$...$` and `$$...$$`**, never backticks or code fences. Labeled equations use `$$ ... $$ {#eq:name}` with the `eq:` prefix. Escape a literal dollar in prose as `\$`.
+5. **Math uses `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`**, never backticks or code fences. A source-only `{#eq:name}` after display math is literal in the fixed dialect and does not create an equation target. Escape a literal dollar in prose as `\$`.
 6. **Cross-reference with `[@id]` or narrative `@id`** using the prefix conventions in "Cross-References"; a bare key without a known prefix is treated as a BibTeX citation.
-7. **Do not use** HTML comments (`<!-- -->` is rendered, not hidden), raw inline HTML (except `<br>` inside table cells), indented code blocks, reference-style links, bare unbracketed URLs, or definition lists. See "Removed Features".
+7. **Do not rely on disabled extensions** such as `==mark==`, alerts, wikilinks, emoji shortcodes, bare-URI autolinks, or GFM-only math forms. They remain literal text. See "Disabled Extensions".
 8. **Code fences are only for literal artifacts** — code, command output, raw data, certificates, and algorithm bodies — never for prose, mathematical statements, or formulas.
 9. **When unsure, use the plainest canonical forms**: one-line paragraphs, pipe tables, and built-in fenced divs. Do not invent syntax.
 
@@ -232,7 +232,7 @@ article metadata above.
 | `*italic*` | *italic* |
 | `` `code` `` | `code` (monospace) |
 | `~~strikethrough~~` | ~~strikethrough~~ |
-| `==highlight==` | highlighted text (Pandoc `mark` extension) |
+| `==highlight==` | literal text (`mark` is disabled) |
 | `[text](url)` | hyperlink |
 | `![alt](src)` | image |
 
@@ -324,9 +324,9 @@ $$
 
 Display math can interrupt a paragraph (no blank line required before `$$` or `\[`).
 
-### Labeled equations
+### Equation attributes
 
-Unlabeled display math uses `$$...$$` or `\[...\]`. Labeled equations use the pandoc-crossref display-math label convention:
+Display math uses `$$...$$` or `\[...\]`. In the fixed dialect, a following Pandoc attribute is a separate literal paragraph rather than part of the math node:
 
 ```markdown
 $$
@@ -334,9 +334,7 @@ E = mc^2
 $$ {#eq:einstein}
 ```
 
-The label must use the `eq:` prefix. Pandoc core parses `{#eq:einstein}` as ordinary text after the math block; Coflat treats this as canonical because pandoc-crossref recognizes it and resolves `[@eq:einstein]` when the filter runs before citeproc. Raw LaTeX `\begin{equation}\label{eq:...}...\end{equation}` is allowed as raw TeX, but it is not the canonical Coflat equation-label syntax.
-
-Equation labels must be unique within a document. Duplicate `{#eq:id}` labels are accepted by the parser but flagged by the semantic index; cross-references to the duplicated id resolve as ambiguous.
+This source does not create an editor/reader equation target, so `[@eq:einstein]` remains unresolved unless a host explicitly supplies that target. Raw LaTeX `\begin{equation}\label{eq:...}...\end{equation}` is allowed as opaque raw TeX but likewise does not add a CST equation target.
 
 **Escape rules.** A literal dollar sign in prose is written `\$` and does not open inline math. Inside `$...$` inline math, a backslash escapes the following character, so `$ \$50 $` is a math span containing a literal `$`. Display math `\[...\]` and inline math `\(...\)` are the LaTeX-style alternative syntaxes for `$$...$$` and `$...$`; the same backslash-escape applies to their contents. Dollar-math is suppressed inside fenced code blocks and inline code spans.
 
@@ -577,7 +575,7 @@ blocks:
 
 ## Cross-References
 
-Reference fenced blocks and headings by their `#id` attribute. Reference labeled equations by their pandoc-crossref `{#eq:...}` display-math label.
+Reference fenced blocks and headings by their `#id` attribute. A host may also resolve document-external targets through `DocumentContext`.
 
 > **Parser vs. semantics scope.** `[@id]` and `@id` are not tokenized by Coflat's markdown parser; they appear in the syntax tree as ordinary text (matching Pandoc core, which leaves them for `pandoc-crossref` and `citeproc` to resolve). The reference index, renderer, and LaTeX exporter recognize and resolve them as a downstream semantic pass. Tooling that needs to highlight or rewrite these tokens should run against the semantic index, not the parse tree.
 
@@ -593,7 +591,6 @@ IDs are conventionally prefixed by target kind. The LaTeX exporter uses these pr
 | `cor:` | corollary |
 | `prop:` | proposition |
 | `def:` | definition |
-| `eq:` | equation |
 | `fig:` | figure |
 | `tbl:` | table |
 | `alg:` | algorithm |
@@ -604,7 +601,6 @@ Any other bare key (e.g. `karger2000`) is treated as a citation key. IDs with un
 
 ```markdown
 See [@thm:main] for the proof.     --> "See Theorem 1 for the proof."
-By [@eq:einstein], energy is...     --> "By Eq. (1), energy is..."
 See [@sec:background].             --> "See Section 1.1."
 ```
 
@@ -619,11 +615,11 @@ See [@sec:background].             --> "See Section 1.1."
 Multiple references can be clustered with `;`. Each item is resolved independently, so mixed cross-reference/citation clusters are supported:
 
 ```markdown
-[@thm:main; @eq:einstein]
-[@eq:einstein; @karger2000]
+[@thm:main; @sec:background]
+[@thm:main; @karger2000]
 ```
 
-Resolution order: fenced blocks (by fenced div `#id`) -> equations (by display-math `{#eq:id}`) -> headings (by heading `#id`) -> citations (by bib key). If an ID matches a fenced block, it takes priority over a citation with the same key.
+Resolution order: fenced blocks (by fenced div `#id`) -> headings (by heading `#id`) -> host-supplied targets -> citations (by bib key). If an ID matches a fenced block, it takes priority over a citation with the same key.
 
 ### Live preview example
 
@@ -632,11 +628,7 @@ The editor and reader can both show hover previews for the same FORMAT.md
 references.
 ::::
 
-$$
-E = mc^2
-$$ {#eq:format-live}
-
-Live reader/editor preview example: [@thm:format-live] and [@eq:format-live].
+Live reader/editor preview example: [@thm:format-live].
 
 ## Citations
 
@@ -676,7 +668,7 @@ Footnote IDs can be any string: `[^note]`, `[^long-id]`. Rendered as sidenotes i
 
 ## Code Blocks
 
-Fenced code blocks only. **Indented code blocks are disabled** (4-space indent is cosmetic only, does not create a code block).
+Fenced and Pandoc indented code blocks are both part of the fixed dialect.
 
 ````markdown
 ```haskell
@@ -741,21 +733,18 @@ Ordered, unordered, and task lists. Math works inside list items:
 - [x] Checked task
 ```
 
-## Removed Features
+## Disabled Extensions
 
-These standard markdown features are **not canonical**, even if Pandoc's markdown reader can parse some of them:
+These extension-specific forms are disabled by the fixed dialect and remain literal text:
 
-| Feature | Reason | Alternative |
+| Feature | Result | Alternative |
 |---------|--------|-------------|
-| Indented code blocks | Conflicts with fenced div content indentation | Use fenced code blocks |
-| `>` blockquotes | Limited (no math, no nesting with fenced divs) | Use `::: {.blockquote}` fenced divs |
-| Pandoc definition lists (`Term` followed by `: Definition`) | Not part of the Coflat semantic model | Use `::: {.definition}` fenced divs for mathematical definitions, or ordinary lists/tables for glossaries |
-| Raw inline HTML (`<br>`, `<sub>`, `<sup>`, etc.) | Coflat's reader does not enable Pandoc's `+raw_html`; rendering pure-Pandoc markdown only | Use `\\` for line breaks in math; use raw LaTeX (`\textsubscript{...}`) for sub/superscript outside math |
-| HTML comments (`<!-- ... -->`) | Not part of the canonical Coflat surface; not hidden in render | Strip before authoring, or use a `::: {.remark}` block |
-| Reference-style links (`[text][id]` with `[id]: url` definitions) | Authors should use inline `[text](url)` form to keep one source location per link | Inline links `[text](url)` |
-| Bare URL autolink (`https://example.com` without brackets) | Pandoc's `+autolink_bare_uris` is not enabled | Wrap in `[https://example.com](https://example.com)` or `<https://example.com>` |
-
-The read/export pipeline still parses standard `>` blockquotes for compatibility with imported markdown, but the editor authoring format does not use them.
+| `==mark==` | Literal text | Use emphasis or a host-level presentation feature |
+| GitHub alerts | Ordinary blockquote content | Use a typed fenced div |
+| `[[wikilinks]]` | Literal text | Use an inline or reference link |
+| `:emoji:` shortcodes | Literal text | Use the Unicode character |
+| Bare URL autolink (`https://example.com`) | Literal text | Use `[text](https://example.com)` or `<https://example.com>` |
+| GFM-only math forms | Literal text | Use Pandoc dollar/backslash math delimiters |
 
 ## Horizontal Rules
 
@@ -773,7 +762,7 @@ The LaTeX export pipeline (`scripts/export-latex.mjs`, desktop PDF/LaTeX export,
 2. **Pandoc** — invoked as:
 
    ```text
-   pandoc --from markdown+fenced_divs+raw_tex+grid_tables+pipe_tables+tex_math_dollars+tex_math_single_backslash+mark \
+   pandoc --from markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex \
           --to latex --wrap=preserve --syntax-highlighting=none \
           --lua-filter=src/editor/latex/filter.lua \
           --template=src/editor/latex/template/<variant>.tex \
@@ -811,9 +800,9 @@ Each built-in block maps to a LaTeX environment. Unknown classes are passed thro
 |-----------------|-------|
 | `$...$` | `\(...\)` |
 | `\(...\)` | `\(...\)` (passthrough) |
-| `$$...$$` (unlabeled) | `\[...\]` |
-| `$$...$$ {#eq:id}` | labeled equation via pandoc-crossref |
-| `==highlight==` | `\hl{highlight}` (requires `\usepackage{soul}`) |
+| `$$...$$` | `\[...\]` |
+| `$$...$$ {#eq:id}` | display math followed by literal attribute text |
+| `==highlight==` | literal text (`mark` is disabled) |
 | `[@id]` where `id` begins with an xref prefix | `\cref{id}` |
 | `[@id]` otherwise | `\cite{id}` |
 | `@id` where `id` begins with an xref prefix | `\cref{id}` (narrative form) |

@@ -150,6 +150,8 @@ function buildEquationNumbersCacheKey(
     .join("\u0001");
 }
 
+const equationNumbersCacheKeys = new WeakMap<object, string>();
+
 export function getEquationNumbersCacheKey(
   analysis: DocumentAnalysis,
 ): string {
@@ -157,9 +159,11 @@ export function getEquationNumbersCacheKey(
     return analysis.equationNumbersCacheKey ?? "";
   }
 
+  const cached = equationNumbersCacheKeys.get(analysis);
+  if (cached !== undefined) return cached;
   const cacheKey = buildEquationNumbersCacheKey(analysis.equations);
-  Object.defineProperty(analysis, "equationNumbersCacheKey", {
-    value: cacheKey,
-  });
+  // CST-version-bound analysis objects are immutable. Cache derived keys out
+  // of band instead of mutating a published semantic snapshot.
+  equationNumbersCacheKeys.set(analysis, cacheKey);
   return cacheKey;
 }

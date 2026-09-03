@@ -1,8 +1,7 @@
-import { syntaxHighlighting } from "@codemirror/language";
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { classHighlighter } from "@lezer/highlight";
 import { CSS } from "../core/constants/css-classes";
+import { pandocCstHighlighting } from "./cst";
 import {
   editableCompartment,
   modeClassCompartment,
@@ -36,7 +35,7 @@ const readOnlyTransactionFilter = EditorState.transactionFilter.of((tr) => {
     : tr;
 });
 
-const sourceSyntaxHighlightingExtension = syntaxHighlighting(classHighlighter);
+const sourceSyntaxHighlightingExtension = pandocCstHighlighting;
 
 export function setEditorMode(view: EditorView, mode: EditorMode): void {
   const effects: StateEffect<unknown>[] = [

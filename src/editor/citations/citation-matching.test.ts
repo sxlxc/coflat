@@ -129,7 +129,7 @@ function analyze(doc: string): DocumentAnalysis {
 }
 
 describe("citation registration precedence", () => {
-  it("excludes block, equation, and heading targets that collide with bib keys", () => {
+  it("excludes block and heading targets while retaining unsupported math labels as citations", () => {
     const analysis = analyze([
       "# Intro",
       "",
@@ -147,12 +147,15 @@ describe("citation registration precedence", () => {
     const matches = collectCitationMatchesFromAnalysis(analysis, precedenceStore);
 
     expect(matches).toEqual([
+      { ids: ["eq:main"], locators: [undefined] },
       { ids: ["real-cite"], locators: [undefined] },
     ]);
-    expect(getAnalysisCitationRegistrationKey(analysis, precedenceStore)).toBe("real-cite\0");
+    expect(getAnalysisCitationRegistrationKey(analysis, precedenceStore)).toBe(
+      "eq:main\0\u0002real-cite\0",
+    );
   });
 
-  it("keeps real citations from mixed clusters while filtering local targets", () => {
+  it("keeps every citation in a cluster without a fixed-dialect local target", () => {
     const analysis = analyze([
       "$$x^2$$ {#eq:main}",
       "",
@@ -160,7 +163,7 @@ describe("citation registration precedence", () => {
     ].join("\n"));
 
     expect(collectCitationMatchesFromAnalysis(analysis, precedenceStore)).toEqual([
-      { ids: ["real-cite"], locators: ["p. 7"] },
+      { ids: ["eq:main", "real-cite"], locators: [undefined, "p. 7"] },
     ]);
   });
 });

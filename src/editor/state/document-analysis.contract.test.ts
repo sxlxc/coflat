@@ -1,6 +1,5 @@
-import { markdown } from "@codemirror/lang-markdown";
 import { describe, expect, it } from "vitest";
-import { markdownExtensions } from "../../core/parser";
+import { pandocCstField } from "../cst";
 import { createEditorState } from "../test-utils";
 import {
   documentAnalysisField,
@@ -20,7 +19,7 @@ describe("document analysis state contract", () => {
     ].join("\n");
     const state = createEditorState(doc, {
       extensions: [
-        markdown({ extensions: markdownExtensions }),
+        pandocCstField,
         documentAnalysisField,
       ],
     });
@@ -28,12 +27,17 @@ describe("document analysis state contract", () => {
 
     expect(documentAnalysisFromSnapshot(snapshot)).toBe(snapshot.analysis);
     expect(snapshot.headings).toHaveLength(1);
-    expect(snapshot.equationById.get("eq:one")).toMatchObject({ number: 1 });
+    // Equation labels were a Coflat-only extension. In the fixed Pandoc
+    // dialect the trailing attribute is literal text, while the math itself
+    // remains available to renderers.
+    expect(snapshot.mathRegions).toHaveLength(1);
+    expect(snapshot.equationById.get("eq:one")).toBeUndefined();
     expect(snapshot.referenceIndex.get("sec:intro")).toMatchObject({
       targetKind: "heading",
     });
     expect(snapshot.referenceIndex.get("eq:one")).toMatchObject({
-      targetKind: "equation",
+      type: "citation",
+      target: null,
     });
     expect(snapshot.footnotes.defs.get("n")?.content).toBe("note");
   });

@@ -72,25 +72,26 @@ $$
 a^2 + b^2 = c^2
 $$
 
-# Labeled Display Math and Equation References
+# Additional Display Math
 
-Plain labeled `$$` block:
+Plain `$$` block:
 
 $$
 \int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
-$$ {#eq:gaussian}
+$$
 
-Labeled `\[\]` block:
+Plain `\[\]` block:
 
 \[
 \sum_{k=0}^n \binom{n}{k} = 2^n
-\] {#eq:binomial}
+\]
 
-Equation references should work in both bracketed and narrative forms:
+Cross-references to fixed-dialect fenced blocks work in bracketed, narrative,
+and clustered forms:
 
-- Bracketed: [@eq:gaussian], [@eq:binomial]
-- Narrative: @eq:gaussian and @eq:binomial
-- Clustered: [@eq:gaussian; @eq:binomial]
+- Bracketed: [@thm:fundamental], [@prop:tu]
+- Narrative: @thm:fundamental and @prop:tu
+- Clustered: [@thm:fundamental; @prop:tu]
 
 # Block Hover Preview Coverage
 
@@ -105,7 +106,7 @@ $$
 
 - First list item with math $O(n \log n)$
 - Second list item with a citation [@cormen2009]
-- Third list item with an equation reference [@eq:gaussian]
+- Third list item with a theorem reference [@thm:fundamental]
 
 ::: {.blockquote}
 Blockquote inside the referenced block with $\alpha + \beta$.
@@ -114,7 +115,7 @@ Blockquote inside the referenced block with $\alpha + \beta$.
 
 Hover this block reference: [@thm:hover-preview].
 
-Hover the cluster items separately: [@thm:hover-preview; @thm:fundamental; @eq:gaussian].
+Hover the cluster items separately: [@thm:hover-preview; @thm:fundamental; @prop:tu].
 
 :::: {.theorem title="Gap Test"}
 Outer content before inner

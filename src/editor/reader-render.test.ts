@@ -54,11 +54,10 @@ describe("renderToHtml — fast path (plain text only)", () => {
     expect(renderToHtml("+ item").html).toContain('class="cf-doc-list');
     expect(renderToHtml("1. item").html).toContain('class="cf-doc-list');
     expect(renderToHtml("2) foo").html).toContain('start="2"');
-    // A bare ordered-list marker (no trailing content) is still a list.
-    expect(renderToHtml("1.").html).toContain('class="cf-doc-list');
-    expect(renderToHtml("1)").html).toContain('class="cf-doc-list');
-    // Indented content is stripped by the parser, not kept verbatim.
-    expect(renderToHtml("    code").html).toBe("code");
+    // Pandoc requires content after an ordered-list marker.
+    expect(renderToHtml("1.").html).toBe("1.");
+    expect(renderToHtml("1)").html).toBe("1)");
+    expect(renderToHtml("    code").html).toBe('<pre class="cf-doc-code-block"><code>code</code></pre>');
   });
 
   it("keeps fast/slow parity for trailing whitespace (CommonMark strips it)", () => {
@@ -76,7 +75,7 @@ describe("renderToHtml — fast path (plain text only)", () => {
 });
 
 describe("renderToHtml — inline marks render canonically", () => {
-  it("renders bold/italic/strike/highlight with canonical classes", () => {
+  it("renders enabled emphasis families and preserves disabled highlight syntax", () => {
     // Formerly the fast path emitted unclassed <strong>/<em>/<del> and dropped
     // ==highlight== entirely, diverging from every other coflat render surface.
     expect(renderToHtml("**bold**").html).toBe('<strong class="cf-bold">bold</strong>');
@@ -84,7 +83,7 @@ describe("renderToHtml — inline marks render canonically", () => {
     expect(renderToHtml("*italic*").html).toBe('<em class="cf-italic">italic</em>');
     expect(renderToHtml("_italic_").html).toBe('<em class="cf-italic">italic</em>');
     expect(renderToHtml("~~strike~~").html).toBe('<del class="cf-strikethrough">strike</del>');
-    expect(renderToHtml("==hi==").html).toBe('<mark class="cf-highlight">hi</mark>');
+    expect(renderToHtml("==hi==").html).toBe("==hi==");
   });
 
   it("does not invent emphasis inside snake_case identifiers", () => {
@@ -387,16 +386,15 @@ describe("renderToHtml — slow path (Lezer)", () => {
     expect(r.html).toContain("$y^2$");
   });
 
-  it("strips equation labels from display math placeholders and numbers them", () => {
+  it("does not synthesize labels or numbers from trailing display-math attributes", () => {
     const r = renderToHtml("$$\nx^2\n$$ {#eq:first}\n\n\\[\ny^2\n\\] {#eq:second}");
-    expect(r.html).toContain('id="eq:first"');
-    expect(r.html).toContain('id="eq:second"');
-    expect(r.html).toContain('data-equation-number="1"');
-    expect(r.html).toContain('data-equation-number="2"');
-    expect(r.html).toContain("cf-math-display-numbered");
-    expect(r.html).toContain('data-math="x^2"');
-    expect(r.html).toContain('data-math="y^2"');
-    expect(r.html).not.toContain('data-math="$$');
+    expect(r.html).not.toContain('id="eq:first"');
+    expect(r.html).not.toContain('id="eq:second"');
+    expect(r.html).not.toContain('data-equation-number');
+    expect(r.html).not.toContain("cf-math-display-numbered");
+    expect(r.html).toContain("$$");
+    expect(r.html).toContain("{#eq:first}");
+    expect(r.html).toContain("{#eq:second}");
   });
 
   it("applies LinkResolver overrides (href, className, title)", () => {
@@ -634,7 +632,7 @@ describe("renderToHtml — block-level rendering ()", () => {
   });
 
   it("renders tables with header, body, and cell alignment", () => {
-    const r = renderToHtml("| a | b |\n|:--|--:|\n| 1 | 2 |");
+    const r = renderToHtml("| a | b |\n|:---|---:|\n| 1 | 2 |");
     expect(r.html).toContain('<table class="cf-doc-table-block"');
     expect(r.html).toContain('<thead>');
     expect(r.html).toContain('<tbody>');
@@ -679,7 +677,7 @@ describe("renderToHtml — block-level rendering ()", () => {
     expect(r.html).not.toContain('data-ref-key="knuth1984"');
   });
 
-  it("renders .algo divs as line-mode pseudocode with indent and math", () => {
+  it("renders .algo as an ordinary fixed-dialect fenced div", () => {
     const doc = [
       '::: {.algo #alg:min title="Compute a minimum."}',
       "$\\textsc{Min}(f)$:",
@@ -694,13 +692,10 @@ describe("renderToHtml — block-level rendering ()", () => {
     // reader pixel-matches the CM6 editor rendering of the same block.
     expect(r.html).toContain('<span class="cf-block-header-rendered">Algorithm 1</span>');
     expect(r.html).toContain("Compute a minimum.");
-    // One line per physical line, indent as CSS custom property.
+    // Coflat's former parser-only algorithm line syntax is not part of the
+    // fixed Pandoc dialect.
     const lineCount = (r.html.match(/cf-doc-algo-line/g) ?? []).length;
-    expect(lineCount).toBe(3);
-    expect(r.html).toContain('data-indent="1"');
-    expect(r.html).toContain('data-indent="2"');
-    // Literal leading spaces are preserved for editor pixel parity.
-    expect(r.html).toContain('>    return brute force</div>');
+    expect(lineCount).toBe(0);
     // Inline math renders as hydratable math placeholder spans.
     expect(r.hasMath).toBe(true);
     expect(r.html).toContain('data-math="|V| \\le 6"');
@@ -746,12 +741,10 @@ describe("renderToHtml — block-level rendering ()", () => {
     expect(r.hasMath).toBe(true);
   });
 
-  it("renders fenced div inline titles", () => {
+  it("preserves invalid fenced-div inline-title syntax as literal source", () => {
     const r = renderToHtml("::: {.definition #def-edge} Edge Connectivity\nbody\n:::");
-    expect(r.html).toContain('<span class="cf-block-header-rendered">Definition 1</span>');
-    expect(r.html).toContain(
-      '<span class="cf-block-attr-title"><span class="cf-block-title-paren">(</span><span>Edge Connectivity</span><span class="cf-block-title-paren">)</span></span>',
-    );
+    expect(r.html).not.toContain('cf-block-header-rendered');
+    expect(r.html).toContain("::: {.definition #def-edge} Edge Connectivity");
     expect(r.html).toContain("body");
   });
 
@@ -867,7 +860,31 @@ describe("renderToHtml — block-level rendering ()", () => {
     expect(r.html).toContain('data-math="x^2"');
   });
 
-  it("returns a Lezer-backed reference preview index when requested", () => {
+  it("renders display math nested in lists and blockquotes", () => {
+    const list = renderToHtml([
+      "1. First item",
+      "2. Display math:",
+      "   $$",
+      "   x^2",
+      "   $$",
+      "3. Final item",
+    ].join("\n"));
+    const quote = renderToHtml([
+      "> Standard blockquote:",
+      "> $$",
+      "> x^2",
+      "> $$",
+    ].join("\n"));
+
+    expect(list.hasMath).toBe(true);
+    expect(list.html).toContain('class="cf-doc-display-math cf-math-display"');
+    expect(list.html).toContain('data-math="x^2"');
+    expect(quote.hasMath).toBe(true);
+    expect(quote.html).toContain('class="cf-doc-display-math cf-math-display"');
+    expect(quote.html).toContain('data-math="x^2"');
+  });
+
+  it("returns a CST-backed reference preview index when requested", () => {
     const source = [
       "# Intro {#sec:intro}",
       "",
@@ -902,19 +919,7 @@ describe("renderToHtml — block-level rendering ()", () => {
       expect(source.slice(heading.from, heading.to)).toBe("# Intro {#sec:intro}");
     }
 
-    const equation = r.referencePreviewIndex?.["eq:square"];
-    expect(equation).toMatchObject({
-      kind: "equation",
-      label: "Eq. (1)",
-      latex: "x^2",
-      number: "1",
-      ordinal: 1,
-    });
-    expect(equation?.kind).toBe("equation");
-    if (equation?.kind === "equation") {
-      expect(source.slice(equation.from, equation.to)).toBe("$$\nx^2\n$$ {#eq:square}");
-      expect(source.slice(equation.bodyFrom, equation.bodyTo)).toBe("x^2");
-    }
+    expect(r.referencePreviewIndex?.["eq:square"]).toBeUndefined();
 
     expect(r.referencePreviewIndex?.["thm:main"]).toMatchObject({
       kind: "block",

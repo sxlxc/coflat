@@ -5,7 +5,12 @@ import { EditorSelection, EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 import { markdownExtensions } from "../../core/parser";
+import { getPandocTree } from "../cst";
 import { createEditor } from "../editor";
+import { blockCounterField } from "../state/block-counter";
+import { documentAnalysisField } from "../state/document-analysis";
+import { programmaticDocumentChangeAnnotation } from "../state/programmatic-document-change";
+import { getReferenceRenderDependencySignature } from "../state/reference-render-state";
 import { createTestView } from "../test-utils";
 import { _blockquoteFieldForTest, blockquoteRenderPlugin } from "./blockquote-render";
 import { focusEffect } from "./focus-state";
@@ -52,23 +57,38 @@ describe("blockquoteRenderPlugin", () => {
     expect(after).toBe(before);
   });
 
-  it("re-renders a blockquote crossref when a referenced number changes", () => {
-    // The widget's toDOM resolves `[@eq:two]` to its number via the numbering
+  it("re-renders a blockquote crossref when a referenced block number changes", () => {
+    // The widget's toDOM resolves `[@thm:two]` to its number via the numbering
     // pipeline — a render input beyond the blockquote's own source. If eq()
     // ignored that, a renumber below the (fixed-range) blockquote would leave a
     // stale number. Baking the render-dependency signature into eq fixes it.
     const parent = document.createElement("div");
-    const doc = "> See [@eq:two].\n\n$$a$$ {#eq:one}\n\n$$b$$ {#eq:two}\n";
+    const first = "::: {.theorem #thm:one}\nA.\n:::\n\n";
+    const doc = `> See [@thm:two].\n\n${first}::: {.theorem #thm:two}\nB.\n:::\n`;
     const editor = createEditor({ parent, doc });
-    expect(editor.dom.querySelector("blockquote")?.textContent).toBe("See Eq. (2).");
+    const beforeRenderKey = getReferenceRenderDependencySignature(editor.state);
+    expect(editor.dom.querySelector("blockquote")?.textContent).toBe("See Theorem 2.");
 
-    // Delete the eq:one line (an edit AFTER the blockquote, so its byte range is
-    // unchanged); eq:two renumbers 2 → 1 and the blockquote must follow.
-    const from = doc.indexOf("$$a$$ {#eq:one}\n\n");
+    // Delete the first block through the programmatic-change path so the
+    // interactive fence-protection filter does not preserve its delimiters.
+    // The edit is AFTER the blockquote, so its range is unchanged, while the
+    // second theorem renumbers 2 → 1 and the blockquote must follow.
+    const from = doc.indexOf(first);
     editor.dispatch({
-      changes: { from, to: from + "$$a$$ {#eq:one}\n\n".length, insert: "" },
+      changes: { from, to: from + first.length, insert: "" },
+      annotations: programmaticDocumentChangeAnnotation.of(true),
     });
-    expect(editor.dom.querySelector("blockquote")?.textContent).toBe("See Eq. (1).");
+    expect(editor.state.doc.toString()).toBe(doc.slice(0, from) + doc.slice(from + first.length));
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    expect([...getPandocTree(editor.state).root.children()].filter((node) =>
+      node.kind === "FencedDiv"
+    )).toHaveLength(1);
+    expect(editor.state.field(documentAnalysisField).fencedDivs.map((div) => div.id)).toEqual([
+      "thm:two",
+    ]);
+    expect(editor.state.field(blockCounterField).byId.get("thm:two")?.number).toBe(1);
+    expect(getReferenceRenderDependencySignature(editor.state)).not.toBe(beforeRenderKey);
+    expect(editor.dom.querySelector("blockquote")?.textContent).toBe("See Theorem 1.");
     editor.destroy();
   });
 

@@ -1,6 +1,6 @@
 import { type EditorState, type Range, RangeSet } from "@codemirror/state";
 import { Decoration } from "@codemirror/view";
-import { countColons } from "../../core/parser";
+import { countColons } from "../../core/parser/fenced-div";
 import type {
   DisplayMathBlockInfo,
   FencedDivInfo,

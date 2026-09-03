@@ -3,13 +3,9 @@ import { EditorState, StateEffect } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { markdownExtensions } from "../../core/parser";
 import {
-  computePendingTableParse,
-  computePendingTableParseTarget,
   sameDiscoveredTables,
   type TableRange,
   tableDiscoveryField,
-  tableDiscoveryPendingParseField,
-  updateDiscoveredTables,
 } from "../state/table-discovery";
 import { ensureFullSyntaxTree } from "../test-utils";
 import {
@@ -52,7 +48,6 @@ function makeDiscoveryState(doc: string): EditorState {
   return parsedState.update({
     effects: StateEffect.appendConfig.of([
       tableDiscoveryField,
-      tableDiscoveryPendingParseField,
     ]),
   }).state;
 }
@@ -326,158 +321,21 @@ describe("table range helpers", () => {
     expect(visibleTables).toEqual([tables[1]]);
   });
 
-  it("maps cached tables without reparsing when the tree is unavailable for plain prose edits", () => {
-    const state = makeDiscoveryState([
-      "intro",
-      "",
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-    ].join("\n"));
-
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
-      changes: { from: state.doc.line(1).to, insert: " text" },
-    });
-    const changedTables = updateDiscoveredTables(initialTables, transaction, false);
-
-    expect(changedTables).not.toBe(initialTables);
-    expect(changedTables[0]?.parsed).toBe(initialTables[0]?.parsed);
-    expect(changedTables[0]?.lines).toBe(initialTables[0]?.lines);
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(false);
-  });
-
-  it("keeps the fast path for prose hyphen edits away from tables", () => {
-    const state = makeDiscoveryState([
-      "intro",
-      "",
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-    ].join("\n"));
-
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
-      changes: { from: state.doc.line(1).to, insert: "-" },
-    });
-    const changedTables = updateDiscoveredTables(initialTables, transaction, false);
-
-    expect(changedTables[0]?.parsed).toBe(initialTables[0]?.parsed);
-    expect(changedTables[0]?.lines).toBe(initialTables[0]?.lines);
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(false);
-  });
-
-  it("keeps the fast path for prose newline inserts away from tables", () => {
-    const state = makeDiscoveryState([
-      "intro",
-      "",
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-    ].join("\n"));
-
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
-      changes: { from: state.doc.line(1).to, insert: "\nmore" },
-    });
-    const changedTables = updateDiscoveredTables(initialTables, transaction, false);
-
-    expect(changedTables[0]?.parsed).toBe(initialTables[0]?.parsed);
-    expect(changedTables[0]?.lines).toBe(initialTables[0]?.lines);
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(false);
-  });
-
-  it("marks a pending parse when a doc change introduces a new table locally", () => {
+  it("discovers a newly inserted table in the same document transaction", () => {
     const state = makeDiscoveryState("intro");
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
+    const changedState = state.update({
       changes: {
         from: state.doc.length,
-        insert: "\n| A | B |\n| --- | --- |\n| 1 | 2 |",
+        insert: "\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
       },
-    });
+    }).state;
 
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(true);
-    expect(updateDiscoveredTables(initialTables, transaction, false)).toBe(initialTables);
-  });
-
-  it("marks a pending parse when the tree is unavailable for table-structure edits", () => {
-    const state = makeDiscoveryState([
+    expect(changedState.field(tableDiscoveryField)).toHaveLength(1);
+    expect(changedState.field(tableDiscoveryField)[0]?.lines).toEqual([
       "| A | B |",
       "| --- | --- |",
       "| 1 | 2 |",
-    ].join("\n"));
-
-    const transaction = state.update({
-      changes: { from: state.doc.line(3).from + 1, insert: "|" },
-    });
-
-    expect(computePendingTableParse(state.field(tableDiscoveryField), transaction, false)).toBe(true);
-  });
-
-  it("targets pending table parsing to the dirty table region", () => {
-    const state = makeDiscoveryState([
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-      "",
-      ...Array.from({ length: 200 }, (_, index) => `tail ${index}`),
-    ].join("\n"));
-
-    const transaction = state.update({
-      changes: { from: state.doc.line(3).from + 1, insert: "|" },
-    });
-    const pending = computePendingTableParseTarget(
-      state.field(tableDiscoveryField),
-      transaction,
-      false,
-    );
-
-    expect(pending?.targetTo).toBeLessThan(transaction.state.doc.length);
-    expect(pending?.targetTo).toBeLessThan(transaction.state.doc.line(20).from);
-  });
-
-  it("defers table rebuilding while the syntax tree is incomplete", () => {
-    const state = makeDiscoveryState([
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-      "",
-      "after",
-    ].join("\n"));
-
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
-      changes: { from: state.doc.line(3).from + 2, insert: "9" },
-    });
-    const changedTables = updateDiscoveredTables(initialTables, transaction, false);
-
-    expect(changedTables).not.toBe(initialTables);
-    expect(changedTables[0]?.parsed).toBe(initialTables[0]?.parsed);
-    expect(changedTables[0]?.lines).toBe(initialTables[0]?.lines);
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(true);
-  });
-
-  it("keeps mapped stale tables within document bounds while parsing is pending", () => {
-    const state = makeDiscoveryState([
-      "intro",
-      "",
-      "| A | B |",
-      "| --- | --- |",
-      "| 1 | 2 |",
-      "",
-      "tail",
-    ].join("\n"));
-
-    const initialTables = state.field(tableDiscoveryField);
-    const transaction = state.update({
-      changes: { from: state.doc.line(4).from, to: state.doc.length },
-    });
-    const [mapped] = updateDiscoveredTables(initialTables, transaction, false);
-
-    expect(mapped.to).toBeLessThanOrEqual(transaction.state.doc.length);
-    expect(mapped.separatorTo).toBeLessThanOrEqual(transaction.state.doc.length);
-    expect(computePendingTableParse(initialTables, transaction, false)).toBe(true);
+    ]);
   });
 
 });

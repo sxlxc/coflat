@@ -1,10 +1,10 @@
 import { markdown } from "@codemirror/lang-markdown";
-import { forceParsing, syntaxTree } from "@codemirror/language";
 import { StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 import { CSS } from "../../core/constants/css-classes";
 import { markdownExtensions } from "../../core/parser";
+import { getPandocSyntaxTree } from "../cst";
 import { decorationHidden } from "./decoration-core";
 import {
   createEditorState,
@@ -115,16 +115,13 @@ describe("highlight rendering", () => {
     view?.destroy();
   });
 
-  it("styles only highlight content, not hidden == markers", () => {
+  it("does not decorate disabled ==highlight== syntax", () => {
     const doc = "a ==mark== b";
     view = createView(doc, doc.length);
     const specs = getAllDecorationSpecs(view);
     const highlight = specs.find((spec) => spec.class === CSS.highlight);
 
-    expect(highlight).toMatchObject({
-      from: doc.indexOf("mark"),
-      to: doc.indexOf("mark") + "mark".length,
-    });
+    expect(highlight).toBeUndefined();
   });
 });
 
@@ -444,7 +441,7 @@ describe("markdownRenderPlugin (Decoration.mark approach)", () => {
       expect(delims.length).toBe(0);
     });
 
-    it("keeps active bold styling while typing before a trailing-space closer", () => {
+    it("keeps an invalid trailing-space strong closer literal", () => {
       const doc = "**foo **";
       view = createView(doc, doc.indexOf("foo") + 2);
       const items = collectMarkdownItems(
@@ -457,7 +454,7 @@ describe("markdownRenderPlugin (Decoration.mark approach)", () => {
         item.from === 2 &&
         item.to === doc.length - 2 &&
         item.value.spec.class === CSS.bold
-      )).toBe(true);
+      )).toBe(false);
     });
 
     it("does not treat stars inside inline math as active emphasis delimiters", () => {
@@ -622,7 +619,7 @@ describe("markdownRenderPlugin (Decoration.mark approach)", () => {
       expect(hasDecorationClass(view, CSS.italic)).toBe(false);
     });
 
-    it("keeps active fallback styling when real delimiters wrap inline math", () => {
+    it("keeps invalid emphasis with a trailing-space closer literal", () => {
       const doc = "*see $F^*$ now *";
       view = createView(doc, doc.indexOf("now"));
       const items = collectMarkdownItems(
@@ -635,7 +632,7 @@ describe("markdownRenderPlugin (Decoration.mark approach)", () => {
         item.from === 1 &&
         item.to === doc.length - 1 &&
         item.value.spec.class === CSS.italic
-      )).toBe(true);
+      )).toBe(false);
     });
 
     it("applies compact reveal metrics to link source marks and URL content", () => {
@@ -917,14 +914,14 @@ describe("reveal-freeze parity for newly collected ranges", () => {
   });
 });
 
-describe("hard line break hides under incremental parse progress", () => {
+describe("hard line break collection from the complete CST", () => {
   let view: EditorView;
 
   afterEach(() => {
     view?.destroy();
   });
 
-  it("collects newly parsed hard breaks without duplicating earlier ones", () => {
+  it("collects early and late hard breaks immediately without duplicates", () => {
     const early = "alpha  \nbeta\n\n";
     const filler = Array.from(
       { length: 200 },
@@ -935,9 +932,6 @@ describe("hard line break hides under incremental parse progress", () => {
     const doc = early + filler + late;
     view = createView(doc, 0);
 
-    // Precondition: the initial parse stops well before the trailing break.
-    expect(syntaxTree(view.state).length).toBeLessThan(doc.length);
-
     const earlyBreak = doc.indexOf("  \n");
     const lateBreak = doc.indexOf("gamma  \n") + "gamma".length;
     const breakSpecsAt = (from: number) =>
@@ -946,14 +940,6 @@ describe("hard line break hides under incremental parse progress", () => {
       );
 
     expect(breakSpecsAt(earlyBreak)).toHaveLength(1);
-    expect(breakSpecsAt(lateBreak)).toHaveLength(0);
-
-    // Advance the parse in two steps to exercise consecutive frontier deltas
-    // (each forceParsing dispatches a doc-unchanged tree-progress update).
-    forceParsing(view, Math.floor(doc.length / 2), 5000);
-    forceParsing(view, doc.length, 5000);
-    expect(syntaxTree(view.state).length).toBe(doc.length);
-
     expect(breakSpecsAt(earlyBreak)).toHaveLength(1);
     expect(breakSpecsAt(lateBreak)).toHaveLength(1);
   });
@@ -1272,12 +1258,15 @@ describe("markdownRenderPlugin doc-change invalidation (#823)", () => {
     const before = getAllDecorationSpecs(view);
     expect(before.some((spec) => spec.from === boldFrom && spec.to === boldFrom + 2)).toBe(true);
 
-    view.dispatch({ changes: { from: 0, insert: "```\n" } });
+    view.dispatch({ changes: [
+      { from: 0, insert: "```\n" },
+      { from: doc.length, insert: "\n```" },
+    ] });
 
     // Precondition: the tail reparsed in-transaction into the fenced block.
     const mappedBoldFrom = boldFrom + "```\n".length;
     expect(
-      syntaxTree(view.state).resolveInner(mappedBoldFrom + 1, 1).name,
+      getPandocSyntaxTree(view.state).resolveInner(mappedBoldFrom + 1, 1).name,
     ).toBe("CodeText");
 
     const after = getAllDecorationSpecs(view);

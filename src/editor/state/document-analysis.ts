@@ -1,19 +1,17 @@
-import { ensureSyntaxTree, syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
-import { type EditorState, StateField, type Text, type Transaction } from "@codemirror/state";
+import { getPandocSyntaxTree, getPandocTree } from "../cst";
+import { type EditorState, StateField, type Text } from "@codemirror/state";
 import { measureSync } from "../lib/perf";
 import type { DocumentAnalysis, TextSource } from "../semantics/document";
 import {
-  createDocumentAnalysisSnapshot,
+  createCstDocumentAnalysisSnapshot,
+  type CstDocumentAnalysisSnapshot,
   type DocumentAnalysisRevisionInfo,
   type DocumentAnalysisSliceName,
   type DocumentAnalysisSliceRevisions,
-  type DocumentAnalysisSnapshot,
   getDocumentAnalysisRevision,
   getDocumentAnalysisRevisionInfo,
   getDocumentAnalysisSliceRevision,
-  updateDocumentAnalysisSnapshot,
-} from "../semantics/incremental/engine";
-import { buildSemanticDelta } from "../semantics/incremental/semantic-delta";
+} from "../semantics/cst-document-analysis";
 
 const MATERIALIZE_TEXT_AFTER_SLICE_CALLS = 8;
 
@@ -83,36 +81,18 @@ export function editorStateTextSource(state: EditorState): TextSource {
   };
 }
 
-function completeSyntaxTree(state: EditorState) {
-  return measureSync(
-    "cm6.documentAnalysis.ensureSyntaxTree",
-    () => ensureSyntaxTree(state, state.doc.length, 1000) ?? syntaxTree(state),
+function buildDocumentAnalysis(
+  state: EditorState,
+  previous?: CstDocumentAnalysisSnapshot,
+): CstDocumentAnalysisSnapshot {
+  return measureSync("cm6.documentAnalysis.cstProjection", () =>
+    createCstDocumentAnalysisSnapshot(
+      editorStateTextSource(state),
+      getPandocSyntaxTree(state),
+      getPandocTree(state),
+      previous,
+    )
   );
-}
-
-function updateDocumentAnalysisForTransaction(
-  value: DocumentAnalysisSnapshot,
-  tr: Transaction,
-): DocumentAnalysisSnapshot {
-  const delta = buildSemanticDelta(tr);
-  if (
-    !delta.docChanged
-    && !delta.syntaxTreeChanged
-    && !delta.globalInvalidation
-    && !delta.pendingDrain
-  ) {
-    return value;
-  }
-
-  return measureSync("cm6.documentAnalysis.update", () => {
-    const doc = editorStateTextSource(tr.state);
-    const tree = syntaxTree(tr.state);
-    return measureSync("cm6.documentAnalysis.update.sliceMerge", () =>
-      updateDocumentAnalysisSnapshot(value, doc, tree, delta, {
-        isSyntaxTreeAvailable: (to) => syntaxTreeAvailable(tr.state, to),
-      })
-    );
-  });
 }
 
 /**
@@ -121,22 +101,25 @@ function updateDocumentAnalysisForTransaction(
  * block rendering, block counters) read from this field instead of
  * independently walking the syntax tree.
  */
-export const documentAnalysisField = StateField.define<DocumentAnalysisSnapshot>({
+export const documentAnalysisField = StateField.define<CstDocumentAnalysisSnapshot>({
   create(state) {
-    return measureSync("cm6.documentAnalysis.create", () =>
-      createDocumentAnalysisSnapshot(editorStateTextSource(state), completeSyntaxTree(state), {
-        isSyntaxTreeAvailable: (to) => syntaxTreeAvailable(state, to),
-      })
-    );
+    return buildDocumentAnalysis(state);
   },
 
   update(value, tr) {
-    return updateDocumentAnalysisForTransaction(value, tr);
+    const cst = getPandocTree(tr.state);
+    // The shipped editor installs pandocCstField, whose parser instance gives
+    // every changed snapshot a monotonic version. Feature-isolated tests and
+    // third-party extension harnesses may install this field alone; their
+    // detached one-shot CSTs all start at version 1, so a document change must
+    // still force the projection to be rebuilt.
+    if (!tr.docChanged && cst.version === value.cstVersion) return value;
+    return buildDocumentAnalysis(tr.state, value);
   },
 });
 
 export function documentAnalysisFromSnapshot(
-  snapshot: DocumentAnalysisSnapshot | null | undefined,
+  snapshot: CstDocumentAnalysisSnapshot | null | undefined,
 ): DocumentAnalysis | undefined {
   return snapshot?.analysis;
 }

@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { CSS } from "../../core/constants/css-classes";
 import type { FileSystem } from "../../core/lib/file-system-types";
 import {
-  parseMarkdownSource,
+  parsePandocTraversalSource,
 } from "../../core/parser";
 import { renderToHtml } from "../../reader/reader";
 import {
@@ -412,7 +412,7 @@ describe("reader / editor-preview emission parity", () => {
     ]);
   });
 
-  it("uses full-document equation numbers when rendering a blockquote fragment", () => {
+  it("does not synthesize equation numbers when rendering a blockquote fragment", () => {
     const fullSource = [
       "$$a^2$$ {#eq:first}",
       "",
@@ -421,13 +421,13 @@ describe("reader / editor-preview emission parity", () => {
     ].join("\n");
     const blockquoteSource = fullSource.slice(fullSource.indexOf("> quoted equation:"));
     const host = document.createElement("div");
-    const fullTree = parseMarkdownSource(fullSource, "html-render");
+    const fullTree = parsePandocTraversalSource(fullSource, "html-render");
     const fullSemantics = analyzeDocumentSemantics(stringTextSource(fullSource), fullTree);
 
     renderPreviewBlockContentToDom(host, blockquoteSource, {
       referenceSemantics: fullSemantics,
     });
 
-    expect(host.querySelector(`.${CSS.mathDisplayNumber}`)?.textContent).toBe("(2)");
+    expect(host.querySelector(`.${CSS.mathDisplayNumber}`)).toBeNull();
   });
 });

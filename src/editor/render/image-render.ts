@@ -1,4 +1,3 @@
-import { syntaxTree } from "@codemirror/language";
 import {
   type ChangeSet,
   type EditorState,
@@ -201,6 +200,7 @@ const imageDecorationField: StateField<ImageDecorationState> = StateField.define
       const oldDirtyRanges = dirtyRangesFromChanges(
         tr.changes,
         (from, to) => expandChangeRangeToLines(tr.startState.doc, from, to),
+        "old",
       );
       const newDirtyRanges = dirtyRangesFromChanges(
         tr.changes,
@@ -297,10 +297,8 @@ function previewRequestRangesForView(view: EditorView): readonly DirtyRange[] {
     : [{ from: 0, to: Math.min(view.state.doc.length, INITIAL_IMAGE_PREVIEW_SCAN_LIMIT) }];
 
   if (
-    visibleRanges.length === 1
-    && visibleRanges[0].from === 0
-    && visibleRanges[0].to === view.state.doc.length
-    && view.state.doc.length > INITIAL_IMAGE_PREVIEW_SCAN_LIMIT
+    view.state.doc.length > INITIAL_IMAGE_PREVIEW_SCAN_LIMIT
+    && visibleRanges.some(range => range.from === 0)
   ) {
     return [{ from: 0, to: INITIAL_IMAGE_PREVIEW_SCAN_LIMIT }];
   }
@@ -339,9 +337,6 @@ const imageRequestPlugin = ViewPlugin.fromClass(class {
       this.requestNearViewport(update.view);
     }
 
-    if (syntaxTree(update.state) !== syntaxTree(update.startState)) {
-      this.requestNearViewport(update.view);
-    }
   }
 
   destroy(): void {

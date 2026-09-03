@@ -45,9 +45,9 @@ describe("CRLF line endings", () => {
     expect(crlf.filter((n) => n === "DisplayMath")).toHaveLength(1);
   });
 
-  it("parses a labeled display-math equation under CRLF", () => {
+  it("does not invent Coflat-only equation labels under CRLF", () => {
     const crlf = names("$$ x^2 $$ {#eq:quad}\r\n");
     expect(crlf).toContain("DisplayMath");
-    expect(crlf).toContain("EquationLabel");
+    expect(crlf).not.toContain("EquationLabel");
   });
 });

@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import type { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
@@ -6,7 +6,7 @@ const INDENT_UNIT = "  ";
 
 function findListItemAtCursor(view: EditorView): SyntaxNode | null {
   const pos = view.state.selection.main.head;
-  const tree = syntaxTree(view.state);
+  const tree = getPandocSyntaxTree(view.state);
   let node: SyntaxNode | null = tree.resolveInner(pos, -1);
 
   while (node) {

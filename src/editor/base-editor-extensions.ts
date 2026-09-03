@@ -1,10 +1,6 @@
-import { markdown } from "@codemirror/lang-markdown";
 import type { LanguageDescription } from "@codemirror/language";
-import { syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
-import { classHighlighter } from "@lezer/highlight";
-import type { MarkdownExtension } from "@lezer/markdown";
-import { markdownExtensions } from "../core/parser";
+import { pandocCstField, pandocCstHighlighting } from "./cst";
 import {
   type ProjectConfig,
   type ProjectConfigStatus,
@@ -18,7 +14,7 @@ export { sharedInlineRenderExtensions } from "./render/inline-render-extensions"
 // rendering (`parseInlineFragments`) and the rich editor. Keeping this as an
 // alias prevents table cells/block-title editing from drifting when FORMAT
 // syntax extensions are added.
-export const inlineMarkdownExtensions: readonly MarkdownExtension[] = markdownExtensions;
+export const inlineMarkdownExtensions: readonly unknown[] = Object.freeze([]);
 
 export function createProjectConfigExtensions(
   projectConfig?: ProjectConfig,
@@ -31,25 +27,24 @@ export function createProjectConfigExtensions(
 }
 
 interface MarkdownLanguageOptions {
-  extensions?: readonly MarkdownExtension[];
+  extensions?: readonly unknown[];
   codeLanguages?: readonly LanguageDescription[];
   syntaxHighlighting?: boolean;
 }
 
 export function createMarkdownLanguageExtensions({
-  extensions = markdownExtensions,
+  extensions = inlineMarkdownExtensions,
   codeLanguages,
   syntaxHighlighting: includeSyntaxHighlighting = false,
 }: MarkdownLanguageOptions = {}): Extension[] {
-  const languageExtensions: Extension[] = [
-    markdown({
-      extensions,
-      ...(codeLanguages ? { codeLanguages: [...codeLanguages] } : {}),
-    }),
-  ];
+  // The option shape remains source-compatible during M6, but Markdown
+  // structure now comes exclusively from the synchronous Pandoc CST field.
+  void extensions;
+  void codeLanguages;
+  const languageExtensions: Extension[] = [pandocCstField];
 
   if (includeSyntaxHighlighting) {
-    languageExtensions.push(syntaxHighlighting(classHighlighter));
+    languageExtensions.push(pandocCstHighlighting);
   }
 
   return languageExtensions;

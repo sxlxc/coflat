@@ -7,9 +7,37 @@ import {
 
 const escapable = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/;
 const entity = /^&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[A-Za-z][A-Za-z0-9]+);/;
-const citationKey = /(-?)@([A-Za-z0-9][A-Za-z0-9_:.#$%&+?<>~/\-]*)/g;
+// Pandoc permits punctuation inside citation identifiers, but sentence
+// punctuation (`.`/`:`) at the end is not part of a bare citation key.
+const citationKey = /(-?)@([A-Za-z0-9_](?:[A-Za-z0-9_:.#$%&+?<>~/\-]*[A-Za-z0-9_#$%&+?<>~/\-])?)/g;
 
 function mark(kind: NodeKind, length: number): GreenNode { return leaf(kind, length); }
+
+function potentialInlineOpener(code: number): boolean {
+  switch (code) {
+    case 32: // space (hard break)
+    case 33: // !
+    case 34: // "
+    case 35: // # in citation keys is reached through @/[ parsing
+    case 36: // $
+    case 38: // &
+    case 39: // '
+    case 45: // -
+    case 46: // .
+    case 60: // <
+    case 64: // @
+    case 91: // [
+    case 92: // \
+    case 94: // ^
+    case 95: // _
+    case 96: // `
+    case 126: // ~
+    case 42: // *
+      return true;
+    default:
+      return false;
+  }
+}
 
 function literal(text: string): GreenNode[] {
   const result: GreenNode[] = [];
@@ -41,6 +69,35 @@ function findUnescaped(text: string, needle: string, from: number): number {
     at = text.indexOf(needle, at + needle.length);
   }
   return -1;
+}
+
+function findEmphasisClose(text: string, delimiter: string, from: number): number {
+  let end = findUnescaped(text, delimiter, from);
+  if (delimiter.length !== 1) return end;
+  while (end >= 0) {
+    if (text[end - 1] !== delimiter && text[end + 1] !== delimiter) return end;
+    end = findUnescaped(text, delimiter, end + 1);
+  }
+  return -1;
+}
+
+function findClosingParen(text: string, from: number): number {
+  let depth = 1;
+  for (let index = from; index < text.length; index++) {
+    if (text[index] === "\\") { index++; continue; }
+    if (text[index] === "(") depth++;
+    else if (text[index] === ")" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function textLeaves(source: string): GreenNode[] {
+  const result: GreenNode[] = [];
+  for (const part of source.split(/([ \t\r\n]+)/)) {
+    if (!part) continue;
+    result.push(leaf(/^[ \t\r\n]+$/.test(part) ? "Whitespace" : "Text", part.length));
+  }
+  return result;
 }
 
 function normalizeLabel(value: string): string {
@@ -124,12 +181,12 @@ function parseBracket(text: string, start: number, image: boolean): { node: Gree
   }
 
   if (text[cursor] === "(") {
-    const end = findUnescaped(text, ")", cursor + 1);
+    const end = findClosingParen(text, cursor + 1);
     if (end < 0) return null;
     const inside = text.slice(cursor + 1, end);
-    const match = /^\s*(<[^>]*>|[^\s"']+)?(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*$/.exec(inside);
-    if (!match) return null;
-    const destination = match[1] ?? "";
+    const match = /^\s*(<[^>]*>|[^\s"']+)?(?:\s+("[^"]*"|'[^']*'))?\s*$/.exec(inside);
+    const destination = match?.[1] ?? (!/["']/.test(inside) ? inside.trim() : "");
+    if (!match && !destination) return null;
     const beforeDest = destination ? inside.indexOf(destination) : 0;
     const linkChildren = [...base, mark("ParenMark", 1)];
     if (beforeDest > 0) linkChildren.push(leaf("Whitespace", beforeDest));
@@ -137,14 +194,14 @@ function parseBracket(text: string, start: number, image: boolean): { node: Gree
       const angle = destination.startsWith("<");
       linkChildren.push(green("LinkDestination", [
         ...(angle ? [mark("Delimiter", 1)] : []),
-        ...(destination.length > (angle ? 2 : 0) ? [leaf("Text", destination.length - (angle ? 2 : 0))] : []),
+        ...textLeaves(angle ? destination.slice(1, -1) : destination),
         ...(angle ? [mark("Delimiter", 1)] : []),
       ], props([destinationSyntax, angle ? "angle" : "bare"])));
     }
     let consumed = beforeDest + destination.length;
     if (inside.length > consumed) {
       const rest = inside.slice(consumed);
-      const titleAt = rest.search(/["'(]/);
+      const titleAt = rest.search(/["']/);
       if (titleAt >= 0) {
         if (titleAt > 0) linkChildren.push(leaf("Whitespace", titleAt));
         linkChildren.push(green("LinkTitle", [leaf("Text", rest.length - titleAt)]));
@@ -283,7 +340,12 @@ export function parseInlines(text: string): readonly GreenNode[] {
     if ((char === "!" && text[i + 1] === "[") || char === "[") {
       const contentStart = i + (char === "!" ? 2 : 1);
       const firstClose = findUnescaped(text, "]", contentStart);
-      if (char === "[" && firstClose > i && /(?:^|[;\s])-?@[A-Za-z0-9]/.test(text.slice(i + 1, firstClose))) {
+      if (
+        char === "["
+        && firstClose > i
+        && text[firstClose + 1] !== "("
+        && /(?:^|[;\s])-?@[A-Za-z0-9]/.test(text.slice(i + 1, firstClose))
+      ) {
         emit(parseCitation(text.slice(i, firstClose + 1)), firstClose + 1); continue;
       }
       const bracket = parseBracket(text, i, char === "!");
@@ -294,14 +356,23 @@ export function parseInlines(text: string): readonly GreenNode[] {
       if (close >= 0) { emit(green("InlineNote", [mark("Delimiter", 2), ...parseInlines(text.slice(i + 2, close)), mark("BracketMark", 1)]), close + 1); continue; }
     }
     if (text.startsWith("(@", i)) {
-      const example = /^\(@([A-Za-z0-9_:.#$%&+?<>~\/\-]+)\)/.exec(text.slice(i));
+      const example = /^\(@([A-Za-z0-9_](?:[A-Za-z0-9_:.#$%&+?<>~\/\-]*[A-Za-z0-9_#$%&+?<>~\/\-])?)\)/.exec(text.slice(i));
       if (example) {
         emit(green("ExampleReference", [mark("ParenMark", 1), mark("Delimiter", 1), leaf("CitationKey", example[1]!.length), mark("ParenMark", 1)], props([normalizedCitationKey, example[1]!.toLocaleLowerCase()])), i + example[0].length);
         continue;
       }
     }
+    if (text.startsWith("-@", i) && !/[\p{L}\p{N}_]/u.test(text[i - 1] ?? "")) {
+      const suppress = /^-@([A-Za-z0-9_](?:[A-Za-z0-9_:.#$%&+?<>~\/\-]*[A-Za-z0-9_#$%&+?<>~\/\-])?)/.exec(text.slice(i));
+      if (suppress) {
+        emit(green("Citation", [green("CitationItem", [
+          mark("Delimiter", 1), mark("Delimiter", 1), leaf("CitationKey", suppress[1]!.length),
+        ], props([citationMode, "suppress-author"], [normalizedCitationKey, suppress[1]!.toLocaleLowerCase()]))]), i + suppress[0].length);
+        continue;
+      }
+    }
     if (char === "@" && !/[\p{L}\p{N}_]/u.test(text[i - 1] ?? "")) {
-      const author = /^@[A-Za-z0-9][A-Za-z0-9_:.#$%&+?<>~\/\-]*/.exec(text.slice(i));
+      const author = /^@[A-Za-z0-9_](?:[A-Za-z0-9_:.#$%&+?<>~\/\-]*[A-Za-z0-9_#$%&+?<>~\/\-])?/.exec(text.slice(i));
       if (author) {
         emit(green("ExampleReference", [mark("Delimiter", 1), leaf("CitationKey", author[0].length - 1)], props(
           [citationMode, "author-in-text"], [normalizedCitationKey, author[0].slice(1).toLocaleLowerCase()],
@@ -325,7 +396,7 @@ export function parseInlines(text: string): readonly GreenNode[] {
     for (const [open, close, kind] of emphasis) {
       if (!text.startsWith(open, i)) continue;
       if (open === "_" && /[\p{L}\p{N}]/u.test(text[i - 1] ?? "") && /[\p{L}\p{N}]/u.test(text[i + 1] ?? "")) continue;
-      const end = findUnescaped(text, close, i + open.length);
+      const end = findEmphasisClose(text, close, i + open.length);
       if (end <= i + open.length || /\s/.test(text[i + open.length]!) || /\s/.test(text[end - 1]!)) continue;
       emit(delimited(kind, text.slice(i, end + close.length), open, close), end + close.length);
       matched = true; break;
@@ -341,6 +412,7 @@ export function parseInlines(text: string): readonly GreenNode[] {
     const smartMatch = smart.find(([sequence]) => text.startsWith(sequence, i));
     if (smartMatch) { emit(green("SmartSequence", [leaf("Text", smartMatch[0].length)], props([smartInterpretation, smartMatch[1]])), i + smartMatch[0].length); continue; }
     i++;
+    while (i < text.length && !potentialInlineOpener(text.charCodeAt(i))) i++;
   }
   flush(text.length);
   return Object.freeze(nodes);

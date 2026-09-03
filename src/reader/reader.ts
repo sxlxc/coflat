@@ -133,7 +133,8 @@ import {
   type DocumentOutlineEntry,
 } from "../core/outline-surface";
 import { renderParagraphHtml } from "../core/paragraph-surface";
-import { parseFrontmatter, parseMarkdownSource } from "../core/parser";
+import { parsePandocCstSource } from "../core/cst/pandoc-syntax-tree";
+import { parseFrontmatter } from "../core/parser/frontmatter";
 import type { NumberingScheme } from "../core/parser/frontmatter";
 import {
   fencedDivPreviewBodyRange,
@@ -306,7 +307,7 @@ export type {
 
 function parseSource(source: string): Tree {
   noteLezerInvocation();
-  return parseMarkdownSource(source, "html-render");
+  return parsePandocCstSource(source);
 }
 
 // ---------------------------------------------------------------------------

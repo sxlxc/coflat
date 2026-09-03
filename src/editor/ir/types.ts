@@ -47,7 +47,7 @@ export interface BlockNode {
   readonly content: string;
 }
 
-/** A display math equation with a label. */
+/** An inline or display math span; labels exist only when supplied by supported syntax. */
 export interface MathNode {
   /** LaTeX source (without delimiters). */
   readonly latex: string;

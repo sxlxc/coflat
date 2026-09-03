@@ -93,7 +93,7 @@ export class DocumentSemanticsImpl implements DocumentSemantics {
     for (const node of nodes) {
       if (node.kind === "ReferenceDefinition") {
         const label = node.prop(normalizedReferenceLabel);
-        if (label !== undefined && !this.#definitions.has(label)) this.#definitions.set(label, {
+        if (label !== undefined) this.#definitions.set(label, {
           node, destination: node.prop(referenceDestination) ?? "", title: node.prop(referenceTitle) ?? "",
         });
       } else if (node.kind === "FootnoteDefinition") {

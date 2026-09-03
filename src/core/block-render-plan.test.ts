@@ -20,26 +20,26 @@ import {
   paragraphRenderPlan,
   tableRenderPlan,
 } from "./block-render-plan";
-import { parseMarkdownSource } from "./parser";
+import { parsePandocTraversalSource } from "./parser";
 
 function documentNode(source: string) {
-  return parseMarkdownSource(source, "html-render").topNode;
+  return parsePandocTraversalSource(source, "html-render").topNode;
 }
 
 function firstParagraph(source: string) {
-  const node = parseMarkdownSource(source, "html-render").topNode.firstChild;
+  const node = parsePandocTraversalSource(source, "html-render").topNode.firstChild;
   if (!node || node.name !== "Paragraph") throw new Error("expected paragraph");
   return node;
 }
 
 function firstBlock(source: string, name: string) {
-  const node = parseMarkdownSource(source, "html-render").topNode.firstChild;
+  const node = parsePandocTraversalSource(source, "html-render").topNode.firstChild;
   if (!node || node.name !== name) throw new Error(`expected ${name}`);
   return node;
 }
 
 function firstHeading(source: string) {
-  const node = parseMarkdownSource(source, "html-render").topNode.firstChild;
+  const node = parsePandocTraversalSource(source, "html-render").topNode.firstChild;
   if (!node || !node.name.includes("Heading")) throw new Error("expected heading");
   return node;
 }
@@ -163,7 +163,7 @@ describe("blockNodeRenderKind", () => {
       "$$",
       "",
       "| a |",
-      "| - |",
+      "| --- |",
       "| b |",
       "",
       "::: {.theorem #thm}",
@@ -238,7 +238,7 @@ describe("blockLineCost", () => {
 
   it("counts list items and table rows from their shared render plans", () => {
     const list = "- one\n- two\n- three";
-    const table = "| A | B |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |";
+    const table = "| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |";
 
     expect(blockLineCost(list, firstBlock(list, "BulletList"))).toBe(3);
     expect(blockLineCost(table, firstBlock(table, "Table"))).toBe(3);
@@ -315,20 +315,20 @@ describe("horizontalRuleRenderPlan", () => {
 });
 
 describe("displayMathRenderPlan", () => {
-  it("extracts latex and optional equation labels for shared emitters", () => {
-    const source = "$$\nx^2+y^2\n$$ {#eq:pythagoras}";
+  it("extracts display math for shared emitters", () => {
+    const source = "$$\nx^2+y^2\n$$";
     const plan = displayMathRenderPlan(source, firstBlock(source, "DisplayMath"));
 
     expect(plan).toEqual({
       kind: "display-math",
       sourceRange: { from: 0, to: source.length },
       latex: "x^2+y^2",
-      equationId: "eq:pythagoras",
+      equationId: null,
     });
   });
 
   it("keeps unlabeled display math label-free", () => {
-    const source = "\\[\na+b\n\\]";
+    const source = "$$\na+b\n$$";
     expect(displayMathRenderPlan(source, firstBlock(source, "DisplayMath"))).toEqual({
       kind: "display-math",
       sourceRange: { from: 0, to: source.length },
@@ -716,13 +716,6 @@ describe("fencedDivRenderPlan", () => {
     expect(plan.primaryManifestEntry?.name).toBe("theorem");
     expect(source.slice(plan.bodyRange?.from, plan.bodyRange?.to).trim()).toBe("Body");
     expect(plan.children.map((child) => child.node.name)).toEqual(["Paragraph"]);
-  });
-
-  it("uses inline fenced-div titles", () => {
-    const source = "::: {.theorem} Inline\nBody\n:::";
-    const plan = fencedDivRenderPlan(source, firstBlock(source, "FencedDiv"));
-
-    expect(plan.title).toBe("Inline");
   });
 
   it("uses title attributes when there is no inline title", () => {

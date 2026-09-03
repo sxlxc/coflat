@@ -19,7 +19,7 @@
  * `renumberListsCommand` as an explicit command.
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "./cst";
 import {
   type ChangeSpec,
   EditorState,
@@ -148,7 +148,7 @@ function fetchTopLists(
   state: EditorState,
   ranges: readonly RenumberRange[],
 ): SyntaxNode[] {
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   const seen = new Set<number>();
   const lists: SyntaxNode[] = [];
   for (const range of ranges) {

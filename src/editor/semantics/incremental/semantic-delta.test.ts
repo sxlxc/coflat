@@ -82,7 +82,7 @@ describe("buildSemanticDelta", () => {
     expect(delta.dirtyWindows).toEqual(delta.rawChangedRanges);
   });
 
-  it("marks syntax-tree-only invalidation on parser reconfigure", () => {
+  it("ignores retired language-parser reconfiguration", () => {
     const language = new Compartment();
     const state = EditorState.create({
       doc: "~~strike~~",
@@ -97,7 +97,7 @@ describe("buildSemanticDelta", () => {
     expect(delta.docChanged).toBe(false);
     expect(delta.rawChangedRanges).toEqual([]);
     expect(delta.dirtyWindows).toEqual([]);
-    expect(delta.syntaxTreeChanged).toBe(true);
+    expect(delta.syntaxTreeChanged).toBe(false);
     expect(delta.plainInlineTextOnlyChange).toBe(false);
   });
 

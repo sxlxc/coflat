@@ -136,7 +136,7 @@ describe("extractStructuralWindow", () => {
     ]);
   });
 
-  it("can skip narrative reference extraction for incremental callers", () => {
+  it("always exposes complete narrative references from the CST", () => {
     const doc = "See @thm-main and [@eq:one].\n";
     const tree = parser.parse(doc);
     const src = stringTextSource(doc);
@@ -148,7 +148,13 @@ describe("extractStructuralWindow", () => {
       includeNarrativeRefs: false,
     });
 
-    expect(structural.narrativeRefs).toEqual([]);
+    expect(structural.narrativeRefs).toEqual([{
+      from: doc.indexOf("@thm-main"),
+      to: doc.indexOf("@thm-main") + "@thm-main".length,
+      bracketed: false,
+      ids: ["thm-main"],
+      locators: [undefined],
+    }]);
     expect(structural.bracketedRefs).toEqual([
       {
         from: doc.indexOf("[@eq:one]"),

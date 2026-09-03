@@ -1,4 +1,4 @@
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { getPandocSyntaxTree, pandocSyntaxTreeAvailable } from "../cst";
 import { EditorState, StateField, type Transaction } from "@codemirror/state";
 import {
   type FencedBlockInfo,
@@ -127,7 +127,7 @@ function scanCodeBlocks(
 ): readonly CodeBlockInfo[] {
   const results: CodeBlockInfo[] = [];
   const seen = new Set<number>();
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
 
   const collectInRange = (from?: number, to?: number) => {
     tree.iterate({
@@ -314,7 +314,7 @@ function incrementalCodeBlockStructureUpdate(
 function updateCodeBlockStructureCache(
   value: CodeBlockStructureCache,
   tr: Transaction,
-  treeAvailable = syntaxTreeAvailable(tr.state, tr.state.doc.length),
+  treeAvailable = pandocSyntaxTreeAvailable(tr.state, tr.state.doc.length),
 ): CodeBlockStructureCache {
   if (tr.docChanged) {
     if (!treeAvailable) {
@@ -324,7 +324,7 @@ function updateCodeBlockStructureCache(
     return incrementalCodeBlockStructureUpdate(value, tr);
   }
   if (
-    syntaxTree(tr.state) !== syntaxTree(tr.startState) &&
+    getPandocSyntaxTree(tr.state) !== getPandocSyntaxTree(tr.startState) &&
     treeAvailable
   ) {
     const blocks = scanCodeBlocks(tr.state);

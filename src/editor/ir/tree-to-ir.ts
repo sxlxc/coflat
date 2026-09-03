@@ -1,6 +1,6 @@
 import type { Tree } from "@lezer/common";
 import { stringTextSource } from "../semantics/document-model";
-import { createDocumentArtifacts } from "../semantics/incremental/engine";
+import { analyzeDocumentArtifacts } from "../semantics/document";
 import type { DocumentIR } from "./types";
 
 /**
@@ -11,5 +11,5 @@ import type { DocumentIR } from "./types";
  * `DocumentAnalysis` stay aligned.
  */
 export function treeToIR(tree: Tree, doc: string): DocumentIR {
-  return createDocumentArtifacts(stringTextSource(doc), tree).ir;
+  return analyzeDocumentArtifacts(stringTextSource(doc), tree).ir;
 }

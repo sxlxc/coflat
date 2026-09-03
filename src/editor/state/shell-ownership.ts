@@ -1,4 +1,4 @@
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import type { FencedDivInfo } from "../fenced-block/model";
@@ -77,7 +77,7 @@ export function findCodeShellAt(
   pos: number,
 ): CodeShellInfo | null {
   const clampedPos = Math.max(0, Math.min(pos, state.doc.length));
-  const tree = syntaxTree(state);
+  const tree = getPandocSyntaxTree(state);
   for (const side of [1, -1] as const) {
     const node: SyntaxNode | null = tree.resolveInner(clampedPos, side);
     const codeBlock = findAncestor(node, isFencedCode);

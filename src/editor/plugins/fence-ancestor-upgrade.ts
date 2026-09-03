@@ -15,7 +15,7 @@
  * the partner fence keeps matching after the bump.
  */
 
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree } from "../cst";
 import {
   EditorState,
   type Extension,
@@ -117,7 +117,7 @@ export const fenceAncestorUpgradeExtension: Extension = EditorState.transactionF
   });
   if (candidates.length === 0) return tr;
 
-  const tree = syntaxTree(tr.startState);
+  const tree = getPandocSyntaxTree(tr.startState);
 
   // Plan upgrades per ancestor opener position. Multiple candidates may
   // share ancestors; keep the maximum required colon count for each.

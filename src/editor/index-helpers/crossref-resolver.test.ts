@@ -71,17 +71,13 @@ function withBibliography(state: EditorState): EditorState {
 }
 
 describe("collectEquationLabels", () => {
-  it("collects a single equation label", () => {
+  it("does not collect an unsupported trailing equation label", () => {
     const state = createMathState("$$x^2$$ {#eq:quadratic}");
     const labels = collectEquationLabels(state);
-    expect(labels.size).toBe(1);
-    expect(labels.get("eq:quadratic")).toEqual({
-      id: "eq:quadratic",
-      number: 1,
-    });
+    expect(labels.size).toBe(0);
   });
 
-  it("assigns sequential numbers to multiple equation labels", () => {
+  it("does not number unsupported trailing equation labels", () => {
     const doc = [
       "$$a$$ {#eq:first}",
       "",
@@ -92,10 +88,7 @@ describe("collectEquationLabels", () => {
     const state = createMathState(doc);
     const labels = collectEquationLabels(state);
 
-    expect(labels.size).toBe(3);
-    expect(labels.get("eq:first")?.number).toBe(1);
-    expect(labels.get("eq:second")?.number).toBe(2);
-    expect(labels.get("eq:third")?.number).toBe(3);
+    expect(labels.size).toBe(0);
   });
 
   it("returns empty map for document with no equation labels", () => {
@@ -104,11 +97,10 @@ describe("collectEquationLabels", () => {
     expect(labels.size).toBe(0);
   });
 
-  it("handles backslash bracket syntax", () => {
+  it("does not attach trailing labels to backslash-bracket math", () => {
     const state = createMathState("\\[x^2\\] {#eq:bs}");
     const labels = collectEquationLabels(state);
-    expect(labels.size).toBe(1);
-    expect(labels.get("eq:bs")?.number).toBe(1);
+    expect(labels.size).toBe(0);
   });
 });
 
@@ -168,17 +160,15 @@ describe("resolveCrossref", () => {
     expect(defResult.number).toBe(1);
   });
 
-  it("resolves an equation reference", () => {
+  it("leaves a source-only equation reference unresolved", () => {
     const doc = "$$E = mc^2$$ {#eq:einstein}";
     const state = createState(doc);
     const result = resolveCrossref(state, "eq:einstein");
 
-    expect(result.kind).toBe("equation");
-    expect(result.label).toBe("Eq. (1)");
-    expect(result.number).toBe(1);
+    expect(result).toEqual({ kind: "unresolved", label: "eq:einstein" });
   });
 
-  it("resolves multiple equation references with correct numbering", () => {
+  it("leaves multiple source-only equation references unresolved", () => {
     const doc = [
       "$$a$$ {#eq:first}",
       "",
@@ -187,12 +177,10 @@ describe("resolveCrossref", () => {
     const state = createState(doc);
 
     const first = resolveCrossref(state, "eq:first");
-    expect(first.kind).toBe("equation");
-    expect(first.label).toBe("Eq. (1)");
+    expect(first).toEqual({ kind: "unresolved", label: "eq:first" });
 
     const second = resolveCrossref(state, "eq:second");
-    expect(second.kind).toBe("equation");
-    expect(second.label).toBe("Eq. (2)");
+    expect(second).toEqual({ kind: "unresolved", label: "eq:second" });
   });
 
   it("resolves a numbered heading reference as a section label", () => {
@@ -272,10 +260,10 @@ describe("resolveCrossref", () => {
     expect(result.label).toBe("Theorem 1");
   });
 
-  it("uses precomputed equation labels when provided", () => {
+  it("uses host-provided equation labels when provided", () => {
     const doc = "$$x$$ {#eq:test}";
     const state = createState(doc);
-    const eqLabels = collectEquationLabels(state);
+    const eqLabels = new Map([["eq:test", { id: "eq:test", number: 1 }]]);
     const result = resolveCrossref(state, "eq:test", eqLabels);
 
     expect(result.kind).toBe("equation");

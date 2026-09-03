@@ -1,10 +1,11 @@
 /**
  * YAML frontmatter parser for Coflat documents.
  *
- * Uses the standard `yaml` npm package for parsing. Boundary detection
- * (`extractRawFrontmatter`) is kept as a custom Lezer-independent function.
+ * Uses the standard `yaml` npm package for parsing. Markdown boundary
+ * detection comes from the authoritative Pandoc CST.
  */
 
+import { PandocParser, type SyntaxTree } from "pandocmd-cst";
 import { parse as parseYaml } from "yaml";
 
 export interface BlockConfig {
@@ -216,61 +217,33 @@ export type FrontmatterStatus =
  * Extract the raw YAML text between `---` delimiters at the start of a document.
  * Returns null if no frontmatter is present.
  */
-function findLineBoundary(
-  doc: string,
-  from: number,
-): { lineEnd: number; next: number } {
-  const lineFeed = doc.indexOf("\n", from);
-  if (lineFeed === -1) {
-    return { lineEnd: doc.length, next: doc.length };
-  }
-  const lineEnd = lineFeed > from && doc[lineFeed - 1] === "\r" ? lineFeed - 1 : lineFeed;
-  return { lineEnd, next: lineFeed + 1 };
-}
-
 export function isFrontmatterDelimiterLine(line: string): boolean {
   return line.slice(0, 3) === "---" && line.slice(3).trim().length === 0;
 }
 
-function isStandaloneDelimiter(
-  doc: string,
-  from: number,
-  lineEnd: number,
-): boolean {
-  return isFrontmatterDelimiterLine(doc.slice(from, lineEnd));
+export function extractRawFrontmatterFromTree(
+  tree: SyntaxTree,
+): { raw: string; end: number } | null {
+  const metadata = tree.topLevelBlocks()[0];
+  if (metadata?.kind !== "YamlMetadata") return null;
+  const delimiters = [...metadata.children()].filter(child => child.kind === "Delimiter");
+  const opener = delimiters[0];
+  const closer = delimiters.at(-1);
+  if (!opener || !closer || opener === closer) return null;
+
+  let rawFrom = opener.to;
+  const afterOpener = opener.nextSibling();
+  if (afterOpener?.kind === "LineEnding") rawFrom = afterOpener.to;
+  let rawTo = closer.from;
+  if (tree.text.slice(Math.max(rawFrom, rawTo - 2), rawTo) === "\r\n") rawTo -= 2;
+  else if (rawTo > rawFrom && /[\r\n]/.test(tree.text.charAt(rawTo - 1))) rawTo--;
+  return { raw: tree.text.slice(rawFrom, rawTo), end: metadata.to };
 }
 
 export function extractRawFrontmatter(
   doc: string,
 ): { raw: string; end: number } | null {
-  const start = doc.charCodeAt(0) === 0xfeff ? 1 : 0;
-  if (!doc.startsWith("---", start)) return null;
-
-  const opening = findLineBoundary(doc, start);
-  if (opening.next === doc.length) return null;
-  if (!isStandaloneDelimiter(doc, start, opening.lineEnd)) return null;
-
-  let lineStart = opening.next;
-  while (lineStart < doc.length) {
-    const line = findLineBoundary(doc, lineStart);
-    if (isStandaloneDelimiter(doc, lineStart, line.lineEnd)) {
-      let rawEnd = lineStart;
-      if (rawEnd > opening.next && doc[rawEnd - 1] === "\n") {
-        rawEnd -= 1;
-        if (rawEnd > opening.next && doc[rawEnd - 1] === "\r") {
-          rawEnd -= 1;
-        }
-      }
-      return {
-        raw: doc.slice(opening.next, rawEnd),
-        end: line.next,
-      };
-    }
-    if (line.next === doc.length) break;
-    lineStart = line.next;
-  }
-
-  return null;
+  return extractRawFrontmatterFromTree(new PandocParser().parse(doc));
 }
 
 /** Type guard for plain non-array objects from parsed YAML. */
@@ -399,7 +372,17 @@ function validateMath(raw: Record<string, unknown>): Record<string, string> {
  * ends. If no frontmatter is found, returns an empty config and end = -1.
  */
 export function parseFrontmatter(doc: string): FrontmatterResult {
-  const extracted = extractRawFrontmatter(doc);
+  return parseExtractedFrontmatter(extractRawFrontmatter(doc));
+}
+
+/** Parse the YAML body whose Markdown extent is owned by an existing CST. */
+export function parseFrontmatterFromTree(tree: SyntaxTree): FrontmatterResult {
+  return parseExtractedFrontmatter(extractRawFrontmatterFromTree(tree));
+}
+
+function parseExtractedFrontmatter(
+  extracted: { raw: string; end: number } | null,
+): FrontmatterResult {
   if (!extracted) {
     return { config: {}, end: -1, status: { state: "missing" } };
   }

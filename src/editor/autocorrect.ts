@@ -27,13 +27,12 @@
  * host already provides it). Append it AFTER `listOutlinerExtension` so the
  * outliner's `Prec.highest` Enter/Backspace handlers keep priority; the
  * autocorrect Enter handler mirrors the default Enter chain
- * (`insertNewlineContinueMarkup` → `insertNewlineAndIndent`) so behavior
+ * (CST-backed markup continuation → `insertNewlineAndIndent`) so behavior
  * stays consistent when it wins.
  */
 
 import { insertNewlineAndIndent, isolateHistory } from "@codemirror/commands";
-import { insertNewlineContinueMarkup } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
+import { getPandocSyntaxTree, insertNewlineContinuePandocMarkup } from "./cst";
 import {
   type ChangeSpec,
   EditorSelection,
@@ -252,7 +251,7 @@ function inProtectedRange(state: EditorState, pos: number): boolean {
   if (frontmatterEnd >= 0 && pos < frontmatterEnd) return true;
   return (
     findAncestor(
-      syntaxTree(state).resolveInner(pos, -1),
+      getPandocSyntaxTree(state).resolveInner(pos, -1),
       (node) => PROTECTED_TYPES.has(node.name),
     ) !== null
   );
@@ -366,14 +365,14 @@ export const handleAutocorrectSpace: Command = (view) => {
 
 /**
  * Enter key command: mimic the default Enter chain
- * (`insertNewlineContinueMarkup` → `insertNewlineAndIndent`) so lists keep
+ * (CST-backed markup continuation → `insertNewlineAndIndent`) so lists keep
  * being continued, then run the replacement pass.
  */
 export const handleAutocorrectEnter: Command = (view) => {
   const config = view.state.facet(autocorrectConfig);
   if (!config.enabled || config.replacements.length === 0) return false;
 
-  if (!(insertNewlineContinueMarkup(view) || insertNewlineAndIndent(view))) {
+  if (!(insertNewlineContinuePandocMarkup(view) || insertNewlineAndIndent(view))) {
     return false;
   }
   handleReplacement(view);

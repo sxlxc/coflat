@@ -233,7 +233,7 @@ describe("buildCitationRenderData", () => {
     expect(citations.backlinks.get("cite:tufte")).toHaveLength(1);
   });
 
-  it("excludes local markdown targets that collide with bibliography keys", () => {
+  it("excludes fixed-dialect local targets but retains unsupported math labels as citations", () => {
     const citations = buildCitationRenderData(
       [
         "# Intro",
@@ -274,10 +274,10 @@ describe("buildCitationRenderData", () => {
       },
     );
 
-    expect(citations.citedIds).toEqual(["cite:real"]);
+    expect(citations.citedIds).toEqual(["eq:cite", "cite:real"]);
     expect(citations.backlinks.get("cite:heading")).toBeUndefined();
     expect(citations.backlinks.get("cite:block")).toBeUndefined();
-    expect(citations.backlinks.get("eq:cite")).toBeUndefined();
+    expect(citations.backlinks.get("eq:cite")).toHaveLength(1);
     expect(citations.backlinks.get("cite:real")).toHaveLength(1);
   });
 
@@ -325,11 +325,10 @@ describe("buildCitationRenderData", () => {
 
     expect(index.entries.map((entry) => entry.label).filter(Boolean)).toEqual([
       "cite:block",
-      "eq:cite",
       "cite:heading",
     ]);
-    expect(citations.citedIds).toEqual(["cite:real"]);
-    expect([...citations.store.keys()]).toEqual(["cite:real"]);
+    expect(citations.citedIds).toEqual(["eq:cite", "cite:real"]);
+    expect([...citations.store.keys()]).toEqual(["eq:cite", "cite:real"]);
   });
 });
 
