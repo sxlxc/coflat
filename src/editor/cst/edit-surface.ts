@@ -428,7 +428,9 @@ function addAtxHeadingPresentation(
   const line = state.doc.lineAt(node.from);
   ranges.push(Decoration.line({
     attributes: {
-      class: `${CSS.headingLine(level)} cf-doc-heading`,
+      class: `${CSS.headingLine(level)} cf-doc-heading${
+        active ? "" : ` ${CSS.headingSourceHidden}`
+      }`,
       "data-cst-block": node.kind,
     },
   }).range(line.from));

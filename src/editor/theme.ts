@@ -6,6 +6,8 @@ const sourceText = {
   fontSize: "0.86em",
   fontStyle: "normal",
   fontWeight: "400",
+  lineHeight: "0",
+  verticalAlign: "baseline",
 } as const;
 
 /** Minimal Coflat theme for the single CST-backed editor. */
@@ -72,6 +74,13 @@ export const coflatTheme = EditorView.theme({
   ".cf-heading-line-6": {
     fontSize: "var(--cf-h6-size, 1em)",
     fontWeight: "var(--cf-h6-weight, 400)",
+  },
+  // CM6 brackets an inline replacement with 1em, text-top widget buffers.
+  // Firefox otherwise lets those buffers enlarge an inactive heading's line
+  // box, then shrinks the row when the replacement is revealed as source.
+  ".cf-heading-source-hidden .cm-widgetBuffer": {
+    height: "0",
+    verticalAlign: "baseline",
   },
   ".cf-bold, .tok-strong": {
     fontWeight: "700",

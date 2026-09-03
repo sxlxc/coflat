@@ -19,6 +19,7 @@ export function mathSurfaceClassNames(
 /** Class names used by the small CST-backed editing surface. */
 export const CSS = {
   headingLine: (level: number) => `cf-heading-line-${level}`,
+  headingSourceHidden: "cf-heading-source-hidden",
   bold: "cf-bold",
   italic: "cf-italic",
   strikethrough: "cf-strikethrough",

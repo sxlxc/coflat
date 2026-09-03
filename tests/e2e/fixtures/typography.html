@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coflat typography fixture</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      #paper-header,
+      #editor-root {
+        margin-inline: auto;
+      }
+
+      #editor-root {
+        height: calc(100vh - 80px);
+      }
+    </style>
+  </head>
+  <body class="cf-theme-scope">
+    <header id="paper-header" class="cf-doc-flow">
+      <div class="cf-doc-title">Paper title</div>
+    </header>
+    <div id="editor-root"></div>
+    <script type="module" src="./typography-entry.ts"></script>
+  </body>
+</html>
