@@ -25,7 +25,7 @@ describe("editor package dependency manifest", () => {
   it("allowlists only standalone editor runtime dependencies", () => {
     expect(isEditorExternalDependency("@codemirror/view")).toBe(true);
     expect(isEditorExternalDependency("@codemirror/view/subpath")).toBe(true);
-    expect(isEditorExternalDependency("react/jsx-runtime")).toBe(true);
+    expect(isEditorExternalDependency("react/jsx-runtime")).toBe(false);
     expect(isEditorExternalDependency("pandocmd-cst")).toBe(false);
     expect(isEditorExternalDependency("@tauri-apps/api/core")).toBe(false);
     expect(isEditorExternalDependency("@radix-ui/react-dialog")).toBe(false);
@@ -33,10 +33,11 @@ describe("editor package dependency manifest", () => {
   });
 
   it("allows explicit bundled build dependencies without exposing them as package externals", () => {
-    expect(isEditorBundledDependency("@overleaf/codemirror-tree-view")).toBe(true);
+    expect(isEditorBundledDependency("@overleaf/codemirror-tree-view")).toBe(false);
+    expect(isEditorBundledDependency("@lezer/common")).toBe(true);
     expect(isEditorBundledDependency("pandocmd-cst")).toBe(true);
     expect(isEditorBuildDependency("pandocmd-cst")).toBe(true);
-    expect(isEditorBuildDependency("@overleaf/codemirror-tree-view")).toBe(true);
+    expect(isEditorBuildDependency("@overleaf/codemirror-tree-view")).toBe(false);
     expect(isEditorBuildDependency("markdown-it")).toBe(false);
   });
 
@@ -52,19 +53,13 @@ describe("editor package dependency manifest", () => {
     expect(accidentalOverlap).toEqual([]);
   });
 
-  it("classifies every root runtime dependency", () => {
+  it("keeps the published peer set equal to the editor external set", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
     );
-    const classified = new Set([
-      ...EDITOR_EXTERNAL_DEPENDENCIES,
-      ...EDITOR_BUNDLED_DEPENDENCIES,
-      ...EDITOR_FORBIDDEN_EXTERNAL_DEPENDENCIES,
-    ]);
-    const unclassified = Object.keys(packageJson.dependencies ?? {})
-      .filter((dependency) => !classified.has(dependency))
-      .sort();
 
-    expect(unclassified).toEqual([]);
+    expect(Object.keys(packageJson.peerDependencies ?? {}).sort()).toEqual(
+      [...EDITOR_EXTERNAL_DEPENDENCIES].sort(),
+    );
   });
 });

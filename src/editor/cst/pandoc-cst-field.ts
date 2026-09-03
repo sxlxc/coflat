@@ -1,8 +1,8 @@
 import { type EditorState, StateField } from "@codemirror/state";
 import {
-  PandocParser,
   type ChangedRange,
   type DocumentSemantics,
+  PandocParser,
   type SemanticChangedRange,
   type SyntaxTree,
   type TextChange,

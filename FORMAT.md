@@ -4,13 +4,13 @@ Pandoc Markdown with one fixed dialect for mathematical writing. This document s
 
 Canonical documents must be parseable by Pandoc. Coflat semantics are encoded with Pandoc-native constructs such as YAML metadata, fenced divs, attributes, citations, raw LaTeX, and tables. Non-Pandoc authoring sugar is not part of the canonical format.
 
-The canonical reader profile is:
+The canonical Pandoc reader profile is:
 
 ```text
 markdown+tex_math_double_backslash+tex_math_single_backslash+latex_macros+raw_tex
 ```
 
-The editor and reader use the immutable CST and its version-bound semantic indexes. Pandoc plus the Lua pipeline remains the publication-rendering authority.
+The editor uses the immutable CST and its version-bound semantic indexes. Pandoc plus the Lua pipeline remains the publication-rendering authority.
 
 ## Rules for Agents
 
@@ -18,7 +18,7 @@ LLM agents do not know Coflat from training data and default to GitHub-flavored 
 
 Ordered by how often agents get them wrong:
 
-1. **One paragraph = one source line.** A single source newline inside a paragraph is preserved visually by the reader and editor, so hard-wrapped prose renders with ragged line breaks. Never wrap prose at a source-column width; a blank line starts a new paragraph. See "Paragraphs and Line Breaks".
+1. **One paragraph = one source line.** A single source newline inside a paragraph is preserved visually by the editor, so hard-wrapped prose appears with ragged line breaks. Never wrap prose at a source-column width; a blank line starts a new paragraph. See "Paragraphs and Line Breaks".
 2. **Use standard Pandoc structure.** Blockquotes, definition lists, indented code, and reference-style links are accepted by the fixed dialect. Use fenced divs when the content needs theorem-like semantics or a stable block id.
 3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text, not markdown or math.
 4. **Nest divs with more colons outside.** The outer div uses more colons than the inner (`::::` outside, `:::` inside); same-count nesting misparses. Every div needs its matching explicit closer with the same colon count as its opener.
@@ -30,20 +30,18 @@ Ordered by how often agents get them wrong:
 
 Host contracts may add page rules on top of this format. For example, Cosheaf wiki pages start with one meaningful `#` H1, and Cosheaf's typed file route owns YAML frontmatter, so agents writing Cosheaf pages should not add frontmatter themselves. Follow the host's contract for frontmatter and page shape.
 
-## Editor and Reader Surfaces
+## Editing and Rendering
 
-Coflat has two runtime surfaces for the same document format:
+Coflat's runtime package has one editable surface:
 
-- The editor surface (`@chaoxu/coflat`) mounts a CodeMirror-based rich/source editor for authoring, source rewrites, selections, autocomplete, structure editing, and inline widgets.
-- The reader surface (`@chaoxu/coflat/reader`) renders the same FORMAT.md source to sanitized HTML without CodeMirror or React. It is the lighter read-only version for static pages, issue bodies, review panes, search snippets, server-side rendering, and host-built preview panels.
+- The editor (`@chaoxu/coflat`) mounts a keyboard-editable CodeMirror surface.
+  Its structure, inline/block cursor context, and visual interfaces come only
+  from `pandocmd-cst`.
 
-Both surfaces share the parser, document classes, math/citation/reference semantics, and `DocumentContext` resolver contract. Hosts should use the editor where users need to edit and the reader where they only need to display Coflat content.
-
-The reader output includes resolved reference markup and stable `data-ref-key`
-attributes. Hosts that want interactive reading can opt into reader hover cards
-with `hydrateReaderHoverPreviews`; that helper uses the same tooltip shell,
-positioning, cache behavior, and CSS classes as the editor hover cards while
-leaving `renderToHtml` static and server-render friendly.
+Read-only HTML, publication layout, reference resolution, and other fancy
+presentation are downstream rendering concerns. They may consume the CST or
+Pandoc output, but they do not add editor grammar or reconstruct the retired
+Lezer Markdown projection.
 
 ## Frontmatter
 
@@ -135,7 +133,7 @@ rewriting.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `title` | string | Document title. Rendered by the built-in reader/editor title shell. |
+| `title` | string | Document title for downstream renderers and export. |
 | `subtitle` | string | Optional subtitle for title-block/export hosts. |
 | `description` | string | Short summary for listings, previews, and citation metadata. |
 | `date` | string | Publication or document date. ISO `YYYY-MM-DD` is preferred; Quarto-style `today`, `now`, and `last-modified` are accepted by hosts that can resolve them. |
@@ -198,9 +196,8 @@ definitions merge additively (file adds to or overrides project).
 
 ### Title-block metadata
 
-The built-in reader/editor presentation currently renders a title-only shell
-from `title`. Full-document reader/export hosts that render a richer article
-title block should use `title`, `subtitle`, `author`, `date`, `doi`,
+Full-document renderers and export hosts that produce an article title block
+should use `title`, `subtitle`, `author`, `date`, `doi`,
 and `description`. The following Quarto-compatible keys customize
 title-block display when a host supports them:
 
@@ -243,7 +240,7 @@ Backtick-quoted text (`` `...` ``) renders as plain monospace — no background 
 A blank line starts a new paragraph.
 
 A single source newline inside a paragraph is preserved visually by Coflat's
-reader and editor surfaces, but remains a Pandoc soft break for export:
+editor, but remains a Pandoc soft break for export:
 
 ```markdown
 first visual line
@@ -251,14 +248,14 @@ second visual line
 ```
 
 Do not add manual newlines just to wrap prose in source control. In Coflat those
-newlines affect reader/editor presentation and can create unintended ragged line
-breaks. Write ordinary prose as one paragraph and let the editor, reader,
-browser, or export target wrap it naturally. Pandoc, LaTeX, and ordinary HTML
+newlines affect editor presentation and can create unintended ragged line
+breaks. Write ordinary prose as one paragraph and let the editor, browser, or
+export target wrap it naturally. Pandoc, LaTeX, and ordinary HTML
 export treat a soft line break as normal whitespace unless an explicit hard
 break is used.
 
 Use an intentional source newline only when the visual break matters in Coflat's
-reader/editor presentation. Use a blank line for a new paragraph. Outside
+editor presentation. Use a blank line for a new paragraph. Outside
 tables, use Markdown's hard line break syntax, two trailing spaces before the
 newline, only when the exported target must receive a hard break. For table-cell
 line breaks, use the table-cell rule below.
@@ -334,7 +331,7 @@ E = mc^2
 $$ {#eq:einstein}
 ```
 
-This source does not create an editor/reader equation target, so `[@eq:einstein]` remains unresolved unless a host explicitly supplies that target. Raw LaTeX `\begin{equation}\label{eq:...}...\end{equation}` is allowed as opaque raw TeX but likewise does not add a CST equation target.
+This source does not create a CST equation target, so `[@eq:einstein]` remains unresolved unless a downstream renderer supplies that target. Raw LaTeX `\begin{equation}\label{eq:...}...\end{equation}` is allowed as opaque raw TeX but likewise does not add a CST equation target.
 
 **Escape rules.** A literal dollar sign in prose is written `\$` and does not open inline math. Inside `$...$` inline math, a backslash escapes the following character, so `$ \$50 $` is a math span containing a literal `$`. Display math `\[...\]` and inline math `\(...\)` are the LaTeX-style alternative syntaxes for `$$...$$` and `$...$`; the same backslash-escape applies to their contents. Dollar-math is suppressed inside fenced code blocks and inline code spans.
 
@@ -526,8 +523,7 @@ $\textsc{Min3Partition}(f)$:
 Rules:
 
 - One source line = one rendered line; there is no continuation syntax.
-  On-screen surfaces render the literal leading spaces (reader and editor
-  stay pixel-aligned); the LaTeX tabbing export keeps wrapped and following
+  The editor renders the literal leading spaces; the LaTeX tabbing export keeps wrapped and following
   lines at their indent level.
 - Blank lines inside the block are preserved as vertical spacing.
 - The body has **no nested block structure**: a line starting with `:::`,
@@ -621,14 +617,13 @@ Multiple references can be clustered with `;`. Each item is resolved independent
 
 Resolution order: fenced blocks (by fenced div `#id`) -> headings (by heading `#id`) -> host-supplied targets -> citations (by bib key). If an ID matches a fenced block, it takes priority over a citation with the same key.
 
-### Live preview example
+### Cross-reference example
 
 :::: {.theorem #thm:format-live title="Shared preview surfaces"}
-The editor and reader can both show hover previews for the same FORMAT.md
-references.
+Downstream renderers may resolve this FORMAT.md reference.
 ::::
 
-Live reader/editor preview example: [@thm:format-live].
+Cross-reference example: [@thm:format-live].
 
 ## Citations
 

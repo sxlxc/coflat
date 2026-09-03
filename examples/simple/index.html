@@ -14,35 +14,20 @@
           <div class="demo-brand-subtitle">editor demo</div>
         </div>
         <nav class="demo-nav" aria-label="Documents">
-          <a class="demo-doc-link" href="?doc=showcase&surface=editor" data-doc-id="showcase" aria-current="page">
+          <a class="demo-doc-link" href="?doc=showcase" data-doc-id="showcase" aria-current="page">
             Showcase
           </a>
-          <a class="demo-doc-link" href="?doc=format&surface=editor" data-doc-id="format">
+          <a class="demo-doc-link" href="?doc=format" data-doc-id="format">
             Format guide
           </a>
-        </nav>
-        <nav class="demo-nav" aria-label="Surface">
-          <button class="demo-surface-link" type="button" data-surface-id="editor" aria-current="page">
-            Editor
-          </button>
-          <button class="demo-surface-link" type="button" data-surface-id="readonly">
-            Readonly
-          </button>
-          <button class="demo-surface-link" type="button" data-surface-id="reader">
-            Reader
-          </button>
         </nav>
         <nav class="demo-nav demo-nav-secondary" aria-label="Project links">
           <a href="https://github.com/chaoxu/coflat">GitHub</a>
           <a href="https://github.com/chaoxu/coflat/blob/main/FORMAT.md">FORMAT.md</a>
-          <a href="https://github.com/chaoxu/coflat/blob/main/READER.md">Reader API</a>
         </nav>
       </aside>
       <main class="demo-main">
         <div id="editor"></div>
-        <div id="reader-viewport" hidden>
-          <div id="reader" class="cf-reader cf-doc-surface cf-doc-flow"></div>
-        </div>
       </main>
     </div>
     <script type="module" src="./main.ts"></script>

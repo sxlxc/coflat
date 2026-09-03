@@ -1,4 +1,17 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  buildLatexPandocArgs,
+  parseLatexFrontmatterConfig,
+  resolveLatexCslPath,
+  resolveLatexExportOptions,
+  resolveLatexTemplatePath,
+} from "../src/editor/latex/export-options.mjs";
+import { preprocessWithReadFile } from "../src/editor/latex/preprocess-core.mjs";
+
 // Standalone LaTeX export CLI documented in FORMAT.md ("LaTeX Export").
 //
 //   node scripts/export-latex.mjs <input.md> [options]
@@ -13,18 +26,6 @@
 //   --pdf                    Run latexmk -pdf on the result
 //
 // Frontmatter `bibliography:`/`csl:`/`latex:` config applies; CLI flags win.
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
-import { basename, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { preprocessWithReadFile } from "../src/editor/latex/preprocess-core.mjs";
-import {
-  buildLatexPandocArgs,
-  parseLatexFrontmatterConfig,
-  resolveLatexCslPath,
-  resolveLatexExportOptions,
-  resolveLatexTemplatePath,
-} from "../src/editor/latex/export-options.mjs";
 
 const repoDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const latexDir = resolve(repoDir, "src/editor/latex");

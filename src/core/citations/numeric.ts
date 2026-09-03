@@ -1,4 +1,3 @@
-import type { CitationFormatter } from "../document-context-types";
 import { escapeHtml } from "../lib/html-escape";
 import { type CslJsonItem, formatCslAuthors } from "./csl-json";
 
@@ -9,6 +8,22 @@ export interface NumericCitationEntry {
   readonly "container-title"?: string;
   readonly publisher?: string;
   readonly issued?: CslJsonItem["issued"];
+}
+
+export interface NumericCitationFormatter {
+  cite(
+    ids: readonly string[],
+    locators: readonly (string | undefined)[],
+  ): string;
+  citeNarrative(id: string): string;
+  bibliographyEntries(
+    citedIds: readonly string[],
+  ): readonly { readonly id: string; readonly html: string }[];
+  registerCitations(
+    clusters: readonly { readonly ids: readonly string[] }[],
+  ): void;
+  readonly citationRegistrationKey: string | null;
+  readonly revision: number;
 }
 
 const BIB_ENTRY_RE = /@([A-Za-z]+)\s*[{(]\s*([^,\s{}()]+)\s*,/g;
@@ -73,7 +88,7 @@ export function parseBibliographyKeys(source: string): string[] {
  */
 export function createNumericCitationFormatter(
   entries: readonly string[] | readonly NumericCitationEntry[] = [],
-): CitationFormatter {
+): NumericCitationFormatter {
   const known = normalizeEntries(entries);
   const entryById = new Map<string, NumericCitationEntry>();
   for (const entry of entries) {

@@ -20,7 +20,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm vite --config vite.e2e.config.ts --port ${PORT} --strictPort`,
+    command: `node_modules/.bin/vite --config vite.e2e.config.ts --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}/tests/e2e/fixtures/index.html`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

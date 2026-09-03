@@ -1,10 +1,62 @@
-import { readFile, readdir } from "node:fs/promises";
-import { extname, join, relative } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(repositoryRoot, "src");
 const failures = [];
+
+const moduleCandidates = (path) => [
+  path,
+  `${path}.ts`,
+  `${path}.tsx`,
+  `${path}.mts`,
+  `${path}.mjs`,
+  join(path, "index.ts"),
+  join(path, "index.tsx"),
+];
+
+async function existingModule(path) {
+  for (const candidate of moduleCandidates(path)) {
+    try {
+      if ((await stat(candidate)).isFile()) return candidate;
+    } catch (_error) {
+      // Try the next TypeScript/Vite resolution candidate.
+    }
+  }
+  return null;
+}
+
+function relativeModuleSpecifiers(source) {
+  const specifiers = [];
+  const patterns = [
+    /\bimport\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g,
+    /\bexport\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s+["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[1]?.startsWith(".")) specifiers.push(match[1]);
+    }
+  }
+  return specifiers;
+}
+
+async function reachableModules(entry) {
+  const pending = [entry];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const path = pending.pop();
+    if (!path || visited.has(path)) continue;
+    visited.add(path);
+    const source = await readFile(path, "utf8");
+    for (const specifier of relativeModuleSpecifiers(source)) {
+      const resolved = await existingModule(resolve(dirname(path), specifier));
+      if (resolved && !visited.has(resolved)) pending.push(resolved);
+    }
+  }
+  return visited;
+}
 
 function isProductionTypeScript(path) {
   const extension = extname(path);
@@ -53,12 +105,69 @@ for (const path of await sourceFiles(sourceRoot)) {
   if (/syntax-parse-scheduler/.test(code)) {
     failures.push(`${displayPath}: imports the retired parse-frontier scheduler`);
   }
+  if (
+    /pandoc-syntax-tree/.test(code)
+    || /\b(?:getPandocSyntaxTree|ensurePandocSyntaxTree|parsePandocCstSource)\b/.test(code)
+  ) {
+    failures.push(`${displayPath}: imports or reads the retired CST-to-Lezer projection`);
+  }
+}
+
+// Walk the shipped graph as a second line of defense. This makes the production
+// authority boundary explicit instead of trusting bundle tree-shaking.
+const editorEntry = join(repositoryRoot, "editor.ts");
+for (const path of await reachableModules(editorEntry)) {
+  const source = codeWithoutCommentLines(await readFile(path, "utf8"));
+  const displayPath = relative(repositoryRoot, path);
+  const relativePath = displayPath.replaceAll("\\", "/");
+  if (
+    relativePath === "src/editor/editor.ts"
+    || relativePath.startsWith("src/reader/")
+    || relativePath.includes("pandoc-syntax-tree")
+    || relativePath.includes("document-analysis")
+    || relativePath.includes("editor-mode-state")
+  ) {
+    failures.push(`${displayPath}: legacy module is reachable from editor.ts`);
+  }
+  if (/from\s+["'](?:@codemirror\/lang-markdown|@lezer\/markdown|@lezer\/common)["']/.test(source)) {
+    failures.push(`${displayPath}: shipped editor directly imports a legacy Markdown tree`);
+  }
+  if (/\b(?:getPandocSyntaxTree|ensurePandocSyntaxTree|parsePandocCstSource|documentAnalysisField)\b/.test(source)) {
+    failures.push(`${displayPath}: shipped editor reads a legacy projection or semantic cache`);
+  }
 }
 
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 for (const name of ["@codemirror/lang-markdown", "@lezer/markdown"]) {
-  if (packageJson.dependencies?.[name] || packageJson.peerDependencies?.[name]) {
-    failures.push(`package.json: ${name} must remain development-only`);
+  if (
+    packageJson.dependencies?.[name]
+    || packageJson.devDependencies?.[name]
+    || packageJson.peerDependencies?.[name]
+  ) {
+    failures.push(`package.json: retired parser dependency ${name} is still declared`);
+  }
+}
+for (const name of ["./reader", "./reader/worker", "./rich-readonly", "./inline-render", "./parse"]) {
+  if (packageJson.exports?.[name]) {
+    failures.push(`package.json: removed legacy surface ${name} is still published`);
+  }
+}
+
+for (const retiredPath of [
+  "reader.ts",
+  "reader-worker.ts",
+  "rich-readonly.ts",
+  "inline-render.ts",
+  "parse.ts",
+  "src/reader",
+  "src/editor/editor.ts",
+  "src/core/cst/pandoc-syntax-tree.ts",
+]) {
+  try {
+    await stat(join(repositoryRoot, retiredPath));
+    failures.push(`${retiredPath}: retired implementation still exists`);
+  } catch (_error) {
+    // Missing is the required state.
   }
 }
 

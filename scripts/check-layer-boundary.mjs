@@ -1,15 +1,11 @@
 #!/usr/bin/env node
-// Enforce the three-layer dependency rule inside src/:
+// Enforce the two-layer dependency rule inside src/:
 //
 //   core/    → pure: no codemirror, no react, no dompurify, no katex.
 //              May only relative-import within core/.
-//   reader/  → no codemirror, no react. May relative-import within reader/
-//              or to core/. katex must be dynamic import only.
-//   editor/  → unrestricted. Anything in src/ that is NOT in core/ or reader/
-//              is treated as editor-layer.
+//   editor/  → may import core and browser/editor dependencies.
 //
-// Runs over .ts/.tsx files only. .test.* files in core/ and reader/ obey the
-// same rule (tests for pure code should be pure too).
+// Runs over .ts/.tsx files only. Tests in core/ obey the same purity rule.
 //
 // Imports are matched with cheap regexes; this is a guardrail, not a parser.
 // Type-only imports are still flagged — purity is a package-extraction
@@ -22,20 +18,11 @@ import { pathToFileURL } from "node:url";
 const ROOT = new URL("../", import.meta.url).pathname;
 const SRC = join(ROOT, "src");
 
-// For relative-path enforcement: core/ files may only relative-import
-// within core/; reader/ files only within reader/ or to core/. The check is
-// done by resolving the relative path against the file's directory and
-// verifying it lands inside one of the allowed roots.
+// Core files may only relative-import within core/.
 const FORBIDDEN_BY_LAYER = {
   core: {
     pkgs: [/^@codemirror\//, /^react$/, /^react-dom(\/|$)/, /^dompurify$/, /^katex(\/|$)/],
     allowedRelativeRoots: ["core"],
-  },
-  reader: {
-    pkgs: [/^@codemirror\//, /^react$/, /^react-dom(\/|$)/],
-    allowedRelativeRoots: ["core", "reader"],
-    // katex must be dynamic — top-level static import is a violation.
-    staticOnly: [/^katex(\/|$)/],
   },
   editor: {
     pkgs: [],
@@ -65,8 +52,7 @@ function walk(dir) {
 function layerOf(absPath) {
   const rel = relative(SRC, absPath);
   if (rel.startsWith("core/") || rel === "core") return "core";
-  if (rel.startsWith("reader/") || rel === "reader") return "reader";
-  // Everything else inside src/ is implicitly editor-layer.
+  // Everything else inside src/ is the editor layer.
   return "editor";
 }
 

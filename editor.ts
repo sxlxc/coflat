@@ -1,110 +1,83 @@
 /**
- * `@chaoxu/coflat` — editable document surface.
+ * `@chaoxu/coflat` — a single editable Pandoc Markdown surface.
  *
- * This entry mounts the shared CM6 rich editor core. Optional UI such as the
- * block picker and fenced-code language packs load dynamically after first
- * editor mount or on demand.
+ * CodeMirror owns text input, selection, history, and viewport behavior.
+ * pandocmd-cst is the only Markdown structure and semantic authority.
  */
 
-import { EditorSelection, type ChangeSet, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
-import type { CslJsonItem } from "./src/core/citations/csl-json";
-import type { DocumentContext } from "./src/core/document-context-types";
-import type { FileSystem } from "./src/core/lib/file-system-types";
+import {
+  Annotation,
+  type ChangeSet,
+  EditorSelection,
+} from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 import { minimalChange } from "./src/core/minimal-change";
+import { getPandocCursorContext } from "./src/editor/cst/cursor-context";
+import { getPandocTree } from "./src/editor/cst/pandoc-cst-field";
 import {
-  sourceElementAtPosition,
-  visibleSourcePositionInScroller,
-} from "./src/core/source-range-surface";
-import {
-  type AssetUploader,
-  assetUploaderExtension,
-  formatUploadedAssetMarkdown,
-} from "./src/editor/asset-uploader";
-import { autocompleteSourceExtension } from "./src/editor/autocomplete-source-controller";
-import {
-  documentContextExtension,
-  setDocumentContext,
-} from "./src/editor/document-context";
-import {
-  createEditor,
-  type EditorConfig,
-  type EditorFeature,
-  editorModeField,
-  setEditorMode,
-} from "./src/editor/editor";
-import {
-  type AutocompleteSource,
-  type AutocompleteEnv,
-  type AutocompleteRequest,
-  type AutocompleteResult,
-  autocompleteSourcesFacet,
-  type RequestHandler,
-  requestHandlerFacet,
-  type SaveHandler,
-  type StatusEvents,
-  type Suggestion,
-  saveHandlerFacet,
-  statusEventsFacet,
-} from "./src/editor/editor-host-api";
-import type {
-  EditorPlugin,
-  EditorPluginLifecycleEvent,
-} from "./src/editor/editor-plugin";
-import type { EditorPluginPresetName } from "./src/editor/editor-plugin-presets";
-import {
-  type Counts,
-  type CursorContext,
-  createPerFilePanelApi,
-  type HeadlessPanelStore,
-  type OutlineEntry,
-  type ScrollToLineOptions,
-  type ScrollToPositionOptions,
-} from "./src/editor/headless/per-file-panels";
-import { documentPathExtension, fileSystemFacet, setDocumentPath } from "./src/editor/lib/types";
-import { sidenotesCollapsedField } from "./src/editor/render";
-import { createSaveController, saveExtension } from "./src/editor/save-handler";
-import { type BibData, bibDataEffect } from "./src/editor/state/bib-data";
-export {
-  type FrontmatterState,
-  frontmatterField,
-} from "./src/editor/state/frontmatter-state";
-import { programmaticDocumentChangeAnnotation } from "./src/editor/state/programmatic-document-change";
+  createSimpleEditor,
+  type SimpleEditorConfig,
+} from "./src/editor/simple-editor";
 
-export type EditorMode = "rich" | "rich-readonly" | "source";
+const programmaticDocumentChange = Annotation.define<boolean>();
 
-export interface MountEditorOptions {
-  readonly parent: HTMLElement;
-  readonly doc?: string;
-  readonly mode?: EditorMode;
-  readonly context?: DocumentContext;
-  readonly fileSystem?: FileSystem;
-  readonly from?: string;
-  readonly extensions?: readonly Extension[];
-  readonly pluginPreset?: EditorPluginPresetName;
-  readonly plugins?: readonly EditorPlugin[];
-  readonly requestHandler?: RequestHandler;
-  readonly statusEvents?: StatusEvents;
-  readonly saveHandler?: SaveHandler;
-  readonly assetUploader?: AssetUploader;
-  readonly autocompleteSources?: readonly AutocompleteSource[];
-  readonly sidenotesCollapsed?: boolean;
-  readonly onChange?: (doc: string) => void;
-  readonly onDocumentChange?: (change: EditorDocumentChange) => void;
-  readonly onModeChange?: (mode: EditorMode) => void;
-  readonly onFeatureReady?: (feature: EditorFeature) => void;
-  readonly onPluginReady?: (event: EditorPluginLifecycleEvent) => void;
+export interface PandocCstNode {
+  readonly kind: string;
+  readonly from: number;
+  readonly to: number;
+  readonly parent: PandocCstNode | null;
+  readonly childCount: number;
+  firstChild(): PandocCstNode | null;
+  lastChild(): PandocCstNode | null;
+  child(index: number): PandocCstNode | null;
+  children(): Iterable<PandocCstNode>;
+  text(): string;
+}
+
+/** Public, dependency-neutral view of pandocmd-cst's authoritative snapshot. */
+export interface PandocCstSnapshot {
+  readonly version: number;
+  readonly parserVersion: string;
+  readonly dialect: string;
+  readonly text: string;
+  readonly length: number;
+  readonly root: PandocCstNode;
+  resolve(offset: number, bias?: "left" | "right"): PandocCstNode;
+  topLevelBlocks(): readonly PandocCstNode[];
+  checkInvariants(): void;
+}
+
+export interface PandocCursorNode {
+  readonly kind: string;
+  readonly from: number;
+  readonly to: number;
+}
+
+export interface PandocCursorContext {
+  readonly cstVersion: number;
+  readonly position: number;
+  readonly inline: PandocCursorNode | null;
+  readonly block: PandocCursorNode | null;
+  readonly path: readonly PandocCursorNode[];
 }
 
 export interface EditorDocumentChange {
   readonly changes: ChangeSet;
+  /** The authoritative CST snapshot published with the changed CM6 document. */
+  readonly tree: PandocCstSnapshot;
+}
+
+export interface EditorInsertTextOptions {
+  /** Insert at an explicit 0-based UTF-16 source offset. */
+  readonly position?: number;
+  /** Replace the active selection when no explicit position is set. Defaults to true. */
+  readonly replaceSelection?: boolean;
 }
 
 export interface EditorSourcePosition {
   readonly pos: number;
   readonly line: number;
   readonly viewportRatio?: number;
-  readonly viewportY?: number;
 }
 
 export interface EditorVisibleSourcePositionOptions {
@@ -116,206 +89,233 @@ export interface EditorVisibleSourcePositionOptions {
 export interface EditorScrollToSourcePositionOptions {
   readonly pos?: number;
   readonly line?: number;
-  readonly viewportRatio?: number;
-  readonly viewportY?: number;
   readonly select?: boolean;
   readonly center?: boolean;
 }
 
-export interface EditorInsertTextOptions {
-  /** Insert at an explicit 0-based source offset. When set, selection is not replaced. */
-  readonly position?: number;
-  /** Replace the active selection when no explicit position is set. Defaults to true. */
-  readonly replaceSelection?: boolean;
+export interface EditorScrollToLineOptions {
+  readonly column?: number;
+  readonly select?: boolean;
+  readonly center?: boolean;
+}
+
+export interface EditorScrollToPositionOptions {
+  readonly select?: boolean;
+  readonly center?: boolean;
+}
+
+export interface SaveHandler {
+  save(payload: {
+    source: string;
+    reason: "manual" | "command" | "autosave";
+  }): Promise<{ ok: true } | { ok: false; error: string }>;
+  readonly autosaveDebounceMs?: number;
+  isBusy?(): boolean;
+}
+
+export interface StatusEvents {
+  onSaveStart?(): void;
+  onSaveSucceeded?(): void;
+  onSaveFailed?(event: { readonly error: string }): void;
+  onDirtyChange?(dirty: boolean): void;
+}
+
+export interface MountEditorOptions extends Omit<SimpleEditorConfig, "doc"> {
+  readonly doc?: string;
+  readonly onChange?: (doc: string) => void;
+  readonly onDocumentChange?: (change: EditorDocumentChange) => void;
+  readonly onCursorContextChange?: (context: PandocCursorContext) => void;
+  readonly saveHandler?: SaveHandler;
+  readonly statusEvents?: StatusEvents;
 }
 
 export interface MountedEditor {
   getDoc(): string;
+  /** Return the CST snapshot paired with the current document. */
+  getCst(): PandocCstSnapshot | null;
+  getCursorContext(): PandocCursorContext | null;
   setDoc(doc: string): void;
-  insertText(text: string, opts?: EditorInsertTextOptions): void;
-  setPath(path?: string): void;
-  setContext(context: DocumentContext): void;
-  getMode(): EditorMode;
-  setMode(mode: EditorMode): void;
-  getVisibleSourcePosition(opts?: EditorVisibleSourcePositionOptions): EditorSourcePosition | null;
-  scrollToSourcePosition(position: EditorSourcePosition | EditorScrollToSourcePositionOptions): void;
-  readonly outline: HeadlessPanelStore<readonly OutlineEntry[]>;
-  readonly counts: HeadlessPanelStore<Counts>;
-  readonly cursorContext: HeadlessPanelStore<CursorContext>;
-  scrollToLine(line: number, opts?: ScrollToLineOptions): void;
-  scrollToPosition(from: number, opts?: ScrollToPositionOptions): void;
+  insertText(text: string, options?: EditorInsertTextOptions): void;
+  getVisibleSourcePosition(
+    options?: EditorVisibleSourcePositionOptions,
+  ): EditorSourcePosition | null;
+  scrollToSourcePosition(
+    position: EditorSourcePosition | EditorScrollToSourcePositionOptions,
+  ): void;
+  scrollToLine(line: number, options?: EditorScrollToLineOptions): void;
+  scrollToPosition(position: number, options?: EditorScrollToPositionOptions): void;
   focus(): void;
   isSaved(): boolean;
   triggerSave(reason?: "manual" | "command"): Promise<void>;
   unmount(): void;
 }
 
-function toEditorMode(mode: string | undefined): EditorMode {
-  if (mode === "source" || mode === "rich-readonly") return mode;
-  return "rich";
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
-function clampRatio(value: number): number {
-  if (!Number.isFinite(value)) return 0.5;
-  return Math.max(0, Math.min(1, value));
+function positionForLine(view: EditorView, line: number, column = 1): number {
+  const targetLine = view.state.doc.line(clamp(Math.floor(line), 1, view.state.doc.lines));
+  return clamp(targetLine.from + Math.max(0, Math.floor(column) - 1), targetLine.from, targetLine.to);
 }
 
-function getVisibleSourcePosition(
+function scrollToPosition(
   view: EditorView,
-  opts: EditorVisibleSourcePositionOptions = {},
-): EditorSourcePosition | null {
-  if (opts.x === undefined && opts.y === undefined) {
-    const renderedPosition = visibleSourcePositionInScroller(view.scrollDOM, {
-      viewportRatio: opts.viewportRatio,
-    });
-    if (renderedPosition) {
-      const pos = Math.max(0, Math.min(view.state.doc.length, renderedPosition.pos));
-      return {
-        pos,
-        line: view.state.doc.lineAt(pos).number,
-        viewportRatio: renderedPosition.viewportRatio,
-        viewportY: renderedPosition.viewportY,
-      };
-    }
-  }
+  position: number,
+  options: EditorScrollToPositionOptions = {},
+): void {
+  const target = clamp(Math.floor(position), 0, view.state.doc.length);
+  const select = options.select !== false;
+  view.dispatch({
+    selection: select ? EditorSelection.cursor(target) : undefined,
+    effects: EditorView.scrollIntoView(
+      target,
+      options.center === false ? undefined : { y: "center" },
+    ),
+    scrollIntoView: select,
+    userEvent: select ? "select" : undefined,
+  });
+}
 
+function visibleSourcePosition(
+  view: EditorView,
+  options: EditorVisibleSourcePositionOptions = {},
+): EditorSourcePosition {
+  const viewportRatio = clamp(options.viewportRatio ?? 0.5, 0, 1);
   const rect = view.scrollDOM.getBoundingClientRect();
-  const x = opts.x ?? rect.left + Math.max(1, rect.width / 2);
-  const y = opts.y ?? rect.top + rect.height * clampRatio(opts.viewportRatio ?? 0.5);
-  let rawPos = view.viewport.from;
+  const x = options.x ?? rect.left + Math.max(1, rect.width / 2);
+  const y = options.y ?? rect.top + rect.height * viewportRatio;
+  let position = view.viewport.from;
   try {
-    rawPos = view.posAtCoords({ x, y }, false) ?? view.viewport.from;
+    position = view.posAtCoords({ x, y }, false) ?? position;
   } catch (_error) {
-    rawPos = view.viewport.from;
+    // Lightweight DOM environments do not implement layout. The viewport
+    // start is still a valid, deterministic source anchor.
   }
-  if (!Number.isFinite(rawPos)) return null;
-  const pos = Math.max(0, Math.min(view.state.doc.length, rawPos));
-  return {
-    pos,
-    line: view.state.doc.lineAt(pos).number,
-  };
+  const pos = clamp(position, 0, view.state.doc.length);
+  return { pos, line: view.state.doc.lineAt(pos).number, viewportRatio };
 }
 
-function bibDataFromDocumentContext(context: DocumentContext | undefined): BibData | null {
-  if (!context?.citationFormatter || !context.citationKeys || context.citationKeys.size === 0) {
-    return null;
-  }
-  const store = new Map<string, CslJsonItem>();
-  for (const id of context.citationKeys) {
-    store.set(id, { id, type: "article" });
-  }
-  return {
-    store,
-    formatter: context.citationFormatter,
-    // Store entries are synthesized stubs (rendering goes through the host
-    // formatter); report a populated status so hosts can distinguish this
-    // from an unloaded bibliography.
-    status: {
-      state: "ok",
-      bibPath: "(document-context formatter)",
-      entryCount: store.size,
-    },
-  };
-}
-
-function applyDocumentContext(view: EditorView, context: DocumentContext): void {
-  setDocumentContext(view, context);
-  const bibData = bibDataFromDocumentContext(context);
-  if (bibData) view.dispatch({ effects: bibDataEffect.of(bibData) });
-}
-
+/** Mount Coflat's only editor mode: editable CST-backed Pandoc Markdown. */
 export function mountEditor(options: MountEditorOptions): MountedEditor {
   const initialDoc = options.doc ?? "";
-  const initialMode = options.mode ?? "rich";
-  const initialSidenotesCollapsed = options.sidenotesCollapsed ?? initialMode !== "source";
-  let currentDoc: string | null = initialDoc;
-  let currentMode: EditorMode = "rich";
-  let suppressModeCallback = false;
-  const panelApi = createPerFilePanelApi();
+  let view: EditorView | null = null;
+  let currentDoc = initialDoc;
+  let lastSavedDoc = initialDoc;
+  let dirty = false;
+  let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingSave: Promise<void> | null = null;
 
-  options.parent.replaceChildren();
+  const setDirty = (next: boolean): void => {
+    if (next === dirty) return;
+    dirty = next;
+    options.statusEvents?.onDirtyChange?.(next);
+  };
+
+  const clearAutosave = (): void => {
+    if (autosaveTimer === null) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  };
+
+  const runSave = async (
+    reason: "manual" | "command" | "autosave",
+  ): Promise<void> => {
+    const mountedView = view;
+    const handler = options.saveHandler;
+    if (!mountedView || !handler) return;
+    while (pendingSave) await pendingSave;
+    const source = mountedView.state.doc.toString();
+    const run = (async () => {
+      clearAutosave();
+      options.statusEvents?.onSaveStart?.();
+      try {
+        const result = await handler.save({ source, reason });
+        if (result.ok) {
+          lastSavedDoc = source;
+          setDirty(view?.state.doc.toString() !== lastSavedDoc);
+          options.statusEvents?.onSaveSucceeded?.();
+        } else {
+          options.statusEvents?.onSaveFailed?.({ error: result.error });
+        }
+      } catch (error: unknown) {
+        options.statusEvents?.onSaveFailed?.({ error: String(error) });
+      } finally {
+        pendingSave = null;
+      }
+    })();
+    pendingSave = run;
+    await run;
+  };
+
+  const scheduleAutosave = (): void => {
+    clearAutosave();
+    const handler = options.saveHandler;
+    if (!handler || !dirty) return;
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = null;
+      if (!dirty || handler.isBusy?.()) return;
+      void runSave("autosave");
+    }, handler.autosaveDebounceMs ?? 1500);
+  };
 
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
-      currentDoc = null;
-      const programmaticDocChange = update.transactions.some((tr) =>
-        tr.annotation(programmaticDocumentChangeAnnotation),
+      const source = update.state.doc.toString();
+      const tree = getPandocTree(update.state);
+      if (source !== tree.text) {
+        throw new Error("CodeMirror document and Pandoc CST snapshot diverged");
+      }
+      currentDoc = source;
+      setDirty(source !== lastSavedDoc);
+      scheduleAutosave();
+
+      const isProgrammatic = update.transactions.some(
+        (transaction) => transaction.annotation(programmaticDocumentChange) === true,
       );
-      if (!programmaticDocChange) {
-        if (options.onChange) {
-          const nextDoc = update.state.doc.toString();
-          currentDoc = nextDoc;
-          options.onChange(nextDoc);
-        }
-        options.onDocumentChange?.({ changes: update.changes });
+      if (!isProgrammatic) {
+        options.onChange?.(source);
+        options.onDocumentChange?.({ changes: update.changes, tree });
       }
     }
 
-    const nextMode = toEditorMode(update.state.field(editorModeField, false));
-    if (nextMode !== currentMode) {
-      currentMode = nextMode;
-      if (!suppressModeCallback) {
-        options.onModeChange?.(nextMode);
-      }
+    if (update.docChanged || update.selectionSet) {
+      options.onCursorContextChange?.(getPandocCursorContext(update.state));
     }
   });
 
-  const editorConfig: EditorConfig = {
+  const saveKeymap = keymap.of([{
+    key: "Mod-s",
+    preventDefault: Boolean(options.saveHandler),
+    run: () => {
+      if (!options.saveHandler) return false;
+      void runSave("manual");
+      return true;
+    },
+  }]);
+
+  options.parent.replaceChildren();
+  view = createSimpleEditor({
     parent: options.parent,
     doc: initialDoc,
-    pluginPreset: options.pluginPreset ?? "workbench",
-    plugins: options.plugins,
-    onFeatureReady: options.onFeatureReady,
-    onPluginReady: options.onPluginReady,
     extensions: [
       updateListener,
-      panelApi.extension,
-      ...(options.requestHandler
-        ? [requestHandlerFacet.of(options.requestHandler)]
-        : []),
-      ...(options.statusEvents
-        ? [statusEventsFacet.of(options.statusEvents)]
-        : []),
-      ...(options.saveHandler
-        ? [saveHandlerFacet.of(options.saveHandler)]
-        : []),
-      saveExtension(),
-      ...(options.assetUploader
-        ? [assetUploaderExtension(options.assetUploader)]
-        : []),
-      ...(options.autocompleteSources && options.autocompleteSources.length > 0
-        ? [
-            autocompleteSourcesFacet.of(options.autocompleteSources),
-            autocompleteSourceExtension({ from: options.from }),
-          ]
-        : []),
-      documentPathExtension(options.from),
-      ...(options.fileSystem ? [fileSystemFacet.of(options.fileSystem)] : []),
-      [sidenotesCollapsedField.init(() => initialSidenotesCollapsed)],
+      saveKeymap,
       ...(options.extensions ?? []),
-      documentContextExtension(options.context),
     ],
-  };
-  let view: EditorView | null = createEditor(editorConfig);
-  panelApi.attach(view);
-  const initialBibData = bibDataFromDocumentContext(options.context);
-  if (initialBibData) view.dispatch({ effects: bibDataEffect.of(initialBibData) });
-
-  if (initialMode !== "rich") {
-    suppressModeCallback = true;
-    setEditorMode(view, initialMode);
-    suppressModeCallback = false;
-  }
-
-  currentMode = toEditorMode(view.state.field(editorModeField, false));
-  const saveController = createSaveController(view);
+  });
 
   return {
     getDoc() {
-      if (currentDoc === null) {
-        currentDoc = view?.state.doc.toString() ?? "";
-      }
-      return currentDoc;
+      return view?.state.doc.toString() ?? currentDoc;
+    },
+
+    getCst() {
+      return view ? getPandocTree(view.state) : null;
+    },
+
+    getCursorContext() {
+      return view ? getPandocCursorContext(view.state) : null;
     },
 
     setDoc(doc) {
@@ -323,136 +323,65 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
       if (!view) return;
       const previous = view.state.doc.toString();
       if (doc === previous) return;
-      // Bound the change to the text that actually differs and let CodeMirror
-      // map the selection through it. A wholesale `{from: 0, to: length}`
-      // replacement maps every position to 0, so a host syncing content back
-      // into an open document would throw the caret to the top mid-typing.
-      // Loading a genuinely different document still diffs to (nearly) the
-      // whole doc, so the caret and scroll collapse to the start as before.
       const change = minimalChange(previous, doc);
-      const replacedEverything = change.from === 0 && change.to === previous.length;
       view.dispatch({
         changes: change,
-        annotations: programmaticDocumentChangeAnnotation.of(true),
+        annotations: programmaticDocumentChange.of(true),
         scrollIntoView: false,
       });
-      if (replacedEverything) view.scrollDOM.scrollTop = 0;
     },
 
-    insertText(text, opts = {}) {
+    insertText(text, insertOptions = {}) {
       if (!view || text.length === 0) return;
-      const explicitPosition = typeof opts.position === "number" && Number.isFinite(opts.position)
-        ? Math.max(0, Math.min(view.state.doc.length, Math.floor(opts.position)))
-        : null;
-      const transaction = explicitPosition === null
-        ? view.state.changeByRange((range) => {
-            const from = opts.replaceSelection === false ? range.head : range.from;
-            const to = opts.replaceSelection === false ? range.head : range.to;
-            return {
-              changes: { from, to, insert: text },
-              range: EditorSelection.cursor(from + text.length),
-            };
-          })
-        : view.state.update({
-            changes: { from: explicitPosition, to: explicitPosition, insert: text },
-            selection: { anchor: explicitPosition + text.length },
-          });
-      view.dispatch(transaction, {
-        scrollIntoView: true,
-        userEvent: "input",
-      });
-    },
-
-    setPath(path) {
-      if (!view) return;
-      setDocumentPath(view, path);
-    },
-
-    setContext(context) {
-      if (!view) return;
-      applyDocumentContext(view, context);
-    },
-
-    getMode() {
-      return currentMode;
-    },
-
-    setMode(mode) {
-      if (!view) {
-        currentMode = mode;
+      const requestedPosition = insertOptions.position;
+      if (typeof requestedPosition === "number" && Number.isFinite(requestedPosition)) {
+        const position = clamp(Math.floor(requestedPosition), 0, view.state.doc.length);
+        view.dispatch({
+          changes: { from: position, insert: text },
+          selection: EditorSelection.cursor(position + text.length),
+          scrollIntoView: true,
+          userEvent: "input",
+        });
         return;
       }
-      setEditorMode(view, mode);
+
+      const transaction = view.state.changeByRange((range) => {
+        const from = insertOptions.replaceSelection === false ? range.head : range.from;
+        const to = insertOptions.replaceSelection === false ? range.head : range.to;
+        return {
+          changes: { from, to, insert: text },
+          range: EditorSelection.cursor(from + text.length),
+        };
+      });
+      view.dispatch(transaction, { scrollIntoView: true, userEvent: "input" });
     },
 
-    getVisibleSourcePosition(opts) {
-      return view ? getVisibleSourcePosition(view, opts) : null;
+    getVisibleSourcePosition(visibleOptions) {
+      return view ? visibleSourcePosition(view, visibleOptions) : null;
     },
 
     scrollToSourcePosition(position) {
       if (!view) return;
-      const pos = typeof position.pos === "number"
+      const target = typeof position.pos === "number"
         ? position.pos
-        : typeof position.line === "number"
-          ? view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, position.line))).from
-          : 0;
-      const center = "center" in position ? position.center !== false : true;
-      const target = Math.max(0, Math.min(view.state.doc.length, pos));
-      const select = "select" in position ? position.select !== false : true;
-      view.dispatch({
-        selection: select ? { anchor: target } : undefined,
-        effects: center || !select
-          ? EditorView.scrollIntoView(target, center ? { y: "center" } : undefined)
-          : undefined,
-        scrollIntoView: select && !center,
+        : positionForLine(view, position.line ?? 1);
+      scrollToPosition(view, target, {
+        select: "select" in position ? position.select : undefined,
+        center: "center" in position ? position.center : undefined,
       });
-
-      const viewportY = "viewportY" in position ? position.viewportY : undefined;
-      const viewportRatio = "viewportRatio" in position ? position.viewportRatio : undefined;
-      if (typeof viewportRatio !== "number") return;
-
-      const ratio = clampRatio(viewportRatio);
-      const align = () => {
-        if (!view) return;
-        const targetY = typeof viewportY === "number" && Number.isFinite(viewportY) ? viewportY : undefined;
-        const element = sourceElementAtPosition(view.scrollDOM, target);
-        if (element) {
-          const rect = view.scrollDOM.getBoundingClientRect();
-          const elementRect = element.getBoundingClientRect();
-          view.scrollDOM.scrollTop += elementRect.top - (targetY ?? (rect.top + rect.height * ratio));
-          return;
-        }
-        let coords: ReturnType<EditorView["coordsAtPos"]>;
-        try {
-          coords = view.coordsAtPos(target);
-        } catch (_error) {
-          return;
-        }
-        if (!coords) return;
-        const rect = view.scrollDOM.getBoundingClientRect();
-        view.scrollDOM.scrollTop += coords.top - (targetY ?? (rect.top + rect.height * ratio));
-      };
-      let frames = 0;
-      const alignFrame = () => {
-        align();
-        frames += 1;
-        if (frames < 8) requestAnimationFrame(alignFrame);
-      };
-      requestAnimationFrame(alignFrame);
     },
 
-    outline: panelApi.outline,
-
-    counts: panelApi.counts,
-
-    cursorContext: panelApi.cursorContext,
-
-    scrollToLine(line, opts) {
-      panelApi.scrollToLine(line, opts);
+    scrollToLine(line, scrollOptions = {}) {
+      if (!view) return;
+      scrollToPosition(
+        view,
+        positionForLine(view, line, scrollOptions.column),
+        scrollOptions,
+      );
     },
 
-    scrollToPosition(from, opts) {
-      panelApi.scrollToPosition(from, opts);
+    scrollToPosition(position, scrollOptions) {
+      if (view) scrollToPosition(view, position, scrollOptions);
     },
 
     focus() {
@@ -460,79 +389,22 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
     },
 
     isSaved() {
-      return view ? saveController.isSaved() : true;
+      return !dirty;
     },
 
-    async triggerSave(reason: "manual" | "command" = "manual") {
-      if (!view) return;
-      await saveController.triggerSave(reason);
+    async triggerSave(reason = "manual") {
+      await runSave(reason);
     },
 
     unmount() {
       if (!view) return;
-      const mountedView = view;
+      clearAutosave();
+      const mounted = view;
       view = null;
-      panelApi.detach();
-      mountedView.destroy();
+      mounted.destroy();
       options.parent.replaceChildren();
     },
   };
 }
 
-export type {
-  AssetUploader,
-  AutocompleteEnv,
-  AutocompleteRequest,
-  AutocompleteResult,
-  AutocompleteSource,
-  Counts,
-  CursorContext,
-  DocumentContext,
-  EditorFeature,
-  EditorPlugin,
-  EditorPluginLifecycleEvent,
-  EditorPluginPresetName,
-  HeadlessPanelStore,
-  OutlineEntry,
-  RequestHandler,
-  SaveHandler,
-  ScrollToLineOptions,
-  ScrollToPositionOptions,
-  Suggestion,
-  StatusEvents,
-};
-
-export { formatUploadedAssetMarkdown };
-
-// Host-facing surface of the 2026-07 feature bundle (autocorrect, formatting
-// toolbar, rich paste, table/footnote commands, display modes, div wrappers).
-export {
-  type AutocorrectConfig,
-  autocorrectCompartment,
-  autocorrectConfig,
-  autocorrectExtension,
-  createRichPasteCommands,
-  extraCompletionSourcesFacet,
-  FENCED_DIV_WRAPPER_CLASS,
-  FENCED_DIV_WRAPPER_TAG,
-  fenceLanguageAutocompleteEditorPlugin,
-  fenceLanguageAutocompleteExtension,
-  findReferenceCompletionMatch,
-  footnoteCommandsExtension,
-  footnotePaletteCommands,
-  formattingToolbarCommands,
-  formattingToolbarExtension,
-  htmlCopyRendererFacet,
-  type InlineEditorHostWindow,
-  listRenumberExtension,
-  mutedLinesExtension,
-  type QuoteStyle,
-  type ReferenceCompletionMatch,
-  richPasteExtension,
-  tableEditingCommands,
-  tableEditingKeymap,
-  toggleMutedLines,
-  toggleTypewriterMode,
-  typewriterModeExtension,
-} from "./src/editor";
-export { type BibliographyStatus } from "./src/editor/state/bib-data";
+export { createSimpleEditor as createEditor };

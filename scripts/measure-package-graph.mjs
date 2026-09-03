@@ -4,46 +4,40 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { packageNameFromSpecifier } from "./editor-package-manifest.mjs";
+import {
+  EDITOR_EXTERNAL_DEPENDENCIES,
+  packageNameFromSpecifier,
+} from "./editor-package-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = resolve(root, "dist");
 const ENTRYPOINTS = Object.freeze([
-  "rich-readonly.mjs",
   "editor.mjs",
+  "numeric.mjs",
+  "latex.mjs",
 ]);
 const STATIC_IMPORT_RE =
   /(?:^|[\n;])\s*(?:import\s+(?:[^"'();]*?\s+from\s*)?|export\s+(?:[^"']*?\s+from\s*))["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_RE = /import\(\s*["']([^"']+)["']\s*\)/g;
 
-const RICH_READONLY_FORBIDDEN_STATIC_PACKAGES = Object.freeze([
-  /^@codemirror\//,
-  /^@citation-js\//,
-  /^@radix-ui\//,
-  /^cmdk$/,
-  /^pdfjs-dist$/,
-  /^react$/,
-  /^react-dom$/,
-]);
-const RICH_READONLY_FORBIDDEN_STATIC_FILES = Object.freeze([
-  /^editor\.mjs$/,
-  /^shared\/editor-/,
-  /^shared\/editor-mode-state-/,
-  /^shared\/block-type-picker-/,
-  /^shared\/context-menu-/,
-]);
 const EDITOR_FORBIDDEN_STATIC_PACKAGES = Object.freeze([
   /^@citation-js\//,
-  /^@codemirror\/lang-(?:cpp|css|html|java|javascript|json|python|rust)$/,
-  /^@radix-ui\/react-context-menu$/,
+  /^@codemirror\/autocomplete$/,
+  /^@codemirror\/lang-/,
+  /^@radix-ui\//,
+  /^@lezer\/markdown$/,
   /^cmdk$/,
   /^pdfjs-dist$/,
   /^react$/,
   /^react-dom$/,
 ]);
 const EDITOR_FORBIDDEN_STATIC_FILES = Object.freeze([
+  /(?:^|\/)reader-/,
+  /(?:^|\/)rich-readonly-/,
+  /(?:^|\/)pandoc-syntax-tree-/,
   /^shared\/block-type-picker-/,
   /^shared\/context-menu-/,
+  /^shared\/editor-mode-state-/,
 ]);
 
 function readDistFile(relativePath) {
@@ -163,14 +157,18 @@ function assertEntryBoundary(graph, entry, rules) {
 }
 
 export function assertPackageGraphBoundaries(graph) {
-  assertEntryBoundary(graph, "rich-readonly.mjs", {
-    staticFiles: RICH_READONLY_FORBIDDEN_STATIC_FILES,
-    staticPackages: RICH_READONLY_FORBIDDEN_STATIC_PACKAGES,
-  });
   assertEntryBoundary(graph, "editor.mjs", {
     staticFiles: EDITOR_FORBIDDEN_STATIC_FILES,
     staticPackages: EDITOR_FORBIDDEN_STATIC_PACKAGES,
   });
+
+  const editor = graph.entries["editor.mjs"];
+  if (!editor) throw new Error("missing package graph entry editor.mjs");
+  const allowed = new Set(EDITOR_EXTERNAL_DEPENDENCIES);
+  const unexpected = editor.staticExternalPackages.filter((name) => !allowed.has(name));
+  if (unexpected.length > 0) {
+    throw new Error(`editor.mjs imports undeclared package(s): ${unexpected.join(", ")}`);
+  }
 }
 
 function formatBytes(bytes) {

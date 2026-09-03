@@ -3,319 +3,33 @@ import {
   documentSurfaceClassNames,
 } from "../document-surface-classes";
 
-const MATH_INLINE_CLASS = "cf-math-inline";
-const MATH_DISPLAY_CLASS = "cf-math-display";
-const CROSSREF_CLASS = "cf-crossref";
-
 export function mathSurfaceClassNames(
   isDisplay: boolean,
   ...classNames: Array<string | false | null | undefined>
 ): string {
   return documentSurfaceClassNames(
-    isDisplay ? DOCUMENT_SURFACE_CLASS.displayMath : DOCUMENT_SURFACE_CLASS.inlineMath,
-    isDisplay ? MATH_DISPLAY_CLASS : MATH_INLINE_CLASS,
+    isDisplay
+      ? DOCUMENT_SURFACE_CLASS.displayMath
+      : DOCUMENT_SURFACE_CLASS.inlineMath,
+    isDisplay ? "cf-math-display" : "cf-math-inline",
     ...classNames,
   );
 }
 
-export function hostReferenceClassNames(
-  className: string | undefined,
-): string {
-  const classNames = [CROSSREF_CLASS];
-  for (const token of className?.split(/\s+/) ?? []) {
-    if (token !== "" && !classNames.includes(token)) {
-      classNames.push(token);
-    }
-  }
-  return classNames.join(" ");
-}
-
-/**
- * Typed constants for all cf-* CSS class names used in decorations.
- *
- * Central registry so class names are never hardcoded as bare strings
- * in decoration code. Downstream files import from here instead of
- * duplicating string literals.
- */
-
-/** CSS class name builders and constants for block decorations. */
+/** Class names used by the small CST-backed editing surface. */
 export const CSS = {
-  /** Block wrapper: "cf-doc-block cf-doc-block--{type}" */
-  block: (type: string) =>
-    `${DOCUMENT_SURFACE_CLASS.block} ${DOCUMENT_SURFACE_CLASS.blockType(type)}`,
-
-  /** Always-on stable-shell debug outline for the active block/frontmatter. */
-  activeShell: "cf-active-shell",
-  activeShellTop: "cf-active-shell-top",
-  activeShellBottom: "cf-active-shell-bottom",
-  activeShellWidget: "cf-active-shell-widget",
-  activeShellFooter: "cf-active-shell-footer",
-  /** Collapsed (hidden) title-less frontmatter / separator line in rich mode. */
-  frontmatterHidden: "cf-frontmatter-hidden",
-
-  /** Block header line (rendered mode). */
-  blockHeader: "cf-block-header",
-
-  /** Block source line (editing mode — cursor on fence). */
-  blockSource: "cf-block-source",
-
-  /** Rendered block header widget (label text). */
-  blockHeaderRendered: "cf-block-header-rendered",
-
-  /** Reader block disclosure wrapper, body, triangle, and heading content. */
-  blockCollapsible: "cf-doc-block-collapsible",
-  blockDisclosureBody: "cf-block-disclosure-body",
-  blockDisclosureToggle: "cf-block-disclosure-toggle",
-  blockDisclosureToggleCollapsed: "cf-block-disclosure-toggle-collapsed",
-  blockHeadingContent: "cf-block-heading-content",
-
-  /** Reader section disclosure heading, body, and triangle. */
-  sectionHeadingCollapsible: "cf-doc-section-heading-collapsible",
-  sectionDisclosureBody: "cf-section-disclosure-body",
-  sectionDisclosureToggle: "cf-section-disclosure-toggle",
-
-  /** Title paren widgets around user-supplied title text. */
-  blockTitleParen: "cf-block-title-paren",
-
-  /** Attribute-only title widget (title from key-value attrs, not inline text). */
-  blockAttrTitle: "cf-block-attr-title",
-
-  /** Collapsed header line — no visible label, zero height (e.g. blockquote). */
-  blockHeaderCollapsed: "cf-block-header-collapsed",
-
-  /** Closing fence line — always hidden in rich mode (zero height). */
-  blockClosingFence: "cf-block-closing-fence",
-
-  /** QED tombstone marker on last content line of proof blocks. */
-  blockQed: "cf-block-qed",
-
-  /** Fenced div nesting guide by depth (1-based). */
-  fenceDepth: (depth: number) => `cf-fence-d${depth}`,
-
-  /** Source mode editor attribute. */
-  sourceMode: "cf-source-mode",
-
-  /** Image wrapper, image element, loading, and error state. */
-  imageWrapper: "cf-image-wrapper",
-  image: "cf-image",
-  imageLoading: "cf-image-loading",
-  imagePlaceholder: "cf-image-placeholder",
-  imageError: "cf-image-error",
-
-  /** Heading fold toggle. */
-  foldToggle: "cf-fold-toggle",
-  foldToggleFolded: "cf-fold-toggle-folded",
-  foldLine: "cf-fold-line",
-
-  /** Heading line decoration: "cf-heading-line-{level}". */
   headingLine: (level: number) => `cf-heading-line-${level}`,
-
-  /** Inline math wrapper. */
-  mathInline: MATH_INLINE_CLASS,
-
-  /** Display math wrapper. */
-  mathDisplay: MATH_DISPLAY_CLASS,
-  mathDisplayNumbered: "cf-math-display-numbered",
-  mathDisplayContent: "cf-math-display-content",
-  mathDisplayNumber: "cf-math-display-number",
-  blockquoteDisplayMath: "cf-doc-blockquote-display-math",
-
-  /** Code block decorations. */
-  codeblockHeader: "cf-codeblock-header",
-  codeblockBody: "cf-codeblock-body",
-  codeblockLast: "cf-codeblock-last",
-  codeblockLanguage: "cf-codeblock-language",
-  codeblockCopy: "cf-codeblock-copy",
-  codeblockHovered: "cf-codeblock-hovered",
-
-  /** Table widget. */
-  tableWidget: "cf-table-widget",
-  tableCellEditing: "cf-table-cell-editing",
-  tableCellActive: "cf-table-cell-active",
-
-  /** Sidenote margin. */
-  sidenoteRef: "cf-sidenote-ref",
-  sidenoteDefLine: "cf-sidenote-def-line",
-  sidenoteDefBody: "cf-sidenote-def-body",
-  sidenoteDefLabel: "cf-sidenote-def-label",
-
-  /** Bibliography (References section only). Footnotes use `footnoteSection`
-   * below; the two used to share `cf-bibliography` which made it impossible
-   * for parity diagnostics or styling rules to target one without the other. */
-  bibliography: "cf-bibliography",
-  /** Footnotes section root. Replaces the old `cf-bibliography cf-bibliography-footnotes`
-   * pair so the section's class no longer overlaps with the references block. */
-  footnoteSection: "cf-footnote-section",
-  bibliographyHeading: "cf-bibliography-heading",
-  bibliographyList: "cf-bibliography-list",
-  bibliographyEntry: "cf-bibliography-entry",
-  bibliographyEntryNumber: "cf-bibliography-entry-number",
-  bibliographyBacklinks: "cf-bibliography-backlinks",
-  bibliographyBacklink: "cf-bibliography-backlink",
-
-  /** Cross-reference. */
-  crossref: CROSSREF_CLASS,
-
-  /** Citation. */
-  citation: "cf-citation",
-  citationPreview: "cf-citation-preview",
-
-  /** Reader citation cluster wrapper ("[@a; @b]" spans). */
-  citationCluster: "cf-citation-cluster",
-
-  /** Unresolved citation: "cf-citation cf-citation-unresolved". */
-  citationUnresolved: "cf-citation cf-citation-unresolved",
-
-  /** Bare unresolved marker tokens; reader hydration removes these once a
-   *  host resolver resolves the reference. */
-  citationUnresolvedMarker: "cf-citation-unresolved",
-  crossrefUnresolvedMarker: "cf-crossref-unresolved",
-
-  /** Plain-text run wrapper emitted when `sourcePositions` is on. */
-  text: "cf-text",
-
-  /** Reader truncation continuation marker (`truncate` render option). */
-  truncationMarker: "cf-truncation-marker",
-
-  /** Reader footnote reference and footnote list. */
-  footnoteRef: "cf-footnote-ref",
-  footnoteItem: "cf-footnote-item",
-  footnoteBackref: "cf-footnote-backref",
-  footnotes: "cf-footnotes",
-
-  /** Shared preview surfaces. */
-  previewSurfaceShell: "cf-preview-surface-shell",
-  previewSurfaceContent: "cf-preview-surface-content",
-  previewSurfaceHeader: "cf-preview-surface-header",
-  previewSurfaceBody: "cf-preview-surface-body",
-
-  /** Hover preview. */
-  hoverPreview: "cf-hover-preview",
-  hoverPreviewBody: "cf-hover-preview-body",
-  hoverPreviewHeader: "cf-hover-preview-header",
-  hoverPreviewUnresolved: "cf-hover-preview-unresolved",
-  hoverPreviewCitation: "cf-hover-preview-citation",
-  hoverPreviewSeparator: "cf-hover-preview-separator",
-
-  /** Reference autocomplete. */
-  referenceCompletionTooltip: "cf-reference-completion-tooltip",
-  referenceCompletionPreview: "cf-reference-completion-preview",
-  referenceCompletionCitation: "cf-reference-completion-citation",
-  referenceCompletionContent: "cf-reference-completion-content",
-  referenceCompletionCrossref: "cf-reference-completion-crossref",
-  referenceCompletionMeta: "cf-reference-completion-meta",
-
-  /** Document title from frontmatter. */
-  docTitle: "cf-doc-title",
-  docHeader: "cf-doc-header",
-  docAbstractLabel: "cf-doc-abstract-label",
-
-  /** Hidden elements (markers, URLs, etc. collapsed when cursor is away). */
-  hidden: "cf-hidden",
-
-  /** Heading mark decorations (font-weight, text styling): "cf-heading-{level}". */
-  heading: (level: number) => `cf-heading-${level}`,
-
-  /** Horizontal rule. */
-  hr: "cf-hr",
-
-  /** Inline formatting marks. */
-  highlight: "cf-highlight",
   bold: "cf-bold",
   italic: "cf-italic",
   strikethrough: "cf-strikethrough",
   inlineCode: "cf-inline-code",
-
-  /** List marker decorations. */
-  listBullet: "cf-list-bullet",
-  listNumber: "cf-list-number",
-
-  /** Rendered link. */
   linkRendered: "cf-link-rendered",
-
-  /** Math error (KaTeX rendering failure). */
-  mathError: "cf-math-error",
-
-  /** Source delimiter (revealed **, *, ~~, ==, $, \(, etc. — reduced metrics). */
   sourceDelimiter: "cf-source-delimiter",
-
-  /** Generic inline source content revealed inside an existing prose line. */
   inlineSource: "cf-inline-source",
-
-  /** Inline media source revealed beside a metric-preserving preview widget. */
-  inlineMediaSource: "cf-inline-media-source",
-
-  /** Math source (delimiter visible when cursor on math). */
   mathSource: "cf-math-source",
-
-  /** Reference source (raw token visible when cursor on cross-ref/citation). */
-  referenceSource: "cf-reference-source",
-
-  /** Code block source fences (visible when cursor on either fence). */
-  codeblockSource: "cf-codeblock-source",
-  codeblockSourceOpen: "cf-codeblock-source cf-codeblock-source-open",
-  codeblockSourceClose: "cf-codeblock-source cf-codeblock-source-close",
-
-  /** Crossref unresolved state. */
-  crossrefUnresolved: `${CROSSREF_CLASS} cf-crossref-unresolved`,
-
-  /** Citation narrative variant. */
-  citationNarrative: "cf-citation cf-citation-narrative",
-
-  /** Focus mode dimmed line. */
-  focusDimmed: "cf-focus-dimmed",
-
-  /** Math preview panel. */
-  mathPreviewScroller: "cf-math-preview-scroller",
-  mathPreviewLayer: "cf-math-preview-layer",
-  mathPreview: "cf-math-preview",
-  mathPreviewContent: "cf-math-preview-content",
-
-  /** Search/replace panel. */
-  searchPanel: "cf-search-panel",
-  searchRow: "cf-search-row",
-  searchReplaceRow: "cf-replace-row",
-  searchInput: "cf-search-input",
-  searchInputWrap: "cf-search-input-wrap",
-  searchMatchInfo: "cf-search-match-info",
-  searchToggle: "cf-search-toggle",
-  searchToggleActive: "cf-search-toggle-active",
-  searchToggles: "cf-search-toggles",
-  searchAction: "cf-search-action",
-  searchNav: "cf-search-nav",
-  searchClose: "cf-search-close",
-  searchReplaceActions: "cf-search-replace-actions",
-  searchToggleReplace: "cf-search-toggle-replace",
-  searchMatch: "cf-search-match",
-  searchMatchSelected: "cf-search-match-selected",
-
-  /** Heading fold level: "cf-fold-h{level}". */
-  foldHeading: (level: number) => `cf-fold-h${level}`,
-
-  /** Sidenote body rendered in margin. */
-  sidenoteBodyRendered: "cf-sidenote-body-rendered",
-  sidenoteScroller: "cf-sidenote-scroller",
-  sidenotePortal: "cf-sidenote-portal",
-  sidenoteEntry: "cf-sidenote-entry",
-  sidenoteEntryNumber: "cf-sidenote-entry-number",
-
-  /** Inline footnote expansion (#458). */
-  sidenoteRefExpanded: "cf-sidenote-ref-expanded",
-  footnoteInline: "cf-footnote-inline",
-  footnoteInlineHeader: "cf-footnote-inline-header",
-  footnoteInlineNumber: "cf-footnote-inline-number",
-  footnoteInlineEdit: "cf-footnote-inline-edit",
-  footnoteInlineBody: "cf-footnote-inline-body",
-
-  /** Hover preview tooltip container. */
-  hoverPreviewTooltip: "cf-hover-preview-tooltip",
-
-  /** Breadcrumb overlay. */
-  breadcrumbs: "cf-breadcrumbs",
-  breadcrumbsVisible: "cf-breadcrumbs-visible",
-  breadcrumbsHidden: "cf-breadcrumbs-hidden",
-  breadcrumbsInstant: "cf-breadcrumbs-instant",
-
-  /** Lightweight nested inline editor. */
-  inlineEditor: "cf-inline-editor",
+  mathError: "cf-math-error",
+  mathDisplayContent: "cf-math-display-content",
+  mathDisplayNumbered: "cf-math-display-numbered",
+  mathDisplayNumber: "cf-math-display-number",
+  blockQed: "cf-block-qed",
 } as const;

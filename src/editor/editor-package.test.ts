@@ -1,19 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
 import { describe, expect, it } from "vitest";
-import * as editorEntry from "../../editor";
 import type {
-  AutocompleteSource,
-  DocumentContext,
   EditorDocumentChange,
-  EditorMode,
-  MountedEditor,
   MountEditorOptions,
-  RequestHandler,
+  MountedEditor,
+  PandocCursorContext,
   SaveHandler,
   StatusEvents,
 } from "../../editor";
+import * as editorEntry from "../../editor";
 
 interface PackageExport {
   readonly import?: string;
@@ -23,214 +19,56 @@ interface PackageExport {
 interface PackageManifest {
   readonly exports?: Record<string, PackageExport | string>;
   readonly files?: readonly string[];
-  readonly name?: string;
-  readonly packageManager?: string;
-  readonly scripts?: Record<string, string>;
 }
 
-function readPackageJson(): PackageManifest {
+function packageManifest(): PackageManifest {
   return JSON.parse(
     readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
   ) as PackageManifest;
 }
 
 describe("package editor export", () => {
-  it("keeps the root editor API narrow and host-facing", () => {
+  it("exposes one CST-backed editable surface", () => {
     expect(editorEntry).toHaveProperty("mountEditor");
-    expect(editorEntry).toHaveProperty("formatUploadedAssetMarkdown");
-    expect(editorEntry).not.toHaveProperty("mountLazyEditor");
-    expect(editorEntry).not.toHaveProperty("applyThemePreset");
-    expect(editorEntry).not.toHaveProperty("themePresets");
+    expect(editorEntry).toHaveProperty("createEditor");
+    expect(editorEntry).not.toHaveProperty("setEditorMode");
+    expect(editorEntry).not.toHaveProperty("formatUploadedAssetMarkdown");
 
-    type PublicMode = EditorMode;
     type PublicOptions = MountEditorOptions;
     type PublicMounted = MountedEditor;
     type PublicChange = EditorDocumentChange;
-    type PublicContext = DocumentContext;
-    type PublicRequestHandler = RequestHandler;
-    type PublicSaveHandler = SaveHandler;
-    type PublicStatusEvents = StatusEvents;
-    type PublicAutocompleteSource = AutocompleteSource;
+    type PublicCursor = PandocCursorContext;
+    type PublicSave = SaveHandler;
+    type PublicEvents = StatusEvents;
     const _typecheck: [
-      PublicMode,
-      PublicOptions["context"],
-      PublicMounted["getDoc"],
-      PublicChange["changes"],
-      PublicContext,
-      PublicRequestHandler | undefined,
-      PublicSaveHandler | undefined,
-      PublicStatusEvents | undefined,
-      PublicAutocompleteSource | undefined,
+      PublicOptions["parent"],
+      PublicMounted["getCst"],
+      PublicChange["tree"],
+      PublicCursor["block"],
+      PublicSave | undefined,
+      PublicEvents | undefined,
     ] | null = null;
     expect(_typecheck).toBeNull();
   });
 
-  it("keeps the public package surface explicit", () => {
-    const packageJson = readPackageJson();
-
-    expect(Object.keys(packageJson.exports ?? {}).sort()).toEqual([
-      ".",
-      "./browser-test-utils",
-      "./citeproc",
-      "./document-surface.css",
-      "./inline-render",
-      "./latex",
-      "./latex/csl/ieee.csl",
-      "./latex/filter.lua",
-      "./latex/syntax-manifest.lua",
-      "./latex/template/article.tex",
-      "./latex/template/lipics.tex",
-      "./numeric",
-      "./parse",
-      "./reader",
-      "./reader/worker",
-      "./rich-readonly",
-      "./style.css",
-      "./test-utils",
-      "./themes/blueprint-book.css",
-    ]);
+  it("does not publish Reader, readonly, projection, or test-only entries", () => {
+    const keys = Object.keys(packageManifest().exports ?? {});
+    expect(keys).toContain(".");
+    expect(keys).toContain("./style.css");
+    expect(keys).not.toContain("./reader");
+    expect(keys).not.toContain("./reader/worker");
+    expect(keys).not.toContain("./rich-readonly");
+    expect(keys).not.toContain("./inline-render");
+    expect(keys).not.toContain("./parse");
+    expect(keys).not.toContain("./test-utils");
+    expect(keys).not.toContain("./browser-test-utils");
   });
 
-  it("publishes the standalone editor from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const editorExport = packageJson.exports?.["."];
-
-    expect(editorExport).toEqual({
+  it("publishes the editor from generated dist output", () => {
+    expect(packageManifest().exports?.["."]).toEqual({
       types: "./dist/editor.d.ts",
       import: "./dist/editor.mjs",
     });
-    expect(packageJson.files).toContain("dist");
-  });
-
-  it("publishes the citeproc sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const citeprocExport = packageJson.exports?.["./citeproc"];
-
-    expect(citeprocExport).toEqual({
-      types: "./dist/citeproc.d.ts",
-      import: "./dist/citeproc.mjs",
-    });
-  });
-
-  it("publishes the reader sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const readerExport = packageJson.exports?.["./reader"];
-
-    expect(readerExport).toEqual({
-      types: "./dist/reader.d.ts",
-      import: "./dist/reader.mjs",
-    });
-  });
-
-  it("publishes the reader worker sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const workerExport = packageJson.exports?.["./reader/worker"];
-
-    expect(workerExport).toEqual({
-      types: "./dist/reader-worker.d.ts",
-      import: "./dist/reader-worker.mjs",
-    });
-  });
-
-  it("publishes the parse sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const parseExport = packageJson.exports?.["./parse"];
-
-    expect(parseExport).toEqual({
-      types: "./dist/parse.d.ts",
-      import: "./dist/parse.mjs",
-    });
-  });
-
-  it("publishes the dependency-light inline render sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const inlineRenderExport = packageJson.exports?.["./inline-render"];
-
-    expect(inlineRenderExport).toEqual({
-      types: "./dist/inline-render.d.ts",
-      import: "./dist/inline-render.mjs",
-    });
-  });
-
-  it("publishes the numeric citation helper sub-entry from generated dist output", () => {
-    const packageJson = readPackageJson();
-    const numericExport = packageJson.exports?.["./numeric"];
-
-    expect(numericExport).toEqual({
-      types: "./dist/numeric.d.ts",
-      import: "./dist/numeric.mjs",
-    });
-  });
-
-  it("publishes the latex export contract and bundled assets", () => {
-    const packageJson = readPackageJson();
-    const latexExport = packageJson.exports?.["./latex"];
-
-    expect(latexExport).toEqual({
-      types: "./dist/latex.d.ts",
-      import: "./dist/latex.mjs",
-    });
-    expect(packageJson.exports?.["./latex/csl/ieee.csl"]).toBe("./dist/latex/csl/ieee.csl");
-    expect(packageJson.exports?.["./latex/filter.lua"]).toBe("./dist/latex/filter.lua");
-    expect(packageJson.exports?.["./latex/syntax-manifest.lua"]).toBe("./dist/latex/syntax-manifest.lua");
-    expect(packageJson.exports?.["./latex/template/article.tex"]).toBe("./dist/latex/template/article.tex");
-    expect(packageJson.exports?.["./latex/template/lipics.tex"]).toBe("./dist/latex/template/lipics.tex");
-  });
-
-  it("publishes test helpers from a top-level generated test-utils entry", () => {
-    const packageJson = readPackageJson();
-    const testUtilsExport = packageJson.exports?.["./test-utils"];
-
-    expect(testUtilsExport).toEqual({
-      types: "./dist/test-utils.d.ts",
-      import: "./dist/test-utils.js",
-    });
-  });
-
-  it("publishes browser selector helpers from a dependency-light test entry", () => {
-    const packageJson = readPackageJson();
-    const testUtilsExport = packageJson.exports?.["./browser-test-utils"];
-
-    expect(testUtilsExport).toEqual({
-      types: "./dist/browser-test-utils.d.ts",
-      import: "./dist/browser-test-utils.js",
-    });
-  });
-
-  it("publishes the standalone editor stylesheet", () => {
-    const packageJson = readPackageJson();
-    const cssExport = packageJson.exports?.["./style.css"];
-
-    expect(cssExport).toBe("./dist/editor.css");
-  });
-
-  it("publishes the shared document surface stylesheet", () => {
-    const packageJson = readPackageJson();
-    const cssExport = packageJson.exports?.["./document-surface.css"];
-
-    expect(cssExport).toBe("./dist/document-surface.css");
-  });
-
-  it("publishes optional theme stylesheets as explicit subpath exports", () => {
-    const packageJson = readPackageJson();
-
-    expect(packageJson.exports?.["./themes/blueprint-book.css"]).toBe(
-      "./dist/themes/blueprint-book.css",
-    );
-  });
-
-  it("preserves the extracted editor package scripts", () => {
-    const packageJson = readPackageJson();
-
-    expect(packageJson.name).toBe("@chaoxu/coflat");
-    expect(packageJson.packageManager).toBe("pnpm@10.33.0");
-    expect(packageJson.scripts?.build).toContain("rm -rf dist");
-    expect(packageJson.scripts?.build).toContain("tsc -p tsconfig.editor.json");
-    expect(packageJson.scripts?.build).toContain("vite build --config vite.editor.config.ts");
-    expect(packageJson.scripts?.build).toContain("tsc -p tsconfig.test-utils.json");
-    expect(packageJson.scripts?.build).not.toContain("cp src/editor/test-utils.ts");
-    expect(packageJson.scripts?.typecheck).toBe("tsc --noEmit");
-    expect(packageJson.scripts?.test).toBe("vitest run");
-    expect(packageJson.scripts?.prepack).toBe("pnpm build && pnpm publint");
+    expect(packageManifest().files).toContain("dist");
   });
 });

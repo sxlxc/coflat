@@ -2,11 +2,11 @@ import { history, redo, undo } from "@codemirror/commands";
 import { EditorState, type Extension, StateEffect, Text, Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
-  PandocParser,
-  serializeTree,
   type NodeKind,
+  PandocParser,
   type SyntaxNode,
   type SyntaxTree,
+  serializeTree,
 } from "pandocmd-cst";
 import { describe, expect, it } from "vitest";
 import {
@@ -15,7 +15,7 @@ import {
   getPandocSemantics,
   getPandocTree,
   pandocCstField,
-} from ".";
+} from "./pandoc-cst-field";
 
 function createState(doc: string | Text, extensions: Extension = []): EditorState {
   return EditorState.create({

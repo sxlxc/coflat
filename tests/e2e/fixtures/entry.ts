@@ -6,8 +6,7 @@ const root = requiredHTMLElement("editor-root");
 
 const mounted = mountEditor({
   parent: root,
-  doc: "",
-  mode: "source",
+  doc: "Before *emphasis* and $x^2$ after.",
 });
 
 // Expose for assertions if needed by future specs.

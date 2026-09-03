@@ -1,33 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
 import fc from "fast-check";
-import { afterEach, beforeEach, vi } from "vitest";
-import { clearDocumentAnalysisCache } from "./semantics/incremental/cached-document-analysis";
-import { destroyAllTestViews, installLocalStorageMock } from "./test-utils";
+import { afterEach, vi } from "vitest";
 
-const DEFAULT_FAST_CHECK_SEED = 439;
-
-function configureFastCheck(): void {
-  const rawSeed = process.env.FC_SEED;
-  if (rawSeed === "random") {
-    return;
-  }
-  const seed = rawSeed === undefined || rawSeed === ""
-    ? DEFAULT_FAST_CHECK_SEED
-    : Number.parseInt(rawSeed, 10);
-  if (Number.isFinite(seed)) {
-    fc.configureGlobal({ seed });
-  }
-}
-
-configureFastCheck();
-
-function pendingFakeTimerCount(): number {
-  try {
-    return vi.getTimerCount();
-  } catch (_error) {
-    return 0;
-  }
+const configuredSeed = process.env.FC_SEED;
+if (configuredSeed !== "random") {
+  const seed = configuredSeed ? Number.parseInt(configuredSeed, 10) : 439;
+  if (Number.isFinite(seed)) fc.configureGlobal({ seed });
 }
 
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -47,9 +25,9 @@ if (typeof globalThis.IntersectionObserver === "undefined") {
     }
 
     observe(target: Element) {
-      this.callback(
-        [{ isIntersecting: true, target } as unknown as IntersectionObserverEntry],
-      );
+      this.callback([
+        { isIntersecting: true, target } as unknown as IntersectionObserverEntry,
+      ]);
     }
 
     unobserve() {}
@@ -68,44 +46,27 @@ if (typeof window !== "undefined") {
   });
 }
 
-if (typeof HTMLCanvasElement !== "undefined") {
-  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
-    configurable: true,
-    writable: true,
-    value: vi.fn(() => null),
-  });
-}
-
-const localStorageMock = installLocalStorageMock();
-
 const rangePrototype = globalThis.Range?.prototype;
-if (
-  rangePrototype
-  && typeof rangePrototype.getClientRects !== "function"
-) {
+if (rangePrototype && typeof rangePrototype.getClientRects !== "function") {
   Object.defineProperty(rangePrototype, "getClientRects", {
     configurable: true,
-    value() {
-      return [] as DOMRect[];
-    },
+    value: () => [] as DOMRect[],
   });
 }
 
-beforeEach(() => {
-  localStorageMock.clear();
-});
-
 afterEach(() => {
-  destroyAllTestViews();
-  if (typeof document !== "undefined") {
-    cleanup();
-  }
-  clearDocumentAnalysisCache();
-  const pendingTimers = pendingFakeTimerCount();
+  const pendingTimers = (() => {
+    try {
+      return vi.getTimerCount();
+    } catch (_error) {
+      return 0;
+    }
+  })();
   if (pendingTimers > 0) {
     vi.clearAllTimers();
     throw new Error(`test left ${pendingTimers} fake timer(s) pending`);
   }
+  document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();

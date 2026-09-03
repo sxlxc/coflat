@@ -66,31 +66,16 @@ export default defineConfig(({ mode }) => ({
     lib: {
       entry: {
         editor: fileURLToPath(new URL("./editor.ts", import.meta.url)),
-        "inline-render": fileURLToPath(new URL("./inline-render.ts", import.meta.url)),
-        reader: fileURLToPath(new URL("./reader.ts", import.meta.url)),
-        "rich-readonly": fileURLToPath(new URL("./rich-readonly.ts", import.meta.url)),
-        "reader-worker": fileURLToPath(new URL("./reader-worker.ts", import.meta.url)),
-        parse: fileURLToPath(new URL("./parse.ts", import.meta.url)),
-        citeproc: fileURLToPath(new URL("./citeproc.ts", import.meta.url)),
         numeric: fileURLToPath(new URL("./numeric.ts", import.meta.url)),
         latex: fileURLToPath(new URL("./latex.ts", import.meta.url)),
-        "test-utils": fileURLToPath(new URL("./test-utils.ts", import.meta.url)),
-        "browser-test-utils": fileURLToPath(new URL("./browser-test-utils.ts", import.meta.url)),
       },
       formats: ["es"],
-      fileName: (_format, entryName) =>
-        entryName.endsWith("test-utils") ? `${entryName}.js` : `${entryName}.mjs`,
+      fileName: (_format, entryName) => `${entryName}.mjs`,
     },
     rolldownOptions: {
       external: (id) => {
         if (id.includes("?inline") || id.endsWith(".css")) {
           return false;
-        }
-
-        // `vitest` is a peer of the published test-only helper entry. It is
-        // intentionally absent from the standalone editor runtime manifest.
-        if (id === "vitest") {
-          return true;
         }
 
         const packageName = packageNameFromSpecifier(id);
@@ -113,9 +98,7 @@ export default defineConfig(({ mode }) => ({
         return isEditorExternalDependency(id);
       },
       output: {
-        // Keep entries self-contained where possible; the only shared
-        // module across `editor` and `citeproc` is small type-only code,
-        // which is fine to live in a shared chunk if rolldown emits one.
+        // Keep the three small public entries self-contained where possible.
         chunkFileNames: "shared/[name]-[hash].mjs",
       },
     },

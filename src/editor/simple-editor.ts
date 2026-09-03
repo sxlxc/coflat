@@ -1,0 +1,90 @@
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
+import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { EditorState, type Extension } from "@codemirror/state";
+import {
+  drawSelection,
+  dropCursor,
+  EditorView,
+  highlightSpecialChars,
+  keymap,
+} from "@codemirror/view";
+import {
+  DOCUMENT_SURFACE_CLASS,
+  documentSurfaceClassNames,
+} from "../core/document-surface-classes";
+import {
+  getPandocCursorContext,
+  pandocCursorContextField,
+} from "./cst/cursor-context";
+import {
+  cstEditSurface,
+} from "./cst/edit-surface";
+import { pandocCstField } from "./cst/pandoc-cst-field";
+import { coflatTheme } from "./theme";
+
+export interface SimpleEditorConfig {
+  readonly parent: HTMLElement;
+  readonly doc?: string;
+  readonly extensions?: readonly Extension[];
+}
+
+const documentSurfaceExtensions: readonly Extension[] = [
+  EditorView.editorAttributes.of({
+    class: documentSurfaceClassNames(DOCUMENT_SURFACE_CLASS.surface),
+  }),
+  EditorView.contentAttributes.compute(
+    [pandocCursorContextField],
+    (state) => {
+      const context = getPandocCursorContext(state);
+      return {
+        class: documentSurfaceClassNames(DOCUMENT_SURFACE_CLASS.flow),
+        "data-cst-version": String(context.cstVersion),
+        ...(context.block ? { "data-cst-block": context.block.kind } : {}),
+        ...(context.inline ? { "data-cst-inline": context.inline.kind } : {}),
+      };
+    },
+  ),
+];
+
+/**
+ * Mount the single Coflat editing surface.
+ *
+ * Markdown structure is supplied exclusively by pandocmd-cst. CodeMirror owns
+ * input, selection, history, and viewport behavior; it does not parse Markdown.
+ */
+export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
+  const state = EditorState.create({
+    doc: config.doc ?? "",
+    extensions: [
+      pandocCstField,
+      pandocCursorContextField,
+      cstEditSurface,
+      ...documentSurfaceExtensions,
+      history(),
+      drawSelection(),
+      dropCursor(),
+      highlightSpecialChars(),
+      highlightSelectionMatches(),
+      EditorState.allowMultipleSelections.of(true),
+      EditorState.tabSize.of(2),
+      indentUnit.of("  "),
+      EditorView.lineWrapping,
+      keymap.of([
+        indentWithTab,
+        ...searchKeymap,
+        ...historyKeymap,
+        ...defaultKeymap,
+      ]),
+      coflatTheme,
+      ...(config.extensions ?? []),
+    ],
+  });
+
+  return new EditorView({ state, parent: config.parent });
+}
