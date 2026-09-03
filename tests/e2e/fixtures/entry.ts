@@ -1,4 +1,5 @@
 import { EditorView } from "@codemirror/view";
+import "../../../src/editor/editor-theme.css";
 import { mountEditor } from "../../../editor";
 import { requiredHTMLElement } from "./utils";
 
@@ -12,6 +13,11 @@ const mounted = mountEditor({
     "$$",
     "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
     "$$",
+    "",
+    "```ts",
+    "const selected = true;",
+    "return selected;",
+    "```",
   ].join("\n"),
 });
 

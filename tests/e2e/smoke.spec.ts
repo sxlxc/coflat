@@ -161,6 +161,51 @@ test("renders display math and opens its live editing popup on click", async ({ 
   await expect(popup).toHaveAttribute("aria-label", /x\^2\+1/);
 });
 
+test("keeps a padded code-block background while selecting its text", async ({ page }) => {
+  const before = await page.evaluate(() => {
+    const line = Array.from(document.querySelectorAll<HTMLElement>(
+      ".cm-line.cf-cst-code-block",
+    )).find((candidate) => candidate.textContent?.includes("const selected"));
+    if (!line) throw new Error("Missing code-block fixture line");
+    const style = getComputedStyle(line);
+    return {
+      backgroundColor: style.backgroundColor,
+      fontSize: Number.parseFloat(style.fontSize),
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+    };
+  });
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const view = (window as unknown as {
+      __coflatEditorView: {
+        dispatch(spec: { selection: { anchor: number; head: number } }): void;
+      };
+    }).__coflatEditorView;
+    const anchor = mounted.getDoc().indexOf("const selected");
+    view.dispatch({
+      selection: { anchor, head: anchor + "const selected = true;".length },
+    });
+  });
+
+  const after = await page.evaluate(() => {
+    const line = Array.from(document.querySelectorAll<HTMLElement>(
+      ".cm-line.cf-cst-code-block",
+    )).find((candidate) => candidate.textContent?.includes("const selected"));
+    if (!line) throw new Error("Missing selected code-block fixture line");
+    return {
+      active: line.classList.contains("cf-cst-active-line"),
+      backgroundColor: getComputedStyle(line).backgroundColor,
+    };
+  });
+
+  expect(before.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(before.paddingLeft).toBeCloseTo(before.fontSize);
+  expect(after.active).toBe(true);
+  expect(after.backgroundColor).toBe(before.backgroundColor);
+});
+
 test("can replace the entire document using only the keyboard", async ({ page }) => {
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })

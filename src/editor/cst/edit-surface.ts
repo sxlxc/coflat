@@ -871,8 +871,11 @@ export const cstEditTheme: Extension = EditorView.theme({
     color: "inherit",
   },
   ".cm-line.cf-cst-code-block": {
+    backgroundColor: "var(--cf-subtle)",
+    boxSizing: "border-box",
     fontFamily: "var(--cf-code-font, Monaco, 'DejaVu Sans Mono', Consolas, monospace)",
     fontSize: "0.88em",
+    paddingInline: "1em",
     whiteSpace: "pre-wrap",
   },
   ".cf-cst-math-preview": {
