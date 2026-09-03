@@ -43,7 +43,12 @@ export const coflatTheme = EditorView.theme({
   ".cm-cursor": {
     borderLeftColor: "var(--cf-fg)",
   },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+  // CM6's synthetic multi-line rectangles fill out to the content edges.
+  // Keep its cursor layer, but paint each selection over its actual text.
+  ".cm-selectionLayer .cm-selectionBackground": {
+    display: "none",
+  },
+  ".cf-selection-range": {
     backgroundColor: "var(--cf-selection)",
   },
   ".cm-activeLine, .cf-cst-active-line": {

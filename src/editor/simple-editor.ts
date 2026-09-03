@@ -8,11 +8,15 @@ import { indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorState, type Extension } from "@codemirror/state";
 import {
+  Decoration,
+  type DecorationSet,
   drawSelection,
   dropCursor,
   EditorView,
   highlightSpecialChars,
   keymap,
+  ViewPlugin,
+  type ViewUpdate,
 } from "@codemirror/view";
 import {
   DOCUMENT_SURFACE_CLASS,
@@ -52,6 +56,28 @@ const documentSurfaceExtensions: readonly Extension[] = [
   ),
 ];
 
+const selectionMark = Decoration.mark({ class: "cf-selection-range" });
+
+function textSelectionDecorations(state: EditorState): DecorationSet {
+  return Decoration.set(state.selection.ranges
+    .filter((range) => !range.empty)
+    .map((range) => selectionMark.range(range.from, range.to)));
+}
+
+const textSelectionHighlighter = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+
+  constructor(view: EditorView) {
+    this.decorations = textSelectionDecorations(view.state);
+  }
+
+  update(update: ViewUpdate): void {
+    if (update.docChanged || update.selectionSet) {
+      this.decorations = textSelectionDecorations(update.state);
+    }
+  }
+}, { decorations: (plugin) => plugin.decorations });
+
 /**
  * Mount the single Coflat editing surface.
  *
@@ -68,6 +94,7 @@ export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
       ...documentSurfaceExtensions,
       history(),
       drawSelection(),
+      textSelectionHighlighter,
       dropCursor(),
       highlightSpecialChars(),
       highlightSelectionMatches(),

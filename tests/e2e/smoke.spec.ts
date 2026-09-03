@@ -181,7 +181,7 @@ test("renders display math and opens its live editing popup on click", async ({ 
   await expect(popup).toHaveAttribute("aria-label", /x\^2\+1/);
 });
 
-test("keeps a padded code-block background while selecting its text", async ({ page }) => {
+test("bounds multi-line code selection to text inside the padded background", async ({ page }) => {
   const before = await page.evaluate(() => {
     const line = Array.from(document.querySelectorAll<HTMLElement>(
       ".cm-line.cf-cst-code-block",
@@ -192,6 +192,7 @@ test("keeps a padded code-block background while selecting its text", async ({ p
       backgroundColor: style.backgroundColor,
       fontSize: Number.parseFloat(style.fontSize),
       paddingLeft: Number.parseFloat(style.paddingLeft),
+      selectionColor: style.getPropertyValue("--cf-selection").trim(),
     };
   });
 
@@ -203,27 +204,61 @@ test("keeps a padded code-block background while selecting its text", async ({ p
         dispatch(spec: { selection: { anchor: number; head: number } }): void;
       };
     }).__coflatEditorView;
-    const anchor = mounted.getDoc().indexOf("const selected");
+    const doc = mounted.getDoc();
+    const anchor = doc.indexOf("selected = true");
+    const secondLine = doc.indexOf("return selected");
+    mounted.focus();
     view.dispatch({
-      selection: { anchor, head: anchor + "const selected = true;".length },
+      selection: { anchor, head: secondLine + "return selected".length },
     });
   });
 
+  await expect(page.locator(".cm-selectionBackground")).not.toHaveCount(0);
+
   const after = await page.evaluate(() => {
-    const line = Array.from(document.querySelectorAll<HTMLElement>(
+    const lines = Array.from(document.querySelectorAll<HTMLElement>(
       ".cm-line.cf-cst-code-block",
-    )).find((candidate) => candidate.textContent?.includes("const selected"));
-    if (!line) throw new Error("Missing selected code-block fixture line");
+    )).filter((candidate) => (
+      candidate.textContent?.includes("const selected")
+      || candidate.textContent?.includes("return selected")
+    ));
+    if (lines.length !== 2) throw new Error("Missing selected code-block fixture lines");
+    const selectionMarks = Array.from(document.querySelectorAll<HTMLElement>(
+      ".cf-selection-range",
+    ));
     return {
-      active: line.classList.contains("cf-cst-active-line"),
-      backgroundColor: getComputedStyle(line).backgroundColor,
+      active: lines.some((line) => line.classList.contains("cf-cst-active-line")),
+      backgroundColors: lines.map((line) => getComputedStyle(line).backgroundColor),
+      lineWidths: lines.map((line) => line.getBoundingClientRect().width),
+      selectionMarkColors: selectionMarks.map((mark) => (
+        getComputedStyle(mark).backgroundColor
+      )),
+      selectionMarkWidths: selectionMarks.flatMap((mark) => (
+        Array.from(mark.getClientRects()).map((rect) => rect.width)
+      )),
+      syntheticSelectionDisplays: Array.from(document.querySelectorAll<HTMLElement>(
+        ".cm-selectionLayer .cm-selectionBackground",
+      )).map((marker) => getComputedStyle(marker).display),
     };
   });
 
   expect(before.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   expect(before.paddingLeft).toBeCloseTo(before.fontSize);
   expect(after.active).toBe(true);
-  expect(after.backgroundColor).toBe(before.backgroundColor);
+  expect(after.backgroundColors).toEqual([
+    before.backgroundColor,
+    before.backgroundColor,
+  ]);
+  expect(after.syntheticSelectionDisplays.length).toBeGreaterThan(0);
+  expect(after.syntheticSelectionDisplays.every((display) => display === "none"))
+    .toBe(true);
+  expect(after.selectionMarkColors.length).toBeGreaterThan(0);
+  expect(after.selectionMarkColors.every((color) => color === before.selectionColor))
+    .toBe(true);
+  expect(after.selectionMarkWidths.length).toBeGreaterThan(0);
+  expect(Math.max(...after.selectionMarkWidths)).toBeLessThan(
+    Math.min(...after.lineWidths) / 2,
+  );
 });
 
 test("can replace the entire document using only the keyboard", async ({ page }) => {

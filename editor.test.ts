@@ -1,3 +1,4 @@
+import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { mountEditor } from "./editor";
@@ -58,6 +59,22 @@ describe("mountEditor", () => {
     view.dispatch({ selection: { anchor: doc.indexOf("x^2") + 1 } });
     expect(editor.getCursorContext()?.inline?.kind).toBe("Math");
     expect(view.contentDOM.dataset.cstInline).toBe("Math");
+    editor.unmount();
+  });
+
+  it("renders every selection range as an inline text highlight", () => {
+    const parent = document.createElement("div");
+    const editor = mountEditor({ parent, doc: "alpha beta gamma" });
+    const view = mountedView(parent);
+
+    view.dispatch({
+      selection: EditorSelection.create([
+        EditorSelection.range(0, 5),
+        EditorSelection.range(11, 16),
+      ]),
+    });
+
+    expect(parent.querySelectorAll(".cf-selection-range")).toHaveLength(2);
     editor.unmount();
   });
 
