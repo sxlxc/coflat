@@ -25,6 +25,7 @@ export const CSS = {
   strikethrough: "cf-strikethrough",
   inlineCode: "cf-inline-code",
   linkRendered: "cf-link-rendered",
+  listBullet: "cf-list-bullet",
   sourceDelimiter: "cf-source-delimiter",
   inlineSource: "cf-inline-source",
   mathSource: "cf-math-source",

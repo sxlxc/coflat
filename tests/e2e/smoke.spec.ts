@@ -9,6 +9,7 @@ interface EditorHarness {
     readonly position: number;
   } | null;
   getDoc(): string;
+  setDoc(doc: string): void;
   scrollToPosition(position: number): void;
 }
 
@@ -36,6 +37,25 @@ test("mounts one editable CST-backed surface", async ({ page }) => {
   expect(snapshot.cstText).toBe(snapshot.doc);
   expect(snapshot.hasGetMode).toBe(false);
   expect(snapshot.hasSetMode).toBe(false);
+});
+
+test("renders unordered list source markers as bullet dots", async ({ page }) => {
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc("- Bullet item");
+  });
+
+  const marker = page.locator(".cf-list-bullet");
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveText("•");
+
+  const doc = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return mounted.getDoc();
+  });
+  expect(doc).toContain("- Bullet item");
 });
 
 test("publishes a synchronized CST after keyboard input", async ({ page }) => {

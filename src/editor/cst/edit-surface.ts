@@ -61,6 +61,21 @@ const LINK_SOURCE_KINDS: ReadonlySet<NodeKind> = new Set([
   "AttributeList",
 ]);
 
+class CstBulletListMarkerWidget extends WidgetType {
+  eq(other: CstBulletListMarkerWidget): boolean {
+    return other instanceof CstBulletListMarkerWidget;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const marker = view.dom.ownerDocument.createElement("span");
+    marker.className = CSS.listBullet;
+    marker.textContent = "•";
+    return marker;
+  }
+}
+
+const bulletListMarkerWidget = new CstBulletListMarkerWidget();
+
 const HIGHLIGHTED_ANCESTORS: ReadonlySet<NodeKind> = new Set([
   "AtxHeading",
   "SetextHeading",
@@ -108,6 +123,12 @@ function childOfKind(node: SyntaxNode, kind: NodeKind): SyntaxNode | null {
     if (child.kind === kind) return child;
   }
   return null;
+}
+
+function isBulletListMark(node: SyntaxNode): boolean {
+  return node.kind === "ListMark"
+    && node.parent?.kind === "ListItem"
+    && node.parent.parent?.kind === "BulletList";
 }
 
 function highlightedAncestor(node: SyntaxNode): NodeKind | null {
@@ -728,6 +749,16 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
         return;
       }
 
+      if (isBulletListMark(node)) {
+        if (decorated.has(key)) return;
+        decorated.add(key);
+        ranges.push(Decoration.replace({ widget: bulletListMarkerWidget }).range(
+          node.from,
+          node.to,
+        ));
+        return;
+      }
+
       switch (node.kind) {
         case "Math":
           if (decorated.has(key)) return false;
@@ -869,6 +900,11 @@ export const cstEditTheme: Extension = EditorView.theme({
   },
   ".cf-cst-quoted": {
     color: "inherit",
+  },
+  ".cf-list-bullet": {
+    color: "var(--cf-fg)",
+    fontFamily: "var(--cf-content-font)",
+    fontWeight: "700",
   },
   ".cm-line.cf-cst-code-block": {
     backgroundColor: "var(--cf-subtle)",
