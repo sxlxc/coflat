@@ -81,37 +81,74 @@ describe("mountEditor", () => {
     const parent = document.createElement("div");
     const doc = "before $x^2$ after";
     const editor = mountEditor({ parent, doc });
-    const view = mountedView(parent);
 
-    expect(parent.querySelector(".cf-math-inline")).not.toBeNull();
+    const rendered = parent.querySelector<HTMLElement>(".cf-math-inline");
+    expect(rendered).not.toBeNull();
     expect(parent.querySelector(".cf-math-source")).toBeNull();
 
-    view.dispatch({ selection: { anchor: doc.indexOf("x^2") + 1 } });
+    rendered?.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+    }));
+    expect(editor.getCursorContext()?.inline?.kind).toBe("Math");
     expect(parent.querySelector(".cf-math-source")).not.toBeNull();
     expect(parent.querySelector(".cf-cst-math-preview")).not.toBeNull();
 
+    mountedView(parent).dispatch({ selection: { anchor: doc.indexOf("x^2") + 1 } });
     editor.insertText("+");
     expect(editor.getDoc()).toBe("before $x+^2$ after");
     expect(editor.getCst()?.text).toBe(editor.getDoc());
     editor.unmount();
   });
 
-  it("keeps display math source keyboard-editable", () => {
+  it("renders display math and opens its source with a live preview popup", () => {
     const parent = document.createElement("div");
     const doc = "before\n\n$$x+y$$\n\nafter";
     const editor = mountEditor({ parent, doc });
     const view = mountedView(parent);
 
-    expect(parent.querySelector(".cf-math-display")).toBeNull();
-    expect(parent.querySelector(".cf-math-source")).not.toBeNull();
-    view.dispatch({ selection: { anchor: doc.indexOf("x+y") + 1 } });
+    const rendered = parent.querySelector<HTMLElement>(
+      ".cf-math-display:not(.cf-cst-math-preview)",
+    );
+    expect(rendered?.querySelector(".katex-display")).not.toBeNull();
+    expect(parent.querySelector(".cf-math-source")).toBeNull();
+
+    rendered?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+    }));
+
+    expect(editor.getCursorContext()?.inline?.kind).toBe("Math");
     expect(parent.querySelector(".cf-math-source")).not.toBeNull();
     expect(parent.querySelector(".cf-cst-math-preview.cf-math-display"))
-      .toBeNull();
+      .not.toBeNull();
 
+    view.dispatch({ selection: { anchor: doc.indexOf("x+y") + 1 } });
     editor.insertText("z");
     expect(editor.getDoc()).toBe("before\n\n$$xz+y$$\n\nafter");
     expect(editor.getCst()?.text).toBe(editor.getDoc());
+    editor.unmount();
+  });
+
+  it("keeps a mapped display-math click target tied to the live CST range", () => {
+    const parent = document.createElement("div");
+    const editor = mountEditor({ parent, doc: "$$x+y$$" });
+
+    editor.insertText("preface\n\n", { position: 0 });
+    const rendered = parent.querySelector<HTMLElement>(".cf-math-display");
+    rendered?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+    }));
+
+    const liveMathFrom = editor.getDoc().indexOf("$$");
+    expect(editor.getCursorContext()?.inline?.kind).toBe("Math");
+    expect(editor.getCursorContext()?.position).toBeGreaterThan(liveMathFrom);
+    expect(parent.querySelector(".cf-cst-math-preview.cf-math-display"))
+      .not.toBeNull();
     editor.unmount();
   });
 

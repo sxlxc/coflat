@@ -26,7 +26,8 @@ export const coflatTheme = EditorView.theme({
     boxSizing: "border-box",
     caretColor: "var(--cf-fg)",
     marginInline: "auto",
-    maxWidth: "var(--cf-content-max-width)",
+    maxWidth:
+      "calc(var(--cf-content-max-width) + 2 * var(--cf-doc-content-padding-inline))",
     minHeight: "100%",
     padding: "var(--cf-content-padding)",
     width: "100%",
@@ -47,21 +48,30 @@ export const coflatTheme = EditorView.theme({
     backgroundColor: "transparent",
   },
   ".cf-heading-line-1": {
-    fontSize: "2em",
-    fontWeight: "700",
+    fontSize: "var(--cf-h1-size, 1.44em)",
+    fontWeight: "var(--cf-h1-weight, 700)",
     lineHeight: "1.2",
   },
   ".cf-heading-line-2": {
-    fontSize: "1.5em",
-    fontWeight: "700",
+    fontSize: "var(--cf-h2-size, 1.2em)",
+    fontWeight: "var(--cf-h2-weight, 700)",
     lineHeight: "1.25",
   },
   ".cf-heading-line-3": {
-    fontSize: "1.25em",
-    fontWeight: "650",
+    fontSize: "var(--cf-h3-size, 1em)",
+    fontWeight: "var(--cf-h3-weight, 700)",
   },
-  ".cf-heading-line-4, .cf-heading-line-5, .cf-heading-line-6": {
-    fontWeight: "650",
+  ".cf-heading-line-4": {
+    fontSize: "var(--cf-h4-size, 1em)",
+    fontWeight: "var(--cf-h4-weight, 700)",
+  },
+  ".cf-heading-line-5": {
+    fontSize: "var(--cf-h5-size, 1em)",
+    fontWeight: "var(--cf-h5-weight, 700)",
+  },
+  ".cf-heading-line-6": {
+    fontSize: "var(--cf-h6-size, 1em)",
+    fontWeight: "var(--cf-h6-weight, 400)",
   },
   ".cf-bold, .tok-strong": {
     fontWeight: "700",
@@ -87,7 +97,7 @@ export const coflatTheme = EditorView.theme({
     color: "var(--cf-muted)",
   },
   ".tok-heading": {
-    fontWeight: "650",
+    fontWeight: "inherit",
   },
   ".tok-string": {
     fontStyle: "italic",

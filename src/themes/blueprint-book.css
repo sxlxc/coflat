@@ -9,10 +9,12 @@
   --cf-selection: rgba(73, 125, 165, 0.25);
   --cf-content-font: KaTeX_Main, "Times New Roman", Times, serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
-  --cf-base-font-size: 16px;
-  --cf-line-height: 1.45;
-  --cf-content-max-width: 75ch;
-  --cf-content-padding: 16px 24px 40px;
+  --cf-base-font-size: 18px;
+  --cf-line-height: 1.4;
+  --cf-content-max-width: 800px;
+  --cf-doc-content-padding-block-start: 16px;
+  --cf-doc-content-padding-block-end: 40px;
+  --cf-doc-content-padding-inline: 24px;
 }
 
 .cf-theme-blueprint-book .cf-heading-line-1,

@@ -6,7 +6,13 @@ const root = requiredHTMLElement("editor-root");
 
 const mounted = mountEditor({
   parent: root,
-  doc: "Before *emphasis* and $x^2$ after.",
+  doc: [
+    "Before *emphasis* and $x^2$ after.",
+    "",
+    "$$",
+    "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
+    "$$",
+  ].join("\n"),
 });
 
 // Expose for assertions if needed by future specs.

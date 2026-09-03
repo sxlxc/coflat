@@ -9,10 +9,29 @@
   --cf-selection: rgba(49, 87, 164, 0.18);
   --cf-content-font: KaTeX_Main, "Times New Roman", serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
-  --cf-base-font-size: 16px;
-  --cf-line-height: 1.55;
+  --cf-base-font-size: 18px;
+  --cf-line-height: 1.4;
   --cf-content-max-width: 800px;
-  --cf-content-padding: 24px 48px;
+  --cf-doc-content-padding-block-start: 24px;
+  --cf-doc-content-padding-block-end: 24px;
+  --cf-doc-content-padding-inline: 48px;
+  --cf-content-padding: var(--cf-doc-content-padding-block-start)
+    var(--cf-doc-content-padding-inline)
+    var(--cf-doc-content-padding-block-end);
+  --cf-paper-title-size: 1.728em;
+  --cf-paper-title-weight: 400;
+  --cf-h1-size: 1.44em;
+  --cf-h1-weight: 700;
+  --cf-h2-size: 1.2em;
+  --cf-h2-weight: 700;
+  --cf-h3-size: 1em;
+  --cf-h3-weight: 700;
+  --cf-h4-size: 1em;
+  --cf-h4-weight: 700;
+  --cf-h5-size: 1em;
+  --cf-h5-weight: 700;
+  --cf-h6-size: 1em;
+  --cf-h6-weight: 400;
 }
 
 [data-theme="dark"],
@@ -32,8 +51,44 @@
 }
 
 .cf-doc-flow {
+  font-size: var(--cf-base-font-size);
   font-family: var(--cf-content-font);
   line-height: var(--cf-line-height);
+}
+
+.cf-doc-title {
+  font-size: var(--cf-paper-title-size);
+  font-weight: var(--cf-paper-title-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h1 {
+  font-size: var(--cf-h1-size);
+  font-weight: var(--cf-h1-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h2 {
+  font-size: var(--cf-h2-size);
+  font-weight: var(--cf-h2-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h3 {
+  font-size: var(--cf-h3-size);
+  font-weight: var(--cf-h3-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h4 {
+  font-size: var(--cf-h4-size);
+  font-weight: var(--cf-h4-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h5 {
+  font-size: var(--cf-h5-size);
+  font-weight: var(--cf-h5-weight);
+}
+
+.cf-doc-flow .cf-doc-heading--h6 {
+  font-size: var(--cf-h6-size);
+  font-weight: var(--cf-h6-weight);
 }
 
 .cf-doc-inline-math,
@@ -67,6 +122,8 @@
 @media (max-width: 720px) {
   :root,
   .cf-theme-scope {
-    --cf-content-padding: 18px 20px;
+    --cf-doc-content-padding-block-start: 18px;
+    --cf-doc-content-padding-block-end: 18px;
+    --cf-doc-content-padding-inline: 20px;
   }
 }

@@ -1,4 +1,10 @@
-import { EditorSelection, type EditorState, type Extension } from "@codemirror/state";
+import {
+  EditorSelection,
+  type EditorState,
+  type Extension,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -26,7 +32,10 @@ import {
 } from "../../core/math-inline-surface";
 import { renderKatexToHtml } from "../render/katex-render";
 import { getPandocCursorContext } from "./cursor-context";
-import { getPandocTree } from "./pandoc-cst-field";
+import {
+  getPandocInvalidations,
+  getPandocTree,
+} from "./pandoc-cst-field";
 
 const DELIMITED_INLINE_CLASSES: Partial<Record<NodeKind, string>> = {
   Emphasis: CSS.italic,
@@ -197,6 +206,10 @@ class CstMathWidget extends WidgetType {
     private readonly raw: string,
     private readonly isDisplay: boolean,
     private readonly preview: boolean,
+    private readonly sourceFrom: number,
+    private readonly sourceTo: number,
+    private readonly bodyFrom: number,
+    private readonly bodyTo: number,
   ) {
     super();
   }
@@ -208,6 +221,51 @@ class CstMathWidget extends WidgetType {
       && other.preview === this.preview;
   }
 
+  private bindSourceReveal(surface: HTMLElement, view: EditorView): void {
+    surface.style.cursor = "pointer";
+    surface.dataset.sourceFrom = String(this.sourceFrom);
+    surface.dataset.sourceTo = String(this.sourceTo);
+    surface.title = this.isDisplay ? "Edit display math" : "Edit inline math";
+
+    const eventType = this.isDisplay ? "mousedown" : "click";
+    surface.addEventListener(eventType, (event) => {
+      if (
+        event.button !== 0
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || event.shiftKey
+      ) {
+        return;
+      }
+
+      const math = resolveWidgetMathNode(
+        view,
+        surface,
+        this.isDisplay,
+        this.raw,
+        this.sourceFrom,
+        this.sourceTo,
+      );
+      const body = math ? childOfKind(math, "OpaqueBody") : null;
+      const anchor = body
+        ? mathSourcePositionFromPointer(surface, event, body)
+        : Math.max(
+            0,
+            Math.min(view.state.doc.length, Math.min(this.bodyFrom, this.bodyTo)),
+          );
+
+      event.preventDefault();
+      event.stopPropagation();
+      view.focus();
+      view.dispatch({
+        selection: EditorSelection.cursor(anchor),
+        scrollIntoView: true,
+        userEvent: "select.pointer",
+      });
+    });
+  }
+
   toDOM(view: EditorView): HTMLElement {
     const ownerDocument = view.dom.ownerDocument;
     if (this.isDisplay) {
@@ -216,18 +274,133 @@ class CstMathWidget extends WidgetType {
       if (this.preview) surface.classList.add("cf-cst-math-preview");
       renderMath(content, this.latex, true);
       surface.appendChild(content);
+      this.bindSourceReveal(surface, view);
       return surface;
     }
 
     const surface = createInlineMathSurfaceElement(ownerDocument, this.latex);
     if (this.preview) surface.classList.add("cf-cst-math-preview");
     renderMath(surface, this.latex, false);
+    this.bindSourceReveal(surface, view);
     return surface;
   }
 
   ignoreEvent(): boolean {
     return true;
   }
+}
+
+function mathNodeAtPosition(
+  tree: SyntaxTree,
+  position: number,
+  isDisplay: boolean,
+): SyntaxNode | null {
+  for (const bias of ["right", "left"] as const) {
+    const math = containingMath(tree.resolve(position, bias));
+    if (math && (math.prop(mathDisplay) ?? false) === isDisplay) return math;
+  }
+  return null;
+}
+
+function resolveWidgetMathNode(
+  view: EditorView,
+  surface: HTMLElement,
+  isDisplay: boolean,
+  raw: string,
+  sourceFrom: number,
+  sourceTo: number,
+): SyntaxNode | null {
+  const tree = getPandocTree(view.state);
+  const positions: number[] = [];
+  try {
+    positions.push(view.posAtDOM(surface));
+  } catch (_error) {
+    // A widget can briefly outlive its mapped document range during redraw.
+  }
+  positions.push(sourceFrom, sourceTo);
+
+  for (const position of positions) {
+    if (position < 0 || position > tree.length) continue;
+    const direct = mathNodeAtPosition(tree, position, isDisplay);
+    if (direct) return direct;
+
+    const line = view.state.doc.lineAt(position);
+    let nearby: SyntaxNode | null = null;
+    tree.iterate((node) => {
+      if (
+        !nearby
+        && node.kind === "Math"
+        && (node.prop(mathDisplay) ?? false) === isDisplay
+        && node.text() === raw
+      ) {
+        nearby = node;
+        return false;
+      }
+      return;
+    }, {
+      from: line.from,
+      to: Math.min(tree.length, line.to + 1),
+    });
+    if (nearby) return nearby;
+  }
+
+  return null;
+}
+
+function mathLocationOffset(
+  surface: HTMLElement,
+  event: MouseEvent,
+): number | null {
+  const target = event.target instanceof Element
+    ? event.target.closest<HTMLElement>("[data-loc-start]")
+    : null;
+  if (target && surface.contains(target)) {
+    const location = Number.parseInt(target.dataset.locStart ?? "", 10);
+    if (Number.isFinite(location)) return location;
+  }
+
+  let bestLocation: number | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const candidate of surface.querySelectorAll<HTMLElement>("[data-loc-start]")) {
+    const rect = candidate.getBoundingClientRect();
+    if (
+      rect.width <= 0
+      || rect.height <= 0
+      || event.clientX < rect.left
+      || event.clientX > rect.right
+      || event.clientY < rect.top
+      || event.clientY > rect.bottom
+    ) {
+      continue;
+    }
+    const location = Number.parseInt(candidate.dataset.locStart ?? "", 10);
+    const area = rect.width * rect.height;
+    if (Number.isFinite(location) && area < bestArea) {
+      bestLocation = location;
+      bestArea = area;
+    }
+  }
+  return bestLocation;
+}
+
+function mathSourcePositionFromPointer(
+  surface: HTMLElement,
+  event: MouseEvent,
+  body: SyntaxNode,
+): number {
+  const location = mathLocationOffset(surface, event);
+  if (location !== null) {
+    return Math.max(body.from, Math.min(body.to, body.from + location));
+  }
+
+  const rect = surface.getBoundingClientRect();
+  const fraction = rect.width > 0
+    ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+    : 0;
+  return Math.max(
+    body.from,
+    Math.min(body.to, body.from + Math.round((body.to - body.from) * fraction)),
+  );
 }
 
 function addDelimiterPresentation(
@@ -337,10 +510,11 @@ function addMathPresentation(
   const latex = body.text();
   const display = node.prop(mathDisplay) ?? false;
 
-  // Multiline/display math remains literal source. Replacing line breaks with
-  // a viewport plugin would violate CM6's decoration contract, and a global
-  // block-widget field would make every keystroke scale with document size.
   if (display) {
+    // Block replacements are supplied by cstDisplayMathDecorationField. A
+    // ViewPlugin may only contribute the lightweight source marks needed while
+    // this particular expression is active.
+    if (!active) return true;
     for (const child of node.children()) {
       const className = child.kind === "MathMark"
         ? CSS.sourceDelimiter
@@ -352,7 +526,16 @@ function addMathPresentation(
 
   if (!active) {
     ranges.push(Decoration.replace({
-      widget: new CstMathWidget(latex, node.text(), false, false),
+      widget: new CstMathWidget(
+        latex,
+        node.text(),
+        false,
+        false,
+        node.from,
+        node.to,
+        body.from,
+        body.to,
+      ),
     }).range(node.from, node.to));
     return true;
   }
@@ -363,15 +546,170 @@ function addMathPresentation(
   }
   ranges.push(Decoration.widget({
     side: 1,
-    widget: new CstMathWidget(latex, node.text(), false, true),
+    widget: new CstMathWidget(
+      latex,
+      node.text(),
+      false,
+      true,
+      node.from,
+      node.to,
+      body.from,
+      body.to,
+    ),
   }).range(node.to));
   return true;
 }
+
+interface DisplayMathDecorationState {
+  readonly activeSignature: string;
+  readonly decorations: DecorationSet;
+}
+
+function activeDisplayMathKeys(
+  state: EditorState,
+  tree: SyntaxTree,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const range of state.selection.ranges) {
+    for (const position of range.empty
+      ? [range.head]
+      : [range.anchor, range.head]) {
+      const math = mathNodeAtPosition(tree, position, true);
+      if (math) keys.add(nodeKey(math));
+    }
+  }
+  return keys;
+}
+
+function activeDisplayMathSignature(state: EditorState, tree: SyntaxTree): string {
+  return [...activeDisplayMathKeys(state, tree)].sort().join("|");
+}
+
+function displayMathReplacementFrom(
+  state: EditorState,
+  node: SyntaxNode,
+): number {
+  const line = state.doc.lineAt(node.from);
+  if (line.from === node.from) return node.from;
+  return /^\s*$/.test(state.sliceDoc(line.from, node.from))
+    ? line.from
+    : node.from;
+}
+
+function buildDisplayMathDecorationState(
+  state: EditorState,
+): DisplayMathDecorationState {
+  const tree = getPandocTree(state);
+  const active = activeDisplayMathKeys(state, tree);
+  const ranges: Array<ReturnType<Decoration["range"]>> = [];
+
+  tree.iterate((node) => {
+    if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
+    const body = childOfKind(node, "OpaqueBody");
+    if (!body) return false;
+    const isActive = active.has(nodeKey(node));
+    const widget = new CstMathWidget(
+      body.text(),
+      node.text(),
+      true,
+      isActive,
+      node.from,
+      node.to,
+      body.from,
+      body.to,
+    );
+
+    ranges.push(
+      isActive
+        ? Decoration.widget({ widget, block: true, side: 1 }).range(node.to)
+        : Decoration.replace({ widget, block: true }).range(
+            displayMathReplacementFrom(state, node),
+            node.to,
+          ),
+    );
+    return false;
+  });
+
+  return {
+    activeSignature: activeDisplayMathSignature(state, tree),
+    decorations: Decoration.set(ranges, true),
+  };
+}
+
+function rangeTouchesDisplayMath(
+  tree: SyntaxTree,
+  from: number,
+  to: number,
+): boolean {
+  if (tree.length === 0) return false;
+  const searchFrom = Math.max(0, Math.min(tree.length, from) - 1);
+  const searchTo = Math.min(
+    tree.length,
+    Math.max(searchFrom + 1, Math.min(tree.length, to) + 1),
+  );
+  let found = false;
+  tree.iterate((node) => {
+    if (node.kind === "Math" && (node.prop(mathDisplay) ?? false)) {
+      found = true;
+      return false;
+    }
+    return;
+  }, { from: searchFrom, to: searchTo });
+  return found;
+}
+
+function transactionTouchesDisplayMath(transaction: Transaction): boolean {
+  const before = getPandocTree(transaction.startState);
+  const after = getPandocTree(transaction.state);
+  const invalidations = getPandocInvalidations(transaction.state).changedRanges;
+  if (invalidations.length === 0) return true;
+  return invalidations.some((range) => (
+    rangeTouchesDisplayMath(before, range.oldFrom, range.oldTo)
+    || rangeTouchesDisplayMath(after, range.newFrom, range.newTo)
+  ));
+}
+
+/**
+ * Display math replaces line breaks, so CM6 requires these decorations from a
+ * state field rather than the viewport ViewPlugin used for inline styling.
+ */
+export const cstDisplayMathDecorationField =
+  StateField.define<DisplayMathDecorationState>({
+    create(state) {
+      return buildDisplayMathDecorationState(state);
+    },
+
+    update(value, transaction) {
+      const tree = getPandocTree(transaction.state);
+      const activeSignature = activeDisplayMathSignature(transaction.state, tree);
+      if (!transaction.docChanged) {
+        return activeSignature === value.activeSignature
+          ? value
+          : buildDisplayMathDecorationState(transaction.state);
+      }
+
+      if (
+        activeSignature === value.activeSignature
+        && !transactionTouchesDisplayMath(transaction)
+      ) {
+        return {
+          activeSignature,
+          decorations: value.decorations.map(transaction.changes),
+        };
+      }
+      return buildDisplayMathDecorationState(transaction.state);
+    },
+
+    provide(field) {
+      return EditorView.decorations.from(field, (value) => value.decorations);
+    },
+  });
 
 function buildCstEditDecorations(view: EditorView): DecorationSet {
   const state = view.state;
   const tree = getPandocTree(state);
   const active = activeNodeKeys(state, tree);
+  const activeDisplayMath = activeDisplayMathKeys(state, tree);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
 
@@ -392,7 +730,13 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
         case "Math":
           if (decorated.has(key)) return false;
           decorated.add(key);
-          addMathPresentation(ranges, node, isActive);
+          addMathPresentation(
+            ranges,
+            node,
+            (node.prop(mathDisplay) ?? false)
+              ? activeDisplayMath.has(key)
+              : isActive,
+          );
           return false;
         case "Link":
         case "AutoLink":
@@ -532,6 +876,8 @@ export const cstEditTheme: Extension = EditorView.theme({
   ".cf-cst-math-preview": {
     background: "var(--cf-bg)",
     border: "1px solid var(--cf-border)",
+    borderRadius: "3px",
+    boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
     display: "inline-block",
     marginInlineStart: "0.45em",
     padding: "0.15em 0.4em",
@@ -539,13 +885,15 @@ export const cstEditTheme: Extension = EditorView.theme({
   },
   ".cf-math-display.cf-cst-math-preview": {
     display: "block",
-    marginBlock: "0.35em",
+    marginBlock: "0.45em",
     marginInline: "auto",
+    padding: "0.45em 0.75em",
     width: "fit-content",
   },
 });
 
 export const cstEditSurface: Extension = [
+  cstDisplayMathDecorationField,
   cstEditDecorationPlugin,
   cstMathKeyboardNavigation,
   cstEditTheme,

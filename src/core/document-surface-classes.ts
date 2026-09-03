@@ -5,6 +5,7 @@
 export const DOCUMENT_SURFACE_CLASS = {
   surface: "cf-doc-surface",
   flow: "cf-doc-flow",
+  title: "cf-doc-title",
   heading: "cf-doc-heading",
   headingLevel: (level: number) => `cf-doc-heading--h${level}`,
   inlineMath: "cf-doc-inline-math",

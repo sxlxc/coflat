@@ -116,6 +116,51 @@ test("enters rendered math with an arrow key and edits its source", async ({ pag
   expect(state.cst).toBe(state.doc);
 });
 
+test("clicks rendered inline math to edit its source", async ({ page }) => {
+  await page.locator(".cf-math-inline").click();
+
+  await expect(page.locator("#editor-root .cm-content"))
+    .toHaveAttribute("data-cst-inline", "Math");
+  await expect(page.locator(".cf-math-source")).not.toHaveCount(0);
+  await expect(page.locator(".cf-cst-math-preview.cf-math-inline"))
+    .toHaveCount(1);
+});
+
+test("renders display math and opens its live editing popup on click", async ({ page }) => {
+  const rendered = page.locator(
+    ".cf-math-display:not(.cf-cst-math-preview)",
+  );
+  await expect(rendered).toHaveCount(1);
+  await expect(rendered.locator(".katex-display")).toBeVisible();
+
+  await rendered.click();
+
+  await expect(page.locator("#editor-root .cm-content"))
+    .toHaveAttribute("data-cst-inline", "Math");
+  await expect(page.locator(".cf-math-source")).not.toHaveCount(0);
+  const popup = page.locator(".cf-cst-math-preview.cf-math-display");
+  await expect(popup).toHaveCount(1);
+  await expect(popup.locator(".katex-display")).toBeVisible();
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const position = mounted.getDoc().indexOf("\\,dx");
+    mounted.scrollToPosition(position);
+    mounted.focus();
+  });
+  await page.keyboard.insertText("+1");
+
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return { cst: mounted.getCst()?.text, doc: mounted.getDoc() };
+  });
+  expect(state.doc).toContain("x^2+1\\,dx");
+  expect(state.cst).toBe(state.doc);
+  await expect(popup).toHaveAttribute("aria-label", /x\^2\+1/);
+});
+
 test("can replace the entire document using only the keyboard", async ({ page }) => {
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })

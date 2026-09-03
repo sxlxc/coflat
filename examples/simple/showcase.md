@@ -6,7 +6,7 @@ Move the caret into *emphasis*, **strong text**, `inline code`, a [link](https:/
 
 ## Math
 
-Inactive inline math uses the Coflat KaTeX surface. Arrow into it to reveal and edit the delimiters and body. Display math stays as literal source.
+Inactive math uses the Coflat KaTeX surface. Click a rendered inline formula to reveal its source. Click display math to edit it with the live Coflat preview popup.
 
 $$
 \int_0^1 x^2\,dx = \frac{1}{3}
