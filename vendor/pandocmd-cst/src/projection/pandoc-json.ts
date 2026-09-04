@@ -383,27 +383,72 @@ function listItemBlocks(item: SyntaxNode, tree: SyntaxTree, tight: boolean): Pan
   return result;
 }
 
-function tableCell(cell: SyntaxNode, tree: SyntaxTree): PandocValue {
+function tableCell(cell: SyntaxNode | null, tree: SyntaxTree): PandocValue {
+  const content = cell ? trimInlineSpace(inlineChildren(cell, tree)) : [];
   return [
     ["", [], []],
     { t: "AlignDefault" },
     1,
     1,
-    [{ t: "Plain", c: trimInlineSpace(inlineChildren(cell, tree)) }],
+    content.length > 0 ? [{ t: "Plain", c: content }] : [],
   ];
 }
 
-function tableRow(row: SyntaxNode, tree: SyntaxTree): PandocValue {
+function pipeTableRowCells(row: SyntaxNode, columns: number): (SyntaxNode | null)[] {
+  const children = [...row.children()];
+  const delimiterIndexes = children.flatMap((child, index) =>
+    child.kind === "TableDelimiter" ? [index] : []
+  );
+  const firstIndex = delimiterIndexes[0];
+  const lastIndex = delimiterIndexes.at(-1);
+  if (firstIndex === undefined || lastIndex === undefined) {
+    return children.filter(child => child.kind === "TableCell").slice(0, columns);
+  }
+  const delimiters = delimiterIndexes.map(index => children[index]!).filter(Boolean);
+  const outerWhitespace = (child: SyntaxNode): boolean =>
+    child.kind === "Whitespace" || child.kind === "LineEnding";
+  const leading = children.slice(0, firstIndex).every(outerWhitespace);
+  const trailing = children.slice(lastIndex + 1).every(outerWhitespace);
+  const lastChild = row.lastChild();
+  const contentEnd = lastChild?.kind === "LineEnding" ? lastChild.from : row.to;
+  const intervals: Array<{ readonly from: number; readonly to: number }> = [];
+  if (!leading) intervals.push({ from: row.from, to: delimiters[0]?.from ?? row.from });
+  for (let index = 0; index + 1 < delimiters.length; index++) {
+    intervals.push({ from: delimiters[index]!.to, to: delimiters[index + 1]!.from });
+  }
+  if (!trailing) intervals.push({ from: delimiters.at(-1)!.to, to: contentEnd });
+
+  const cells = children.filter(child => child.kind === "TableCell");
+  const result = intervals.slice(0, columns).map(interval =>
+    cells.find(cell => cell.from >= interval.from && cell.to <= interval.to) ?? null
+  );
+  while (result.length < columns) result.push(null);
+  return result;
+}
+
+function tableRow(
+  row: SyntaxNode,
+  tree: SyntaxTree,
+  columns: number,
+  pipe: boolean,
+): PandocValue {
+  const cells = pipe
+    ? pipeTableRowCells(row, columns)
+    : [...row.children()].filter(child => child.kind === "TableCell");
   return [
     ["", [], []],
-    [...row.children()].filter(child => child.kind === "TableCell").map(cell => tableCell(cell, tree)),
+    cells.map(cell => tableCell(cell, tree)),
   ];
 }
 
-function contentTableRows(section: SyntaxNode | undefined): SyntaxNode[] {
+function contentTableRows(
+  section: SyntaxNode | undefined,
+  pipe: boolean,
+): SyntaxNode[] {
   if (!section) return [];
   return [...section.children()].filter(row =>
-    row.kind === "TableRow" && [...row.children()].some(child => child.kind === "TableCell")
+    row.kind === "TableRow"
+      && (pipe || [...row.children()].some(child => child.kind === "TableCell"))
       && !/^\s*\|?\s*:?-{3,}/.test(row.text())
   );
 }
@@ -439,8 +484,9 @@ function pandocTable(node: SyntaxNode, tree: SyntaxTree): PandocNode {
   ]);
   const head = [...node.children()].find(child => child.kind === "TableHead");
   const body = [...node.children()].find(child => child.kind === "TableBody");
-  const headRows = contentTableRows(head).map(row => tableRow(row, tree));
-  const bodyRows = contentTableRows(body).map(row => tableRow(row, tree));
+  const pipe = node.kind === "PipeTable";
+  const headRows = contentTableRows(head, pipe).map(row => tableRow(row, tree, columns, pipe));
+  const bodyRows = contentTableRows(body, pipe).map(row => tableRow(row, tree, columns, pipe));
   const adjacentCaption = (direction: "previous" | "next"): SyntaxNode | null => {
     let sibling = direction === "previous" ? node.previousSibling() : node.nextSibling();
     if (sibling?.kind === "BlankLines") {

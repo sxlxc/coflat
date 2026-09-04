@@ -32,6 +32,11 @@
   --cf-h5-weight: 700;
   --cf-h6-size: 1em;
   --cf-h6-weight: 400;
+  --cf-table-border: var(--cf-border);
+  --cf-table-header-border: var(--cf-border);
+  --cf-table-cell-padding: 0.45em 0.7em;
+  --cf-table-font-size: 0.9em;
+  --cf-table-line-height: 1.45;
 }
 
 [data-theme="dark"],
@@ -111,6 +116,28 @@
 .cf-math-display-content {
   display: inline-block;
   max-width: 100%;
+}
+
+.cf-doc-flow .cf-doc-table-block {
+  border-collapse: collapse;
+  font-size: var(--cf-table-font-size);
+  margin: 0;
+  width: 100%;
+}
+
+.cf-doc-flow .cf-doc-table-cell {
+  border: 1px solid var(--cf-table-border);
+  line-height: var(--cf-table-line-height);
+  overflow-wrap: anywhere;
+  padding: var(--cf-table-cell-padding);
+  text-align: left;
+  vertical-align: top;
+  word-break: normal;
+}
+
+.cf-doc-flow .cf-doc-table-header {
+  border-bottom: 2px solid var(--cf-table-header-border);
+  font-weight: 700;
 }
 
 .cf-math-error {

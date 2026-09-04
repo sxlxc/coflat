@@ -51,4 +51,32 @@ describe("fixed Pandoc dialect integration", () => {
     expect(kinds.has("Highlight")).toBe(false);
     expect(kinds.has("AlgoLine")).toBe(false);
   });
+
+  it("keeps escaped, code, and math pipes inside their table cells", () => {
+    const doc = [
+      "| Name | Code | Dollar | Single | Double | Literal |",
+      "| --- | :---: | ---: | --- | --- | --- |",
+      "| Row | `a|b` | $O(|E|)$ | \\(a|b\\) | \\\\(c|d\\\\) | a\\|b |",
+      "",
+    ].join("\n");
+    const cst = getPandocTree(stateFor(doc));
+    const table = cst.topLevelBlocks().find((node) => node.kind === "PipeTable");
+    const body = table
+      ? [...table.children()].find((node) => node.kind === "TableBody")
+      : null;
+    const bodyRow = body
+      ? [...body.children()].find((node) => node.kind === "TableRow")
+      : null;
+    if (!bodyRow) throw new Error("Missing pipe-table body row");
+    const cells = [...bodyRow.children()].filter((child) => child.kind === "TableCell");
+    expect(cells.map((cell) => cell.text().trim())).toEqual([
+      "Row",
+      "`a|b`",
+      "$O(|E|)$",
+      "\\(a|b\\)",
+      "\\\\(c|d\\\\)",
+      "a\\|b",
+    ]);
+    cst.checkInvariants();
+  });
 });

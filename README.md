@@ -49,9 +49,10 @@ const editor = mountEditor({
 Inline delimiters are hidden when inactive and revealed when the cursor enters
 their CST node. Inline math is rendered with Coflat's KaTeX surface when
 inactive; on entry, its literal Markdown source and a live preview are shown.
-Arrow keys can enter rendered inline math from either side. Multiline display
-math remains literal source. All content can be edited as Markdown without
-using a mouse.
+Arrow keys can enter rendered inline math from either side. Pipe tables render
+as semantic HTML tables; clicking one reveals its Markdown source and keeps a
+live table preview beside the edit. All content can be edited as Markdown
+without using a mouse.
 
 ## Public entries
 

@@ -29,6 +29,7 @@ export const CSS = {
   sourceDelimiter: "cf-source-delimiter",
   inlineSource: "cf-inline-source",
   mathSource: "cf-math-source",
+  tableSource: "cf-table-source",
   mathError: "cf-math-error",
   mathDisplayContent: "cf-math-display-content",
   mathDisplayNumbered: "cf-math-display-numbered",

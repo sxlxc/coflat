@@ -181,6 +181,64 @@ test("renders display math and opens its live editing popup on click", async ({ 
   await expect(popup).toHaveAttribute("aria-label", /x\^2\+1/);
 });
 
+test("renders a table and opens its live editing preview on click", async ({ page }) => {
+  const rendered = page.locator(
+    ".cf-cst-table:not(.cf-cst-table-preview)",
+  );
+  await expect(rendered).toHaveCount(1);
+  await expect(rendered.locator("thead th")).toHaveText(["Item", "Value"]);
+  await expect(rendered.locator("thead th").first()).toHaveAttribute(
+    "data-align",
+    "left",
+  );
+  await expect(rendered.locator("thead th").last()).toHaveAttribute(
+    "data-align",
+    "right",
+  );
+  await expect(rendered.locator("tbody strong")).toHaveText("Alpha");
+
+  await rendered.locator("tbody td").first().click();
+
+  const preview = page.locator(".cf-cst-table-preview");
+  await expect(preview).toHaveCount(1);
+  await expect(page.locator("#editor-root .cm-content"))
+    .toHaveAttribute("data-cst-block", "TableCell");
+  const sourceLines = page.locator("#editor-root .cm-line.cf-table-source");
+  await expect(sourceLines).toHaveCount(4);
+  const sourceTypography = await sourceLines.first().evaluate((element) => {
+    const source = getComputedStyle(element);
+    const contentElement = element.closest(".cm-content");
+    if (!contentElement) throw new Error("Missing editor content element");
+    const content = getComputedStyle(contentElement);
+    return {
+      contentFontSize: Number.parseFloat(content.fontSize),
+      fontFamily: source.fontFamily,
+      fontSize: Number.parseFloat(source.fontSize),
+    };
+  });
+  expect(sourceTypography.fontFamily).toContain("Monaco");
+  expect(sourceTypography.fontSize / sourceTypography.contentFontSize)
+    .toBeCloseTo(0.86, 2);
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const position = mounted.getDoc().indexOf("Alpha") + "Alpha".length;
+    mounted.scrollToPosition(position);
+    mounted.focus();
+  });
+  await page.keyboard.insertText("X");
+
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return { cst: mounted.getCst()?.text, doc: mounted.getDoc() };
+  });
+  expect(state.doc).toContain("| **AlphaX** | 1 |");
+  expect(state.cst).toBe(state.doc);
+  await expect(preview.locator("tbody strong")).toHaveText("AlphaX");
+});
+
 test("bounds multi-line code selection to text inside the padded background", async ({ page }) => {
   const before = await page.evaluate(() => {
     const line = Array.from(document.querySelectorAll<HTMLElement>(

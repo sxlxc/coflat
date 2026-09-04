@@ -36,6 +36,10 @@ import {
   getPandocInvalidations,
   getPandocTree,
 } from "./pandoc-cst-field";
+import {
+  activePipeTableKeys,
+  cstTableSurface,
+} from "./table-surface";
 
 const DELIMITED_INLINE_CLASSES: Partial<Record<NodeKind, string>> = {
   Emphasis: CSS.italic,
@@ -627,6 +631,9 @@ function buildDisplayMathDecorationState(
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
+    // A table owns the rich presentation of all inline content in its cells.
+    // Descendant block replacements would overlap the table replacement.
+    if (node.kind === "PipeTable") return false;
     if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
     const body = childOfKind(node, "OpaqueBody");
     if (!body) return false;
@@ -733,6 +740,7 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
   const tree = getPandocTree(state);
   const active = activeNodeKeys(state, tree);
   const activeDisplayMath = activeDisplayMathKeys(state, tree);
+  const activePipeTables = activePipeTableKeys(state, tree);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
 
@@ -760,6 +768,14 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
       }
 
       switch (node.kind) {
+        case "PipeTable":
+          if (decorated.has(key)) return false;
+          decorated.add(key);
+          // The state field renders an inactive table as one block widget. An
+          // active table keeps its source and may use the ordinary inline
+          // decorations within its cells.
+          if (!activePipeTables.has(key)) return false;
+          return;
         case "Math":
           if (decorated.has(key)) return false;
           decorated.add(key);
@@ -935,6 +951,7 @@ export const cstEditTheme: Extension = EditorView.theme({
 
 export const cstEditSurface: Extension = [
   cstDisplayMathDecorationField,
+  cstTableSurface,
   cstEditDecorationPlugin,
   cstMathKeyboardNavigation,
   cstEditTheme,

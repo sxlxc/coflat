@@ -18,6 +18,11 @@ const mounted = mountEditor({
     "const selected = true;",
     "return selected;",
     "```",
+    "",
+    "| Item | Value |",
+    "| :--- | ---: |",
+    "| **Alpha** | 1 |",
+    "| Beta | 2 |",
   ].join("\n"),
 });
 

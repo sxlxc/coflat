@@ -7,6 +7,7 @@
 | Inline formatting | CST nodes | semantic styling; delimiters reveal at the cursor |
 | Inline math | CST `Math` and `OpaqueBody` | KaTeX while inactive; raw source plus live preview while active |
 | Display math | CST `Math` and `OpaqueBody` | KaTeX block while inactive; click/keyboard source editing with a live Coflat preview popup |
+| Pipe tables | CST table sections, rows, cells, and alignment properties | semantic table while inactive; source editing with a live rendered preview while active |
 | Headings | CST heading nodes and level property | Coflat heading typography; source prefix reveals at the cursor |
 | Code blocks | CST code block nodes | literal keyboard-editable source with code styling |
 | Other Pandoc blocks/inlines | CST | literal keyboard-editable source |

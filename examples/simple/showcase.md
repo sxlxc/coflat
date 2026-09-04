@@ -12,17 +12,22 @@ $$
 \int_0^1 x^2\,dx = \frac{1}{3}
 $$
 
+## Tables
+
+Pipe tables render as semantic tables. Click one to edit its Markdown source
+with a live table preview.
+
+| Item | Value |
+| --- | ---: |
+| Alpha | 1 |
+| Beta | 2 |
+
 ## Ordinary Pandoc blocks stay source-editable
 
 > A block quote remains ordinary Markdown text.
 
 - First list item
 - Second list item
-
-| Item | Value |
-| --- | ---: |
-| Alpha | 1 |
-| Beta | 2 |
 
 ```ts
 const sourceIsTruth = true;

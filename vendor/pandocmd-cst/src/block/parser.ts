@@ -6,6 +6,7 @@ import {
   type GreenNode, type NodeKind, type PropertyBag,
 } from "../nodes.js";
 import { normalizeLabel, parseAttributeList, parseInlines } from "../inline/parser.js";
+import { tablePipePositions } from "./table-pipes.js";
 
 export interface LineRecord {
   readonly start: number;
@@ -224,13 +225,33 @@ function referenceAt(lines: readonly LineRecord[], from: number, text: string): 
 
 function tableRow(line: LineRecord): GreenNode {
   const children: GreenNode[] = [];
+  const pipes = tablePipePositions(line.content);
+  const firstPipe = pipes[0] ?? -1;
+  const lastPipe = pipes.at(-1) ?? -1;
+  const hasLeadingDelimiter = firstPipe >= 0
+    && line.content.slice(0, firstPipe).trim().length === 0;
+  const hasTrailingDelimiter = lastPipe >= 0
+    && line.content.slice(lastPipe + 1).trim().length === 0;
   let cursor = 0;
-  for (const match of line.content.matchAll(/\|/g)) {
-    const at = match.index;
-    if (at > cursor) children.push(green("TableCell", parseInlines(line.content.slice(cursor, at))));
+  for (const at of pipes) {
+    if (at > cursor) {
+      const content = line.content.slice(cursor, at);
+      children.push(
+        cursor === 0 && hasLeadingDelimiter
+          ? leaf("Whitespace", content.length)
+          : green("TableCell", parseInlines(content)),
+      );
+    }
     children.push(leaf("TableDelimiter", 1)); cursor = at + 1;
   }
-  if (cursor < line.content.length) children.push(green("TableCell", parseInlines(line.content.slice(cursor))));
+  if (cursor < line.content.length) {
+    const content = line.content.slice(cursor);
+    children.push(
+      hasTrailingDelimiter
+        ? leaf("Whitespace", content.length)
+        : green("TableCell", parseInlines(content)),
+    );
+  }
   children.push(...ending(line));
   return green("TableRow", children);
 }
@@ -710,8 +731,8 @@ export function parseBlocks(text: string): BlockParseResult {
       }
       blocks.push(listBlock(lines, i, end, ordered)); i = end; continue;
     }
-    if (i + 1 < lines.length && value.includes("|") && pipeTableAlignments(lines[i + 1]!.content)) {
-      let end = i + 2; while (end < lines.length && lines[end]!.content.includes("|") && lines[end]!.content.trim()) end++;
+    if (i + 1 < lines.length && value.includes("|") && tablePipePositions(value).length > 0 && pipeTableAlignments(lines[i + 1]!.content)) {
+      let end = i + 2; while (end < lines.length && lines[end]!.content.includes("|") && tablePipePositions(lines[end]!.content).length > 0 && lines[end]!.content.trim()) end++;
       blocks.push(pipeTable(lines, i, end)); i = end; continue;
     }
     if (/^\+(?:[-=:]+\+)+[ \t]*$/.test(value)) {
