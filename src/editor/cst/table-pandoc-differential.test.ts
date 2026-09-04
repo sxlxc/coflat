@@ -36,4 +36,28 @@ describe("pipe-table Pandoc differential", () => {
       canonicalizePandocJson(pandocJson(source)),
     );
   });
+
+  it.skipIf(!hasPandoc)("matches raw-inline and dollar-delimiter cell boundaries", () => {
+    const sources = [
+      "| \\foo{a|b} | z |\n---|---\nx|y\n",
+      "| a <br title=\"x|y\"> b | z |\n---|---\nx|y\n",
+      "| <span title=\"x|y\">a</span> | z |\n---|---\nx|y\n",
+      "$a|b$1\n---|---\nx|y\n",
+    ];
+    for (const source of sources) {
+      const projected = projectPandocJson(new PandocParser().parse(source));
+      expect(canonicalizePandocJson(projected)).toEqual(
+        canonicalizePandocJson(pandocJson(source)),
+      );
+    }
+  });
+
+  it.skipIf(!hasPandoc)("omits empty headers and retains empty body rows", () => {
+    const source = "||\n---|---\n||\na|b\n";
+    const projected = projectPandocJson(new PandocParser().parse(source));
+
+    expect(canonicalizePandocJson(projected)).toEqual(
+      canonicalizePandocJson(pandocJson(source)),
+    );
+  });
 });

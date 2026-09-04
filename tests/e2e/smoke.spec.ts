@@ -384,6 +384,46 @@ test("bounds multi-line code selection to text inside the padded background", as
   );
 });
 
+test("shows selected display-math and table replacements", async ({ page }) => {
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const view = (window as unknown as {
+      __coflatEditorView: {
+        dispatch(spec: { selection: { anchor: number; head: number } }): void;
+      };
+    }).__coflatEditorView;
+    const doc = [
+      "Before",
+      "",
+      "$$x+y$$",
+      "",
+      "| Item | Value |",
+      "| --- | --- |",
+      "| Alpha | 1 |",
+      "",
+      "After",
+    ].join("\n");
+    mounted.setDoc(doc);
+    mounted.focus();
+    view.dispatch({ selection: { anchor: 0, head: doc.length } });
+  });
+
+  const selectedMath = page.locator(
+    ".cf-math-display.cf-selection-range:not(.cf-cst-math-preview)",
+  );
+  const selectedTable = page.locator(
+    ".cf-cst-table.cf-selection-range:not(.cf-cst-table-preview)",
+  );
+  await expect(selectedMath).toHaveCount(1);
+  await expect(selectedTable).toHaveCount(1);
+  for (const replacement of [selectedMath, selectedTable]) {
+    expect(await replacement.evaluate((element) => (
+      getComputedStyle(element).backgroundColor
+    ))).not.toBe("rgba(0, 0, 0, 0)");
+  }
+});
+
 test("can replace the entire document using only the keyboard", async ({ page }) => {
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })

@@ -14,8 +14,7 @@ $$
 
 ## Tables
 
-Pipe tables render as semantic tables. Click one to edit its Markdown source
-with a live table preview.
+Pipe tables render as semantic tables. Click one to edit its Markdown source with a live table preview.
 
 | Item | Value |
 | --- | ---: |

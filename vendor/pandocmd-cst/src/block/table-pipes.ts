@@ -10,7 +10,9 @@ const PIPE = 124;
 const PIPE_PROTECTED_KINDS: ReadonlySet<GreenNode["kind"]> = new Set([
   "Code",
   "Escape",
+  "HtmlTag",
   "Math",
+  "RawInline",
 ]);
 
 function protectedPipeSpans(

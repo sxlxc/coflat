@@ -235,6 +235,7 @@ class CstMathWidget extends WidgetType {
     private readonly sourceTo: number,
     private readonly bodyFrom: number,
     private readonly bodyTo: number,
+    private readonly selected = false,
   ) {
     super();
   }
@@ -243,7 +244,8 @@ class CstMathWidget extends WidgetType {
     return other.latex === this.latex
       && other.raw === this.raw
       && other.isDisplay === this.isDisplay
-      && other.preview === this.preview;
+      && other.preview === this.preview
+      && other.selected === this.selected;
   }
 
   private bindSourceReveal(surface: HTMLElement, view: EditorView): void {
@@ -297,6 +299,7 @@ class CstMathWidget extends WidgetType {
       const surface = createDisplayMathSurfaceElement(ownerDocument, this.latex);
       const content = createDisplayMathContentElement(ownerDocument);
       if (this.preview) surface.classList.add("cf-cst-math-preview");
+      if (this.selected) surface.classList.add(CSS.selectionRange);
       renderMath(content, this.latex, true);
       surface.appendChild(content);
       this.bindSourceReveal(surface, view);
@@ -588,7 +591,7 @@ function addMathPresentation(
 }
 
 interface DisplayMathDecorationState {
-  readonly activeSignature: string;
+  readonly selectionSignature: string;
   readonly decorations: DecorationSet;
 }
 
@@ -623,11 +626,41 @@ function displayMathReplacementFrom(
     : node.from;
 }
 
+function selectedDisplayMathKeys(
+  state: EditorState,
+  tree: SyntaxTree,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  if (state.selection.ranges.every((range) => range.empty)) return keys;
+  tree.iterate((node) => {
+    if (
+      node.kind === "Math"
+      && (node.prop(mathDisplay) ?? false)
+      && state.selection.ranges.some((range) => (
+        !range.empty
+        && range.from <= displayMathReplacementFrom(state, node)
+        && range.to >= node.to
+      ))
+    ) keys.add(nodeKey(node));
+  });
+  return keys;
+}
+
+function displayMathSelectionSignature(
+  state: EditorState,
+  tree: SyntaxTree,
+): string {
+  const active = activeDisplayMathSignature(state, tree);
+  const selected = [...selectedDisplayMathKeys(state, tree)].sort().join("|");
+  return `active:${active};selected:${selected}`;
+}
+
 function buildDisplayMathDecorationState(
   state: EditorState,
 ): DisplayMathDecorationState {
   const tree = getPandocTree(state);
   const active = activeDisplayMathKeys(state, tree);
+  const selected = selectedDisplayMathKeys(state, tree);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
@@ -647,6 +680,7 @@ function buildDisplayMathDecorationState(
       node.to,
       body.from,
       body.to,
+      !isActive && selected.has(nodeKey(node)),
     );
 
     ranges.push(
@@ -661,7 +695,7 @@ function buildDisplayMathDecorationState(
   });
 
   return {
-    activeSignature: activeDisplayMathSignature(state, tree),
+    selectionSignature: displayMathSelectionSignature(state, tree),
     decorations: Decoration.set(ranges, true),
   };
 }
@@ -711,19 +745,22 @@ export const cstDisplayMathDecorationField =
 
     update(value, transaction) {
       const tree = getPandocTree(transaction.state);
-      const activeSignature = activeDisplayMathSignature(transaction.state, tree);
+      const selectionSignature = displayMathSelectionSignature(
+        transaction.state,
+        tree,
+      );
       if (!transaction.docChanged) {
-        return activeSignature === value.activeSignature
+        return selectionSignature === value.selectionSignature
           ? value
           : buildDisplayMathDecorationState(transaction.state);
       }
 
       if (
-        activeSignature === value.activeSignature
+        selectionSignature === value.selectionSignature
         && !transactionTouchesDisplayMath(transaction)
       ) {
         return {
-          activeSignature,
+          selectionSignature,
           decorations: value.decorations.map(transaction.changes),
         };
       }

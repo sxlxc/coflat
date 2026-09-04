@@ -1,4 +1,5 @@
 import { EditorView } from "@codemirror/view";
+import { CSS } from "../core/constants/css-classes";
 
 const sourceTypography = {
   fontFamily: "var(--cf-code-font)",
@@ -52,7 +53,7 @@ export const coflatTheme = EditorView.theme({
   ".cm-selectionLayer .cm-selectionBackground": {
     display: "none",
   },
-  ".cf-selection-range": {
+  [`.${CSS.selectionRange}`]: {
     backgroundColor: "var(--cf-selection)",
   },
   ".cm-activeLine, .cf-cst-active-line": {

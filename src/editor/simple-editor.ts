@@ -22,6 +22,7 @@ import {
   DOCUMENT_SURFACE_CLASS,
   documentSurfaceClassNames,
 } from "../core/document-surface-classes";
+import { CSS } from "../core/constants/css-classes";
 import {
   getPandocCursorContext,
   pandocCursorContextField,
@@ -56,7 +57,7 @@ const documentSurfaceExtensions: readonly Extension[] = [
   ),
 ];
 
-const selectionMark = Decoration.mark({ class: "cf-selection-range" });
+const selectionMark = Decoration.mark({ class: CSS.selectionRange });
 
 function textSelectionDecorations(state: EditorState): DecorationSet {
   return Decoration.set(state.selection.ranges

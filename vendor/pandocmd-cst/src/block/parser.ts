@@ -223,9 +223,8 @@ function referenceAt(lines: readonly LineRecord[], from: number, text: string): 
   return null;
 }
 
-function tableRow(line: LineRecord): GreenNode {
+function tableRow(line: LineRecord, pipes: readonly number[]): GreenNode {
   const children: GreenNode[] = [];
-  const pipes = tablePipePositions(line.content);
   const firstPipe = pipes[0] ?? -1;
   const lastPipe = pipes.at(-1) ?? -1;
   const hasLeadingDelimiter = firstPipe >= 0
@@ -271,11 +270,48 @@ function pipeTableAlignments(value: string): ("center" | "left" | "right" | "def
         : "default");
 }
 
-function pipeTable(lines: readonly LineRecord[], from: number, to: number): GreenNode {
-  const alignments = pipeTableAlignments(lines[from + 1]!.content)!;
-  const children: GreenNode[] = [green("TableHead", [tableRow(lines[from]!), tableRow(lines[from + 1]!)])];
-  if (to > from + 2) children.push(green("TableBody", Array.from({ length: to - from - 2 }, (_, i) => tableRow(lines[from + i + 2]!))));
+function pipeTable(
+  lines: readonly LineRecord[],
+  from: number,
+  to: number,
+  alignments: readonly ("center" | "left" | "right" | "default")[],
+  rowPipes: readonly (readonly number[])[],
+): GreenNode {
+  const children: GreenNode[] = [green("TableHead", [
+    tableRow(lines[from]!, rowPipes[0]!),
+    tableRow(lines[from + 1]!, rowPipes[1]!),
+  ])];
+  if (to > from + 2) children.push(green("TableBody", Array.from(
+    { length: to - from - 2 },
+    (_, i) => tableRow(lines[from + i + 2]!, rowPipes[i + 2]!),
+  )));
   return green("PipeTable", children, props([tableAlignments, Object.freeze(alignments)], [tableColumnCount, alignments.length]));
+}
+
+function pipeTableAt(
+  lines: readonly LineRecord[],
+  from: number,
+): { readonly node: GreenNode; readonly end: number } | null {
+  if (from + 1 >= lines.length || !lines[from]!.content.includes("|")) return null;
+  const alignments = pipeTableAlignments(lines[from + 1]!.content);
+  if (!alignments) return null;
+
+  const headerPipes = tablePipePositions(lines[from]!.content);
+  if (headerPipes.length === 0) return null;
+  const rowPipes: (readonly number[])[] = [
+    headerPipes,
+    tablePipePositions(lines[from + 1]!.content),
+  ];
+  let end = from + 2;
+  while (end < lines.length) {
+    const content = lines[end]!.content;
+    if (!content.includes("|") || !content.trim()) break;
+    const pipes = tablePipePositions(content);
+    if (pipes.length === 0) break;
+    rowPipes.push(pipes);
+    end++;
+  }
+  return { node: pipeTable(lines, from, end, alignments, rowPipes), end };
 }
 
 function romanValue(source: string): number {
@@ -731,10 +767,8 @@ export function parseBlocks(text: string): BlockParseResult {
       }
       blocks.push(listBlock(lines, i, end, ordered)); i = end; continue;
     }
-    if (i + 1 < lines.length && value.includes("|") && tablePipePositions(value).length > 0 && pipeTableAlignments(lines[i + 1]!.content)) {
-      let end = i + 2; while (end < lines.length && lines[end]!.content.includes("|") && tablePipePositions(lines[end]!.content).length > 0 && lines[end]!.content.trim()) end++;
-      blocks.push(pipeTable(lines, i, end)); i = end; continue;
-    }
+    const pipe = pipeTableAt(lines, i);
+    if (pipe) { blocks.push(pipe.node); i = pipe.end; continue; }
     if (/^\+(?:[-=:]+\+)+[ \t]*$/.test(value)) {
       let end = i + 1; while (end < lines.length && (/^[+|]/.test(lines[end]!.content) || /^[ \t]*$/.test(lines[end]!.content))) end++;
       blocks.push(genericTable("GridTable", lines, i, end)); i = end; continue;

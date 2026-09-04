@@ -444,11 +444,15 @@ function tableRow(
 function contentTableRows(
   section: SyntaxNode | undefined,
   pipe: boolean,
+  retainEmptyPipeRows: boolean,
 ): SyntaxNode[] {
   if (!section) return [];
   return [...section.children()].filter(row =>
     row.kind === "TableRow"
       && (pipe || [...row.children()].some(child => child.kind === "TableCell"))
+      && (!pipe || retainEmptyPipeRows || [...row.children()].some(child =>
+        child.kind === "TableCell" && child.text().trim().length > 0
+      ))
       && !/^\s*\|?\s*:?-{3,}/.test(row.text())
   );
 }
@@ -485,8 +489,8 @@ function pandocTable(node: SyntaxNode, tree: SyntaxTree): PandocNode {
   const head = [...node.children()].find(child => child.kind === "TableHead");
   const body = [...node.children()].find(child => child.kind === "TableBody");
   const pipe = node.kind === "PipeTable";
-  const headRows = contentTableRows(head, pipe).map(row => tableRow(row, tree, columns, pipe));
-  const bodyRows = contentTableRows(body, pipe).map(row => tableRow(row, tree, columns, pipe));
+  const headRows = contentTableRows(head, pipe, false).map(row => tableRow(row, tree, columns, pipe));
+  const bodyRows = contentTableRows(body, pipe, true).map(row => tableRow(row, tree, columns, pipe));
   const adjacentCaption = (direction: "previous" | "next"): SyntaxNode | null => {
     let sibling = direction === "previous" ? node.previousSibling() : node.nextSibling();
     if (sibling?.kind === "BlankLines") {

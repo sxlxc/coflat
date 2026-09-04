@@ -23,6 +23,18 @@ function generatedDocument(targetLength: number): string {
   return chunks.join("");
 }
 
+function generatedPipeTable(rowCount: number): string {
+  return [
+    "Name|Value",
+    "---|---",
+    ...Array.from(
+      { length: rowCount },
+      (_, index) => `row-${index}|${index}`,
+    ),
+    "",
+  ].join("\n");
+}
+
 function percentile(values: readonly number[], fraction: number): number {
   const sorted = [...values].sort((left, right) => left - right);
   return sorted[Math.ceil(sorted.length * fraction) - 1] ?? 0;
@@ -93,5 +105,32 @@ describe.skipIf(!benchmarkEnabled)("CST-backed CM6 transaction benchmark", () =>
     } finally {
       view.destroy();
     }
+  });
+
+  it("measures edits within a 1,000-row pipe table", {
+    timeout: 10 * 60_000,
+  }, () => {
+    const doc = generatedPipeTable(1_000);
+    const position = doc.indexOf("row-500");
+    let state = EditorState.create({ doc, extensions: [pandocCstField] });
+    const durations: number[] = [];
+
+    for (let index = 0; index < warmupSamples + measuredSamples; index += 1) {
+      const start = performance.now();
+      state = state.update({
+        changes: {
+          from: position,
+          to: position + 1,
+          insert: index % 2 === 0 ? "R" : "r",
+        },
+      }).state;
+      if (index >= warmupSamples) durations.push(performance.now() - start);
+    }
+
+    expect(getPandocTree(state).text).toBe(state.doc.toString());
+    process.stdout.write(`${JSON.stringify({
+      operation: "1,000-row pipe-table state transaction",
+      p95Ms: percentile(durations, 0.95),
+    })}\n`);
   });
 });

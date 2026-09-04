@@ -71,7 +71,7 @@ interface TablePlan {
 }
 
 interface TableDecorationState {
-  readonly activeSignature: string;
+  readonly selectionSignature: string;
   readonly decorations: DecorationSet;
 }
 
@@ -126,6 +126,37 @@ export function activePipeTableKeys(
 
 function activePipeTableSignature(state: EditorState, tree: SyntaxTree): string {
   return [...activePipeTableKeys(state, tree)].sort().join("|");
+}
+
+function selectionCoversRange(
+  state: EditorState,
+  from: number,
+  to: number,
+): boolean {
+  return state.selection.ranges.some((range) => (
+    !range.empty && range.from <= from && range.to >= to
+  ));
+}
+
+function selectedPipeTableKeys(
+  state: EditorState,
+  tree: SyntaxTree,
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  if (state.selection.ranges.every((range) => range.empty)) return keys;
+  tree.iterate((node) => {
+    if (
+      node.kind === "PipeTable"
+      && selectionCoversRange(state, node.from, node.to)
+    ) keys.add(tableNodeKey(node));
+  });
+  return keys;
+}
+
+function tableSelectionSignature(state: EditorState, tree: SyntaxTree): string {
+  const active = activePipeTableSignature(state, tree);
+  const selected = [...selectedPipeTableKeys(state, tree)].sort().join("|");
+  return `active:${active};selected:${selected}`;
 }
 
 function lineContentEnd(row: SyntaxNode): number {
@@ -248,7 +279,11 @@ function buildTablePlan(table: SyntaxNode, tree: SyntaxTree): TablePlan {
     sourceTo: table.to,
     cstVersion: tree.version,
     alignments,
-    header: headRows[0] ? rowPlan(headRows[0], columns) : null,
+    header: headRows[0] && [...headRows[0].children()].some((child) => (
+      child.kind === "TableCell" && child.text().trim().length > 0
+    ))
+      ? rowPlan(headRows[0], columns)
+      : null,
     body: Object.freeze(bodyRows.map((row) => rowPlan(row, columns))),
   });
 }
@@ -474,6 +509,18 @@ function trimSourceBounds(
   };
 }
 
+function nearestCodePointBoundary(source: string, target: number): number {
+  let previous = 0;
+  for (const character of source) {
+    const next = previous + character.length;
+    if (target <= next) {
+      return target - previous < next - target ? previous : next;
+    }
+    previous = next;
+  }
+  return source.length;
+}
+
 function currentCellSlot(
   table: SyntaxNode,
   section: TableSection,
@@ -514,9 +561,10 @@ function tablePositionFromPointer(
   const fraction = rect.width > 0
     ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
     : 0;
-  return Math.max(
-    bounds.from,
-    Math.min(bounds.to, bounds.from + Math.round((bounds.to - bounds.from) * fraction)),
+  const source = view.state.sliceDoc(bounds.from, bounds.to);
+  return bounds.from + nearestCodePointBoundary(
+    source,
+    source.length * fraction,
   );
 }
 
@@ -557,18 +605,22 @@ class CstTableWidget extends WidgetType {
   constructor(
     private readonly plan: TablePlan,
     private readonly preview: boolean,
+    private readonly selected: boolean,
   ) {
     super();
   }
 
   eq(other: CstTableWidget): boolean {
-    return other.plan.raw === this.plan.raw && other.preview === this.preview;
+    return other.plan.raw === this.plan.raw
+      && other.preview === this.preview
+      && other.selected === this.selected;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const ownerDocument = view.dom.ownerDocument;
     const surface = ownerDocument.createElement("div");
     surface.className = `cf-cst-table${this.preview ? " cf-cst-table-preview" : ""}`;
+    if (this.selected) surface.classList.add(CSS.selectionRange);
     surface.dataset.cstVersion = String(this.plan.cstVersion);
     surface.dataset.cstNode = "PipeTable";
     surface.dataset.sourceFrom = String(this.plan.sourceFrom);
@@ -644,12 +696,17 @@ class CstTableWidget extends WidgetType {
 function buildTableDecorationState(state: EditorState): TableDecorationState {
   const tree = getPandocTree(state);
   const active = activePipeTableKeys(state, tree);
+  const selected = selectedPipeTableKeys(state, tree);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
     if (node.kind !== "PipeTable") return;
     const isActive = active.has(tableNodeKey(node));
-    const widget = new CstTableWidget(buildTablePlan(node, tree), isActive);
+    const widget = new CstTableWidget(
+      buildTablePlan(node, tree),
+      isActive,
+      !isActive && selected.has(tableNodeKey(node)),
+    );
     if (isActive) {
       const firstLine = state.doc.lineAt(node.from).number;
       const lastLine = state.doc.lineAt(Math.max(node.from, node.to - 1)).number;
@@ -668,7 +725,7 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
   });
 
   return {
-    activeSignature: activePipeTableSignature(state, tree),
+    selectionSignature: tableSelectionSignature(state, tree),
     decorations: Decoration.set(ranges, true),
   };
 }
@@ -714,18 +771,18 @@ export const cstTableDecorationField = StateField.define<TableDecorationState>({
 
   update(value, transaction) {
     const tree = getPandocTree(transaction.state);
-    const activeSignature = activePipeTableSignature(transaction.state, tree);
+    const selectionSignature = tableSelectionSignature(transaction.state, tree);
     if (!transaction.docChanged) {
-      return activeSignature === value.activeSignature
+      return selectionSignature === value.selectionSignature
         ? value
         : buildTableDecorationState(transaction.state);
     }
     if (
-      activeSignature === value.activeSignature
+      selectionSignature === value.selectionSignature
       && !transactionTouchesPipeTable(transaction)
     ) {
       return {
-        activeSignature,
+        selectionSignature,
         decorations: value.decorations.map(transaction.changes),
       };
     }

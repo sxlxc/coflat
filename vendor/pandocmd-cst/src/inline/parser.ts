@@ -248,7 +248,14 @@ function mathAt(text: string, start: number): { node: GreenNode; end: number } |
   else return null;
   const end = findUnescaped(text, close, start + open.length);
   if (end < 0 || end === start + open.length) return null;
-  if (open === "$" && (/\s/.test(text[start + 1]!) || /\s/.test(text[end - 1]!))) return null;
+  if (
+    open === "$"
+    && (
+      /\s/.test(text[start + 1]!)
+      || /\s/.test(text[end - 1]!)
+      || /[0-9]/.test(text[end + 1] ?? "")
+    )
+  ) return null;
   const bodyLength = end - start - open.length;
   return {
     node: green("Math", [mark("MathMark", open.length), leaf("OpaqueBody", bodyLength), mark("MathMark", close.length)], props([mathDisplay, display], [mathDelimiter, style])),

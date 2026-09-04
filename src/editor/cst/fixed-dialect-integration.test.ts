@@ -79,4 +79,46 @@ describe("fixed Pandoc dialect integration", () => {
     ]);
     cst.checkInvariants();
   });
+
+  it("keeps raw inline and HTML-tag pipes inside their table cells", () => {
+    const doc = [
+      "| Raw TeX | HTML | HTML span |",
+      "| --- | --- | --- |",
+      "| \\foo{a|b} | a <br title=\"x|y\"> b | <span title=\"x|y\">a</span> |",
+      "",
+    ].join("\n");
+    const cst = getPandocTree(stateFor(doc));
+    const table = cst.topLevelBlocks().find((node) => node.kind === "PipeTable");
+    const body = table
+      ? [...table.children()].find((node) => node.kind === "TableBody")
+      : null;
+    const bodyRow = body
+      ? [...body.children()].find((node) => node.kind === "TableRow")
+      : null;
+    if (!bodyRow) throw new Error("Missing pipe-table body row");
+    const cells = [...bodyRow.children()].filter((child) => child.kind === "TableCell");
+    expect(cells.map((cell) => cell.text().trim())).toEqual([
+      "\\foo{a|b}",
+      "a <br title=\"x|y\"> b",
+      "<span title=\"x|y\">a</span>",
+    ]);
+    cst.checkInvariants();
+  });
+
+  it("applies Pandoc's closing-dollar rule before finding table pipes", () => {
+    const doc = "$a|b$1\n---|---\nx|y\n";
+    const cst = getPandocTree(stateFor(doc));
+    const table = cst.topLevelBlocks().find((node) => node.kind === "PipeTable");
+    const head = table
+      ? [...table.children()].find((node) => node.kind === "TableHead")
+      : null;
+    const headerRow = head
+      ? [...head.children()].find((node) => node.kind === "TableRow")
+      : null;
+    if (!headerRow) throw new Error("Missing pipe-table header row");
+    const cells = [...headerRow.children()].filter((child) => child.kind === "TableCell");
+    expect(cells.map((cell) => cell.text().trim())).toEqual(["$a", "b$1"]);
+    expect([...headerRow.children()].some((child) => child.kind === "Math")).toBe(false);
+    cst.checkInvariants();
+  });
 });

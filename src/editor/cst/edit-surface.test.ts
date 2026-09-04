@@ -152,4 +152,75 @@ describe("CST edit surface tables", () => {
     expect(emptyRow[1]?.textContent).toBe("");
     expect(emptyRow[2]?.textContent).toBe("2");
   });
+
+  it("omits an empty table header but retains empty body rows", () => {
+    const parent = mount([
+      "Before",
+      "",
+      "||",
+      "---|---",
+      "||",
+      "a|b",
+    ].join("\n"));
+    const rendered = parent.querySelector<HTMLElement>(
+      ".cf-cst-table:not(.cf-cst-table-preview)",
+    );
+    expect(rendered).not.toBeNull();
+
+    expect(rendered?.querySelector("thead") ?? null).toBeNull();
+    expect(rendered?.querySelector("table")?.getAttribute("aria-label")).toBe("Table");
+    expect(rendered?.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(rendered?.querySelectorAll("tbody tr:first-child td")).toHaveLength(2);
+    expect(rendered?.querySelector("tbody tr:first-child")?.textContent).toBe("");
+  });
+
+  it("snaps table clicks to UTF-16 code-point boundaries", () => {
+    const doc = [
+      "Before",
+      "",
+      "| Item | Value |",
+      "| --- | --- |",
+      "| 😀 | 1 |",
+    ].join("\n");
+    const parent = mount(doc);
+    const cell = parent.querySelector<HTMLElement>(
+      ".cf-cst-table:not(.cf-cst-table-preview) tbody td",
+    );
+    if (!cell || !editor) throw new Error("Missing rendered table cell");
+    cell.getBoundingClientRect = () => new DOMRect(0, 0, 100, 20);
+
+    cell.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 50,
+    }));
+
+    const emojiFrom = doc.indexOf("😀");
+    expect(editor.state.selection.main.head).toBe(emojiFrom + 2);
+    editor.dispatch({ changes: { from: emojiFrom + 2, insert: "X" } });
+    expect(editor.state.doc.toString()).toContain("| 😀X | 1 |");
+  });
+
+  it("visibly marks inactive block replacements covered by a selection", () => {
+    const doc = [
+      "Before",
+      "",
+      "$$x+y$$",
+      "",
+      "| Item | Value |",
+      "| --- | --- |",
+      "| Alpha | 1 |",
+      "",
+      "After",
+    ].join("\n");
+    const parent = mount(doc);
+    editor?.dispatch({ selection: { anchor: 0, head: doc.length } });
+
+    expect(parent.querySelector(
+      ".cf-math-display.cf-selection-range:not(.cf-cst-math-preview)",
+    )).not.toBeNull();
+    expect(parent.querySelector(
+      ".cf-cst-table.cf-selection-range:not(.cf-cst-table-preview)",
+    )).not.toBeNull();
+  });
 });
