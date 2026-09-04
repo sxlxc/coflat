@@ -202,6 +202,58 @@ test("renders blockquote markers and editable unnumbered fenced-div references",
   expect(state.cst).toBe(state.doc);
 });
 
+test("keeps fenced-div layout stable when revealing its opener source", async ({
+  page,
+}) => {
+  const source = [
+    "Before.",
+    "",
+    '::: {.thm #result title="Main result"}',
+    "Statement.",
+    ":::",
+    "",
+    "After.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(doc.indexOf("Statement") + 2);
+    mounted.focus();
+  }, source);
+
+  const header = page.locator(".cf-fenced-div-header");
+  await expect(header).toHaveText("Theorem (Main result)");
+  const renderedLayout = await header.evaluate((element) => {
+    const openerLine = element.closest<HTMLElement>(".cm-line");
+    const statementLine = [...document.querySelectorAll<HTMLElement>(".cm-line")]
+      .find((line) => line.textContent === "Statement.");
+    if (!openerLine || !statementLine) throw new Error("Missing fenced div lines");
+    return {
+      openerHeight: openerLine.getBoundingClientRect().height,
+      statementTop: statementLine.getBoundingClientRect().top,
+    };
+  });
+
+  await header.click();
+  const openerSource = page.locator(".cf-fenced-div-source");
+  await expect(openerSource)
+    .toHaveText('::: {.thm #result title="Main result"}');
+  const sourceLayout = await openerSource.evaluate((element) => {
+    const openerLine = element.closest<HTMLElement>(".cm-line");
+    const statementLine = [...document.querySelectorAll<HTMLElement>(".cm-line")]
+      .find((line) => line.textContent === "Statement.");
+    if (!openerLine || !statementLine) throw new Error("Missing fenced div lines");
+    return {
+      openerHeight: openerLine.getBoundingClientRect().height,
+      statementTop: statementLine.getBoundingClientRect().top,
+    };
+  });
+
+  expect(sourceLayout.openerHeight).toBeCloseTo(renderedLayout.openerHeight, 5);
+  expect(sourceLayout.statementTop).toBeCloseTo(renderedLayout.statementTop, 5);
+});
+
 test("publishes a synchronized CST after keyboard input", async ({ page }) => {
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })

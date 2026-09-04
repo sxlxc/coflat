@@ -1,4 +1,5 @@
 import { EditorView } from "@codemirror/view";
+import "katex/dist/katex.min.css";
 import "../../../src/editor/editor-theme.css";
 import { mountEditor } from "../../../editor";
 import { requiredHTMLElement } from "./utils";

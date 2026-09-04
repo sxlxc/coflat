@@ -1382,6 +1382,8 @@ export const cstEditTheme: Extension = EditorView.theme({
     cursor: "pointer",
     fontStyle: "normal",
     fontWeight: "700",
+    lineHeight: "0",
+    verticalAlign: "baseline",
   },
   [`.${CSS.fencedDivSource}`]: {
     color: "var(--cf-muted)",
