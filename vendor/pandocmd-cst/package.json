@@ -1,6 +1,6 @@
 {
   "name": "pandocmd-cst",
-  "version": "1.0.0-vendor.m6",
+  "version": "1.0.0-vendor.5dd0dde",
   "description": "Vendored build input for Coflat's Pandoc Markdown CST v1",
   "license": "MIT",
   "private": true,

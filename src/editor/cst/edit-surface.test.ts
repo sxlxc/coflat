@@ -146,6 +146,25 @@ describe("CST edit surface block presentation", () => {
     expect(editor?.state.doc.toString()).toBe(doc);
   });
 
+  it("keeps block-looking TeX inside display math with adjacent prose", () => {
+    const doc = [
+      "Before $$",
+      "\\begin{aligned}",
+      "x &= 1",
+      "\\end{aligned}",
+      "$$ after",
+    ].join("\n");
+    const parent = mount(doc);
+    const rendered = parent.querySelector(
+      ".cf-math-display:not(.cf-cst-math-preview)",
+    );
+
+    expect(rendered).not.toBeNull();
+    expect(rendered?.querySelector(".katex-display")).not.toBeNull();
+    expect(rendered?.classList.contains(CSS.mathError)).toBe(false);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
   it("renders an unnumbered fenced-div header from its first class and title", () => {
     const doc = [
       "Before",

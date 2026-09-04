@@ -1,6 +1,6 @@
 import {
   exampleLabel, explicitIdentifier, fenceCharacter, fenceClosed, fenceInfo, fenceLength,
-  footnoteLabel, green, greenDocument, headingLevel, htmlTagName, leaf, listTight, normalizedReferenceLabel,
+  footnoteLabel, green, greenDocument, headingLevel, htmlTagName, leaf, listTight, mathDisplay, normalizedReferenceLabel,
   orderedListDelimiter, orderedListStart, orderedListStyle, props, rawFormat,
   referenceDestination, referenceTitle, tableAlignments, tableColumnCount, taskChecked,
   type GreenNode, type NodeKind, type PropertyBag,
@@ -602,6 +602,54 @@ function paragraph(lines: readonly LineRecord[], from: number, to: number, text:
   return green("Paragraph", parseInlines(source(lines, from, to, text)));
 }
 
+function displayMathEndAcrossBoundary(
+  lines: readonly LineRecord[],
+  paragraphFrom: number,
+  boundaryLine: number,
+  text: string,
+): number | null {
+  // Display math is inline syntax and may contain lines that independently
+  // resemble blocks. Let the inline parser prove that a closed expression
+  // crosses the candidate boundary before suppressing that boundary.
+  const from = lines[paragraphFrom]!.start;
+  const boundary = lines[boundaryLine]!.start;
+  const prefix = text.slice(from, boundary);
+  if (!/\$\$|\\{1,2}\[/.test(prefix)) return null;
+
+  let limitLine = boundaryLine;
+  while (
+    limitLine < lines.length
+    && !/^[ \t]*$/.test(lines[limitLine]!.content)
+  ) limitLine++;
+  const to = limitLine < lines.length ? lines[limitLine]!.start : text.length;
+  const inlineSource = text.slice(from, to);
+  const relativeBoundary = boundary - from;
+
+  const visit = (node: GreenNode, nodeFrom: number): number | null => {
+    const nodeTo = nodeFrom + node.length;
+    if (nodeFrom >= relativeBoundary || nodeTo <= relativeBoundary) return null;
+    if (
+      node.kind === "Math"
+      && node.properties[mathDisplay.id] === true
+    ) return nodeTo;
+    let childFrom = nodeFrom;
+    for (const child of node.children) {
+      const result = visit(child, childFrom);
+      if (result !== null) return result;
+      childFrom += child.length;
+    }
+    return null;
+  };
+
+  let nodeFrom = 0;
+  for (const node of parseInlines(inlineSource)) {
+    const result = visit(node, nodeFrom);
+    if (result !== null) return from + result;
+    nodeFrom += node.length;
+  }
+  return null;
+}
+
 function fencedDivOpener(value: string): RegExpExecArray | null {
   // Pandoc accepts one class-like token or one braced attribute list. Extra
   // trailing prose makes the line ordinary paragraph text.
@@ -865,9 +913,20 @@ export function parseBlocks(text: string): BlockParseResult {
       blocks.push(green("RawBlock", opaqueLine(line, "OpaqueBody"), props([rawFormat, "html"]))); i++; continue;
     }
     let end = i + 1;
-    while (end < lines.length && !isBlockStart(lines, end, text)) {
-      if (end + 1 < lines.length && /^( {0,3})(=+|-+)[ \t]*$/.test(lines[end + 1]!.content)) break;
-      end++;
+    while (end < lines.length) {
+      const startsBlock = isBlockStart(lines, end, text);
+      const precedesSetext = end + 1 < lines.length
+        && /^( {0,3})(=+|-+)[ \t]*$/.test(lines[end + 1]!.content);
+      if (!startsBlock && !precedesSetext) {
+        end++;
+        continue;
+      }
+      const boundaryLine = startsBlock ? end : end + 1;
+      const mathEnd = /^[ \t]*$/.test(lines[boundaryLine]!.content)
+        ? null
+        : displayMathEndAcrossBoundary(lines, i, boundaryLine, text);
+      if (mathEnd === null) break;
+      while (end < lines.length && lines[end]!.start < mathEnd) end++;
     }
     blocks.push(paragraph(lines, i, end, text)); i = end;
   }
