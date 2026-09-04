@@ -60,6 +60,82 @@ describe("CST edit surface block presentation", () => {
     return parent;
   }
 
+  function sectionNumbers(parent: HTMLElement): Array<string | null> {
+    return [...parent.querySelectorAll<HTMLElement>(".cf-doc-heading")].map(
+      (heading) => heading.dataset.sectionNumber ?? null,
+    );
+  }
+
+  it("renders hierarchical section numbers without changing source", () => {
+    const doc = [
+      "# One",
+      "",
+      "## First",
+      "",
+      "## Aside {-}",
+      "",
+      "### Detail",
+      "",
+      "# Two",
+      "",
+      "Setext subsection",
+      "-----------------",
+    ].join("\n");
+    const parent = mount(doc);
+
+    expect(sectionNumbers(parent)).toEqual([
+      "1",
+      "1.1",
+      null,
+      "1.1.1",
+      "2",
+      "2.1",
+    ]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("uses appendix letters after a top-level appendix boundary", () => {
+    const doc = [
+      "# Main",
+      "",
+      "# Appendix {.appendix}",
+      "",
+      "## First appendix subsection",
+      "",
+      "# Data",
+      "",
+      "## Hidden {.unnumbered}",
+      "",
+      "## Tables",
+    ].join("\n");
+    const parent = mount(doc);
+
+    expect(sectionNumbers(parent)).toEqual([
+      "1",
+      null,
+      "A.1",
+      "B",
+      null,
+      "B.1",
+    ]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("updates following section numbers after an attribute edit", () => {
+    const doc = "# One\n\n## First\n\n## Second";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(sectionNumbers(parent)).toEqual(["1", "1.1", "1.2"]);
+
+    const insertAt = doc.indexOf("\n", doc.indexOf("## First"));
+    editor.dispatch({ changes: { from: insertAt, insert: " {-}" } });
+
+    expect(sectionNumbers(parent)).toEqual(["1", null, "1.1"]);
+    expect(editor.state.doc.toString()).toBe(
+      "# One\n\n## First {-}\n\n## Second",
+    );
+  });
+
   it("renders blockquote markers with the dedicated monospace class", () => {
     const doc = "> quoted\n> again";
     const parent = mount(doc);

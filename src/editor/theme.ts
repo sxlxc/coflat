@@ -97,6 +97,10 @@ export const coflatTheme = EditorView.theme({
     fontSize: "var(--cf-h6-size, 1em)",
     fontWeight: "var(--cf-h6-weight, 400)",
   },
+  ".cm-line.cf-doc-heading[data-section-number]::before": {
+    content: "attr(data-section-number) '.\\2002'",
+    fontWeight: "400",
+  },
   // CM6 brackets an inline replacement with 1em, text-top widget buffers.
   // Firefox otherwise lets those buffers enlarge an inactive heading's line
   // box, then shrinks the row when the replacement is revealed as source.

@@ -81,6 +81,19 @@ test("uses the requested document measure and typography scale", async ({ page }
   ]);
 });
 
+test("renders hierarchical section numbers as heading presentation", async ({ page }) => {
+  const headings = page.locator(".cm-line.cf-doc-heading");
+  await expect(headings).toHaveCount(6);
+  expect(await headings.evaluateAll((elements) => elements.map(
+    (element) => (element as HTMLElement).dataset.sectionNumber,
+  ))).toEqual(["1", "1.1", "1.1.1", "1.1.1.1", "1.1.1.1.1", "1.1.1.1.1.1"]);
+
+  const generatedNumber = await headings.first().evaluate((element) =>
+    getComputedStyle(element, "::before").content
+  );
+  expect(generatedNumber).toContain("1.");
+});
+
 test("keeps the same measure and scale in the blueprint theme", async ({ page }) => {
   await page.locator("body").evaluate((body) => {
     body.classList.add("cf-theme-blueprint-book");
