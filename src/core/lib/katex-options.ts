@@ -19,7 +19,7 @@ export interface CoflatKatexOptions {
 }
 
 function normalizeKatexMacros(
-  macros: Record<string, string> | undefined,
+  macros: Readonly<Record<string, string>> | undefined,
 ): Record<string, string> {
   const normalized: Record<string, string> = { ...DEFAULT_KATEX_MACROS };
   if (!macros) return normalized;
@@ -54,7 +54,7 @@ function trustKatexContext(context: KatexTrustContext): boolean {
  */
 export function buildKatexOptions(
   displayMode: boolean,
-  macros?: Record<string, string>,
+  macros?: Readonly<Record<string, string>>,
 ): CoflatKatexOptions {
   return {
     displayMode,

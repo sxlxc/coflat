@@ -35,6 +35,10 @@ import {
   getPandocInvalidations,
   getPandocTree,
 } from "./pandoc-cst-field";
+import {
+  getYamlMathMacros,
+  getYamlMathMacrosKey,
+} from "./yaml-metadata";
 
 type TableSection = "header" | "body";
 
@@ -71,6 +75,7 @@ interface TablePlan {
 }
 
 interface TableDecorationState {
+  readonly mathMacrosKey: string;
   readonly selectionSignature: string;
   readonly decorations: DecorationSet;
 }
@@ -300,19 +305,24 @@ function appendPlanChildren(
   parent: Node,
   ownerDocument: Document,
   children: readonly InlinePlan[],
+  macros: Readonly<Record<string, string>>,
 ): void {
-  for (const child of children) appendInlinePlan(parent, ownerDocument, child);
+  for (const child of children) {
+    appendInlinePlan(parent, ownerDocument, child, macros);
+  }
 }
 
 function appendDelimitedChildren(
   parent: Node,
   ownerDocument: Document,
   plan: InlinePlan,
+  macros: Readonly<Record<string, string>>,
 ): void {
   appendPlanChildren(
     parent,
     ownerDocument,
     plan.children.filter((child) => !SOURCE_MARK_KINDS.has(child.kind)),
+    macros,
   );
 }
 
@@ -320,12 +330,14 @@ function appendLinkLabel(
   parent: Node,
   ownerDocument: Document,
   plan: InlinePlan,
+  macros: Readonly<Record<string, string>>,
 ): void {
   if (plan.kind === "AutoLink") {
     appendPlanChildren(
       parent,
       ownerDocument,
       plan.children.filter((child) => child.kind === "Text"),
+      macros,
     );
     return;
   }
@@ -341,7 +353,7 @@ function appendLinkLabel(
       break;
     }
     if (!insideLabel || child.kind === "Delimiter") continue;
-    appendInlinePlan(parent, ownerDocument, child);
+    appendInlinePlan(parent, ownerDocument, child, macros);
     appended = true;
   }
   if (!appended) appendText(parent, ownerDocument, plan.text);
@@ -357,6 +369,7 @@ function appendInlinePlan(
   parent: Node,
   ownerDocument: Document,
   plan: InlinePlan,
+  macros: Readonly<Record<string, string>>,
 ): void {
   switch (plan.kind) {
     case "Strong":
@@ -374,7 +387,7 @@ function appendInlinePlan(
         Quoted: "q",
       }[plan.kind];
       const element = ownerDocument.createElement(tag);
-      appendDelimitedChildren(element, ownerDocument, plan);
+      appendDelimitedChildren(element, ownerDocument, plan, macros);
       parent.appendChild(element);
       return;
     }
@@ -389,7 +402,7 @@ function appendInlinePlan(
       const latex = inlineBody(plan);
       const math = createInlineMathSurfaceElement(ownerDocument, latex);
       try {
-        const html = renderKatexToHtml(latex, false, {}, "html", false);
+        const html = renderKatexToHtml(latex, false, macros, "html", false);
         if (html.includes("katex-error")) throw new Error("KaTeX could not parse this expression");
         math.innerHTML = html;
       } catch (error: unknown) {
@@ -406,7 +419,7 @@ function appendInlinePlan(
     case "ImageReferenceCandidate": {
       const link = ownerDocument.createElement("span");
       link.className = CSS.linkRendered;
-      appendLinkLabel(link, ownerDocument, plan);
+      appendLinkLabel(link, ownerDocument, plan, macros);
       parent.appendChild(link);
       return;
     }
@@ -432,6 +445,7 @@ function appendInlinePlan(
         parent,
         ownerDocument,
         plan.children.filter((child) => child.kind !== "HtmlTag"),
+        macros,
       );
       return;
     case "Delimiter":
@@ -442,7 +456,9 @@ function appendInlinePlan(
     case "AttributeList":
       return;
     default:
-      if (plan.children.length > 0) appendPlanChildren(parent, ownerDocument, plan.children);
+      if (plan.children.length > 0) {
+        appendPlanChildren(parent, ownerDocument, plan.children, macros);
+      }
       else appendText(parent, ownerDocument, plan.text);
   }
 }
@@ -450,9 +466,10 @@ function appendInlinePlan(
 function visiblePlanText(
   plans: readonly InlinePlan[],
   ownerDocument: Document,
+  macros: Readonly<Record<string, string>>,
 ): string {
   const container = ownerDocument.createElement("span");
-  appendPlanChildren(container, ownerDocument, plans);
+  appendPlanChildren(container, ownerDocument, plans, macros);
   return container.textContent ?? "";
 }
 
@@ -463,6 +480,7 @@ function appendTableRow(
   rowIndex: number,
   alignments: readonly TableCellAlignment[],
   ownerDocument: Document,
+  macros: Readonly<Record<string, string>>,
 ): void {
   const row = createTableRowSurfaceElement(ownerDocument);
   for (let column = 0; column < rowPlanValue.cells.length; column += 1) {
@@ -479,16 +497,20 @@ function appendTableRow(
     cell.dataset.column = String(column);
     cell.dataset.sourceFrom = String(plan.from);
     cell.dataset.sourceTo = String(plan.to);
-    appendPlanChildren(cell, ownerDocument, plan.inline);
+    appendPlanChildren(cell, ownerDocument, plan.inline, macros);
     row.appendChild(cell);
   }
   parent.appendChild(row);
 }
 
-function tableAriaLabel(plan: TablePlan, ownerDocument: Document): string {
+function tableAriaLabel(
+  plan: TablePlan,
+  ownerDocument: Document,
+  macros: Readonly<Record<string, string>>,
+): string {
   const heading = plan.header
     ? plan.header.cells
-      .map((cell) => visiblePlanText(cell.inline, ownerDocument).trim())
+      .map((cell) => visiblePlanText(cell.inline, ownerDocument, macros).trim())
       .join(", ")
     : "";
   return heading ? `Table: ${heading}` : "Table";
@@ -606,6 +628,8 @@ class CstTableWidget extends WidgetType {
     private readonly plan: TablePlan,
     private readonly preview: boolean,
     private readonly selected: boolean,
+    private readonly macros: Readonly<Record<string, string>>,
+    private readonly macrosKey: string,
   ) {
     super();
   }
@@ -613,7 +637,8 @@ class CstTableWidget extends WidgetType {
   eq(other: CstTableWidget): boolean {
     return other.plan.raw === this.plan.raw
       && other.preview === this.preview
-      && other.selected === this.selected;
+      && other.selected === this.selected
+      && other.macrosKey === this.macrosKey;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -628,7 +653,10 @@ class CstTableWidget extends WidgetType {
     surface.title = "Edit table";
 
     const table = createTableSurfaceElement(ownerDocument);
-    table.setAttribute("aria-label", tableAriaLabel(this.plan, ownerDocument));
+    table.setAttribute(
+      "aria-label",
+      tableAriaLabel(this.plan, ownerDocument, this.macros),
+    );
     if (this.plan.header) {
       const head = ownerDocument.createElement("thead");
       appendTableRow(
@@ -638,6 +666,7 @@ class CstTableWidget extends WidgetType {
         0,
         this.plan.alignments,
         ownerDocument,
+        this.macros,
       );
       table.appendChild(head);
     }
@@ -652,6 +681,7 @@ class CstTableWidget extends WidgetType {
           row,
           this.plan.alignments,
           ownerDocument,
+          this.macros,
         );
       }
       table.appendChild(body);
@@ -697,6 +727,8 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
   const tree = getPandocTree(state);
   const active = activePipeTableKeys(state, tree);
   const selected = selectedPipeTableKeys(state, tree);
+  const macros = getYamlMathMacros(state);
+  const macrosKey = getYamlMathMacrosKey(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
@@ -706,6 +738,8 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
       buildTablePlan(node, tree),
       isActive,
       !isActive && selected.has(tableNodeKey(node)),
+      macros,
+      macrosKey,
     );
     if (isActive) {
       const firstLine = state.doc.lineAt(node.from).number;
@@ -725,6 +759,7 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
   });
 
   return {
+    mathMacrosKey: macrosKey,
     selectionSignature: tableSelectionSignature(state, tree),
     decorations: Decoration.set(ranges, true),
   };
@@ -772,6 +807,10 @@ export const cstTableDecorationField = StateField.define<TableDecorationState>({
   update(value, transaction) {
     const tree = getPandocTree(transaction.state);
     const selectionSignature = tableSelectionSignature(transaction.state, tree);
+    const macrosKey = getYamlMathMacrosKey(transaction.state);
+    if (macrosKey !== value.mathMacrosKey) {
+      return buildTableDecorationState(transaction.state);
+    }
     if (!transaction.docChanged) {
       return selectionSignature === value.selectionSignature
         ? value
@@ -782,6 +821,7 @@ export const cstTableDecorationField = StateField.define<TableDecorationState>({
       && !transactionTouchesPipeTable(transaction)
     ) {
       return {
+        mathMacrosKey: macrosKey,
         selectionSignature,
         decorations: value.decorations.map(transaction.changes),
       };

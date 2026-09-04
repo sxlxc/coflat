@@ -169,7 +169,8 @@ export interface FrontmatterConfig {
   /**
    * KaTeX macro definitions for this document.
    *
-   * Keys are macro names (including the leading backslash, e.g. `"\\R"`).
+   * Keys are macro names (the leading backslash is optional, e.g. `"\\R"`
+   * and `"R"` both define `\\R`).
    * Values are their LaTeX expansions (e.g. `"\\mathbb{R}"`). These are
    * merged into the KaTeX `macros` option at render time and cached in the
    * `mathMacrosField` StateField, which recomputes only when frontmatter
@@ -350,13 +351,8 @@ function validateMath(raw: Record<string, unknown>): Record<string, string> {
   const math: Record<string, string> = {};
   for (const [macro, expansion] of Object.entries(raw)) {
     if (typeof expansion !== "string") continue;
-    if (!macro.startsWith("\\")) {
-      console.warn(
-        `[frontmatter] math.${macro}: macro keys must start with "\\\\". Ignoring entry.`,
-      );
-      continue;
-    }
-    math[macro] = expansion;
+    const macroName = macro.startsWith("\\") ? macro : `\\${macro}`;
+    math[macroName] = expansion;
   }
   return math;
 }

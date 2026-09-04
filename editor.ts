@@ -15,6 +15,10 @@ import { minimalChange } from "./src/core/minimal-change";
 import { getPandocCursorContext } from "./src/editor/cst/cursor-context";
 import { getPandocTree } from "./src/editor/cst/pandoc-cst-field";
 import {
+  getYamlMetadataEnd,
+  isYamlMetadataActive,
+} from "./src/editor/cst/yaml-metadata";
+import {
   createSimpleEditor,
   type SimpleEditorConfig,
 } from "./src/editor/simple-editor";
@@ -323,12 +327,24 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
       if (!view) return;
       const previous = view.state.doc.toString();
       if (doc === previous) return;
+      const preserveYamlEdit = isYamlMetadataActive(view.state);
       const change = minimalChange(previous, doc);
       view.dispatch({
         changes: change,
         annotations: programmaticDocumentChange.of(true),
         scrollIntoView: false,
       });
+      const yamlEnd = getYamlMetadataEnd(view.state);
+      if (
+        !preserveYamlEdit
+        && yamlEnd !== null
+        && isYamlMetadataActive(view.state)
+      ) {
+        view.dispatch({
+          selection: EditorSelection.cursor(yamlEnd),
+          scrollIntoView: false,
+        });
+      }
     },
 
     insertText(text, insertOptions = {}) {

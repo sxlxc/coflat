@@ -120,6 +120,12 @@ describe("parseFrontmatter", () => {
     });
   });
 
+  it("adds the optional leading backslash to math macro names", () => {
+    const doc = "---\nmath:\n  R: \\mathbb{R}\n---\n";
+    const { config } = parseFrontmatter(doc);
+    expect(config.math).toEqual({ "\\R": "\\mathbb{R}" });
+  });
+
   it("parses simple block booleans", () => {
     const doc = "---\nblocks:\n  theorem: true\n  proof: true\n---\n";
     const { config } = parseFrontmatter(doc);

@@ -116,6 +116,87 @@ test("renders unordered list source markers as bullet dots", async ({ page }) =>
   expect(doc).toContain("- Bullet item");
 });
 
+test("renders and keyboard-edits collapsed YAML metadata", async ({ page }) => {
+  const source = [
+    "---",
+    "title: Paper Title",
+    "bibliography: references.bib",
+    "math:",
+    '  R: "\\\\mathbb{R}"',
+    "---",
+    "",
+    "Body $\\R$.",
+    "",
+    "# First section",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(doc.indexOf("Body"));
+  }, source);
+
+  const toggle = page.getByRole("button", { name: "Edit YAML metadata" });
+  const title = page.locator(".cf-doc-title");
+  await expect(toggle).toHaveText("YAML");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(title).toHaveText("Paper Title");
+  await expect(page.locator(".cm-line.cf-yaml-hidden")).toHaveCount(6);
+  await expect(page.locator(".cf-math-error")).toHaveCount(0);
+
+  const typography = await page.evaluate(() => {
+    const required = (selector: string): HTMLElement => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`Missing metadata fixture: ${selector}`);
+      return element;
+    };
+    const titleStyle = getComputedStyle(required(".cf-doc-title"));
+    const headingStyle = getComputedStyle(required(".cf-heading-line-1"));
+    const toggleStyle = getComputedStyle(required(".cf-yaml-toggle"));
+    return {
+      ratio: Number.parseFloat(titleStyle.fontSize)
+        / Number.parseFloat(headingStyle.fontSize),
+      titleAlign: titleStyle.textAlign,
+      titleStyle: titleStyle.fontStyle,
+      titleWeight: titleStyle.fontWeight,
+      toggleColor: toggleStyle.color,
+      toggleFont: toggleStyle.fontFamily,
+    };
+  });
+  expect(typography.ratio).toBeCloseTo(1.2);
+  expect(typography.titleAlign).toBe("center");
+  expect(typography.titleStyle).toBe("normal");
+  expect(typography.titleWeight).toBe("400");
+  expect(typography.toggleColor).toBe("rgb(107, 114, 128)");
+  expect(typography.toggleFont).toContain("Monaco");
+
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Hide YAML metadata" }))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".cm-line.cf-yaml-source")).toHaveCount(6);
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(mounted.getDoc().indexOf("Paper Title"));
+    mounted.focus();
+  });
+  await page.keyboard.insertText("Revised ");
+  await expect(title).toHaveText("Revised Paper Title");
+
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(mounted.getDoc().indexOf("Body"));
+    return { cst: mounted.getCst()?.text, doc: mounted.getDoc() };
+  });
+  await expect(page.locator(".cm-line.cf-yaml-hidden")).toHaveCount(6);
+  await expect(title).toHaveText("Revised Paper Title");
+  expect(state.doc).toContain("title: Revised Paper Title");
+  expect(state.cst).toBe(state.doc);
+});
+
 test("renders blockquote markers and editable unnumbered fenced-div references", async ({
   page,
 }) => {

@@ -1,6 +1,7 @@
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CSS } from "../core/constants/css-classes";
 import {
   type EditorDocumentChange,
   type MountedEditor,
@@ -123,6 +124,20 @@ describe("mountEditor document change callbacks", () => {
     editor.setDoc("short");
 
     expect(editor.getDoc()).toBe("short");
+  });
+
+  it("keeps newly loaded YAML metadata collapsed at a visible caret boundary", () => {
+    const { editor, view } = mountWithCapturedView({ doc: "alpha" });
+    const doc = "---\ntitle: Loaded Title\n---\nBody";
+
+    editor.setDoc(doc);
+
+    const metadata = editor.getCst()?.topLevelBlocks()[0];
+    expect(metadata?.kind).toBe("YamlMetadata");
+    expect(view().state.selection.main.head).toBe(metadata?.to);
+    expect(view().dom.querySelectorAll(`.cm-line.${CSS.yamlHidden}`)).toHaveLength(3);
+    expect(view().dom.querySelector(".cf-doc-title")?.textContent)
+      .toBe("Loaded Title");
   });
 
   it("inserts text at the current selection as a normal editor change", () => {

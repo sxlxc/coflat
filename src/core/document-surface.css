@@ -62,8 +62,14 @@
 }
 
 .cf-doc-title {
+  cursor: text;
   font-size: var(--cf-paper-title-size);
+  font-style: normal;
   font-weight: var(--cf-paper-title-weight);
+  line-height: 1.2;
+  margin: 0.35em 0 0.8em;
+  text-align: center;
+  user-select: text;
 }
 
 .cf-doc-flow .cf-doc-heading--h1 {

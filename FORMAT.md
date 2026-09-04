@@ -133,7 +133,7 @@ rewriting.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `title` | string | Document title for downstream renderers and export. |
+| `title` | string | Document title shown by the editor and used by downstream renderers and export. |
 | `subtitle` | string | Optional subtitle for title-block/export hosts. |
 | `description` | string | Short summary for listings, previews, and citation metadata. |
 | `date` | string | Publication or document date. ISO `YYYY-MM-DD` is preferred; Quarto-style `today`, `now`, and `last-modified` are accepted by hosts that can resolve them. |
@@ -185,7 +185,7 @@ the scholarly identity of the article:
 | `bibliography` | string | Path to `.bib` file (relative to document). |
 | `csl` | string | Path to CSL style file. |
 | `numbering` | `"global"` \| `"grouped"` | Block numbering scheme. `global`: all numbered blocks share one counter. `grouped`: each type has its own. |
-| `math` | map | KaTeX macro definitions (`\command: "expansion"`). |
+| `math` | map | KaTeX macro definitions (`\command: "expansion"`); the leading backslash on a macro name is optional. |
 | `latex` | map | LaTeX export options. Supported keys: `template`, `bibliography`, `csl`. |
 | `blocks` | map | Custom block definitions and overrides (`title`, `numbered`, `counter`, enable/disable). |
 | `imageFolder` | string | Default folder for pasted/dropped images. Also accepts `image-folder`. |
@@ -346,6 +346,8 @@ math:
 ```
 
 Usage: `$x \in \R$`, `$\set{1,2,3}$`.
+
+The leading backslash on each macro name is optional. `R: "\\mathbb{R}"` and `\R: "\\mathbb{R}"` both define `\R`, matching the Pandoc/Lua renderer.
 
 ## Fenced Divs
 

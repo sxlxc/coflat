@@ -6,7 +6,11 @@ import {
 } from "@codemirror/commands";
 import { indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { EditorState, type Extension } from "@codemirror/state";
+import {
+  EditorSelection,
+  EditorState,
+  type Extension,
+} from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -31,6 +35,7 @@ import {
   cstEditSurface,
 } from "./cst/edit-surface";
 import { pandocCstField } from "./cst/pandoc-cst-field";
+import { getYamlMetadataEnd } from "./cst/yaml-metadata";
 import { coflatTheme } from "./theme";
 
 export interface SimpleEditorConfig {
@@ -86,7 +91,7 @@ const textSelectionHighlighter = ViewPlugin.fromClass(class {
  * input, selection, history, and viewport behavior; it does not parse Markdown.
  */
 export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
-  const state = EditorState.create({
+  let state = EditorState.create({
     doc: config.doc ?? "",
     extensions: [
       pandocCstField,
@@ -113,6 +118,15 @@ export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
       ...(config.extensions ?? []),
     ],
   });
+
+  const yamlEnd = getYamlMetadataEnd(state);
+  if (yamlEnd !== null && state.selection.main.head < yamlEnd) {
+    // The metadata starts collapsed, so place the initial caret at its visible
+    // boundary rather than leaving an invisible insertion point at offset 0.
+    state = state.update({
+      selection: EditorSelection.cursor(yamlEnd),
+    }).state;
+  }
 
   return new EditorView({ state, parent: config.parent });
 }

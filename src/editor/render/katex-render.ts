@@ -15,7 +15,7 @@ export type KatexRenderOutputMode = "htmlAndMathml" | "html";
 
 let katexPurify: ReturnType<typeof createDOMPurify> | null = null;
 
-function serializeKatexMacros(macros: Record<string, string>): string {
+function serializeKatexMacros(macros: Readonly<Record<string, string>>): string {
   const keys = Object.keys(macros).sort();
   return keys.map((key) => `${key}=${macros[key]}`).join("\0");
 }
@@ -23,7 +23,7 @@ function serializeKatexMacros(macros: Record<string, string>): string {
 function katexCacheKey(
   latex: string,
   isDisplay: boolean,
-  macros: Record<string, string>,
+  macros: Readonly<Record<string, string>>,
   outputMode: KatexRenderOutputMode,
   throwOnError: boolean,
 ): string {
@@ -67,7 +67,7 @@ export function clearKatexHtmlCache(): void {
 export function renderKatexToHtml(
   latex: string,
   isDisplay: boolean,
-  macros: Record<string, string>,
+  macros: Readonly<Record<string, string>>,
   outputMode: KatexRenderOutputMode = "htmlAndMathml",
   throwOnError = false,
 ): string {
@@ -100,4 +100,3 @@ export function renderKatexToHtml(
   katexHtmlCache.set(key, sanitized);
   return sanitized;
 }
-

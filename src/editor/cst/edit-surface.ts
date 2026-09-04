@@ -50,6 +50,11 @@ import {
   activePipeTableKeys,
   cstTableSurface,
 } from "./table-surface";
+import {
+  cstYamlMetadataField,
+  getYamlMathMacros,
+  getYamlMathMacrosKey,
+} from "./yaml-metadata";
 
 const DELIMITED_INLINE_CLASSES: Partial<Record<NodeKind, string>> = {
   Emphasis: CSS.italic,
@@ -482,12 +487,13 @@ function renderMath(
   element: HTMLElement,
   latex: string,
   isDisplay: boolean,
+  macros: Readonly<Record<string, string>>,
 ): void {
   try {
     const html = renderKatexToHtml(
       latex,
       isDisplay,
-      {},
+      macros,
       isDisplay ? "htmlAndMathml" : "html",
       false,
     );
@@ -512,6 +518,8 @@ class CstMathWidget extends WidgetType {
     private readonly raw: string,
     private readonly isDisplay: boolean,
     private readonly preview: boolean,
+    private readonly macros: Readonly<Record<string, string>>,
+    private readonly macrosKey: string,
     private readonly sourceFrom: number,
     private readonly sourceTo: number,
     private readonly bodyFrom: number,
@@ -526,6 +534,7 @@ class CstMathWidget extends WidgetType {
       && other.raw === this.raw
       && other.isDisplay === this.isDisplay
       && other.preview === this.preview
+      && other.macrosKey === this.macrosKey
       && other.selected === this.selected;
   }
 
@@ -581,7 +590,7 @@ class CstMathWidget extends WidgetType {
       const content = createDisplayMathContentElement(ownerDocument);
       if (this.preview) surface.classList.add("cf-cst-math-preview");
       if (this.selected) surface.classList.add(CSS.selectionRange);
-      renderMath(content, this.latex, true);
+      renderMath(content, this.latex, true, this.macros);
       surface.appendChild(content);
       this.bindSourceReveal(surface, view);
       return surface;
@@ -589,7 +598,7 @@ class CstMathWidget extends WidgetType {
 
     const surface = createInlineMathSurfaceElement(ownerDocument, this.latex);
     if (this.preview) surface.classList.add("cf-cst-math-preview");
-    renderMath(surface, this.latex, false);
+    renderMath(surface, this.latex, false, this.macros);
     this.bindSourceReveal(surface, view);
     return surface;
   }
@@ -926,6 +935,8 @@ function addMathPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
   node: SyntaxNode,
   active: boolean,
+  macros: Readonly<Record<string, string>>,
+  macrosKey: string,
 ): boolean {
   const body = childOfKind(node, "OpaqueBody");
   if (!body) return false;
@@ -953,6 +964,8 @@ function addMathPresentation(
         node.text(),
         false,
         false,
+        macros,
+        macrosKey,
         node.from,
         node.to,
         body.from,
@@ -973,6 +986,8 @@ function addMathPresentation(
       node.text(),
       false,
       true,
+      macros,
+      macrosKey,
       node.from,
       node.to,
       body.from,
@@ -983,6 +998,7 @@ function addMathPresentation(
 }
 
 interface DisplayMathDecorationState {
+  readonly mathMacrosKey: string;
   readonly selectionSignature: string;
   readonly decorations: DecorationSet;
 }
@@ -1053,6 +1069,8 @@ function buildDisplayMathDecorationState(
   const tree = getPandocTree(state);
   const active = activeDisplayMathKeys(state, tree);
   const selected = selectedDisplayMathKeys(state, tree);
+  const macros = getYamlMathMacros(state);
+  const macrosKey = getYamlMathMacrosKey(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
@@ -1068,6 +1086,8 @@ function buildDisplayMathDecorationState(
       node.text(),
       true,
       isActive,
+      macros,
+      macrosKey,
       node.from,
       node.to,
       body.from,
@@ -1087,6 +1107,7 @@ function buildDisplayMathDecorationState(
   });
 
   return {
+    mathMacrosKey: macrosKey,
     selectionSignature: displayMathSelectionSignature(state, tree),
     decorations: Decoration.set(ranges, true),
   };
@@ -1141,6 +1162,10 @@ export const cstDisplayMathDecorationField =
         transaction.state,
         tree,
       );
+      const macrosKey = getYamlMathMacrosKey(transaction.state);
+      if (macrosKey !== value.mathMacrosKey) {
+        return buildDisplayMathDecorationState(transaction.state);
+      }
       if (!transaction.docChanged) {
         return selectionSignature === value.selectionSignature
           ? value
@@ -1152,6 +1177,7 @@ export const cstDisplayMathDecorationField =
         && !transactionTouchesDisplayMath(transaction)
       ) {
         return {
+          mathMacrosKey: macrosKey,
           selectionSignature,
           decorations: value.decorations.map(transaction.changes),
         };
@@ -1170,6 +1196,8 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
   const active = activeNodeKeys(state, tree);
   const activeDisplayMath = activeDisplayMathKeys(state, tree);
   const activePipeTables = activePipeTableKeys(state, tree);
+  const macros = getYamlMathMacros(state);
+  const macrosKey = getYamlMathMacrosKey(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
   const suppressedFencedDivSourceRanges: Array<{
@@ -1228,6 +1256,8 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
             (node.prop(mathDisplay) ?? false)
               ? activeDisplayMath.has(key)
               : isActive,
+            macros,
+            macrosKey,
           );
           return false;
         case "Link":
@@ -1448,6 +1478,45 @@ export const cstEditTheme: Extension = EditorView.theme({
     color: "var(--cf-muted)",
     fontFamily: "var(--cf-code-font)",
   },
+  [`.${CSS.yamlMetadataHeader}`]: {
+    boxSizing: "border-box",
+    display: "block",
+    paddingBlock: "0.15em",
+    width: "100%",
+  },
+  [`.${CSS.yamlToggle}`]: {
+    appearance: "none",
+    backgroundColor: "transparent",
+    border: "1px solid var(--cf-border)",
+    borderRadius: "3px",
+    color: "var(--cf-muted)",
+    cursor: "pointer",
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "0.7em",
+    lineHeight: "1.35",
+    padding: "0.08em 0.38em",
+  },
+  [`.${CSS.yamlToggle}:hover`]: {
+    backgroundColor: "var(--cf-subtle)",
+    color: "var(--cf-fg)",
+  },
+  [`.${CSS.yamlToggle}:focus-visible`]: {
+    outline: "2px solid var(--cf-accent)",
+    outlineOffset: "2px",
+  },
+  [`.cm-line.${CSS.yamlSource}`]: {
+    color: "var(--cf-muted)",
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "0.82em",
+  },
+  [`.cm-line.${CSS.yamlHidden}`]: {
+    fontSize: "0",
+    height: "0",
+    lineHeight: "0",
+    minHeight: "0",
+    overflow: "hidden",
+    padding: "0",
+  },
   [`.${CSS.fencedDivHeader}`]: {
     color: "var(--cf-fg)",
     cursor: "pointer",
@@ -1498,6 +1567,7 @@ export const cstEditTheme: Extension = EditorView.theme({
 });
 
 export const cstEditSurface: Extension = [
+  cstYamlMetadataField,
   cstHeadingNumberDecorationField,
   cstDisplayMathDecorationField,
   cstTableSurface,
