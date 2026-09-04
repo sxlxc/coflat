@@ -21,9 +21,9 @@ Pipe tables render as semantic tables. Click one to edit its Markdown source wit
 | Alpha | 1 |
 | Beta | 2 |
 
-## Ordinary Pandoc blocks stay source-editable
+## Pandoc blocks stay source-editable
 
-> A block quote remains ordinary Markdown text.
+> A block quote keeps its monospace source marker.
 
 - First list item
 - Second list item
@@ -32,6 +32,8 @@ Pipe tables render as semantic tables. Click one to edit its Markdown source wit
 const sourceIsTruth = true;
 ```
 
-::: {.note}
-Fenced divs are Pandoc syntax and remain directly keyboard-editable.
+::: {.thm #thm:source title="Source remains canonical"}
+Fenced divs show an unnumbered class label. Enter the header to edit its Pandoc attributes.
 :::
+
+The local reference [@thm:source] resolves to the block label without adding a number.

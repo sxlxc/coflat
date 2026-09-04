@@ -53,6 +53,50 @@ test("mounts one editable CST-backed surface", async ({ page }) => {
   expect(snapshot.hasSetMode).toBe(false);
 });
 
+test("keeps the cursor at text height on a blank line", async ({ page }) => {
+  const metrics = await page.evaluate(async () => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const source = "Text before.\n\nText after.";
+    mounted.setDoc(source);
+    mounted.focus();
+
+    const measure = async (position: number, lineIndex: number) => {
+      mounted.scrollToPosition(position);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      const cursor = document.querySelector<HTMLElement>(".cm-cursor-primary");
+      const line = document.querySelectorAll<HTMLElement>(".cm-line")[lineIndex];
+      if (!cursor || !line) throw new Error("Missing cursor fixture geometry");
+      const cursorRect = cursor.getBoundingClientRect();
+      const lineRect = line.getBoundingClientRect();
+      const visualCursor = getComputedStyle(cursor, "::after");
+      const visualCursorHeight = Number.parseFloat(visualCursor.height);
+      return {
+        visualCursorHeight,
+        visualCursorTopOffset: cursorRect.top
+          + cursorRect.height / 2
+          - visualCursorHeight / 2
+          - lineRect.top,
+        lineHeight: lineRect.height,
+      };
+    };
+
+    return {
+      text: await measure(1, 0),
+      blank: await measure(source.indexOf("\n") + 1, 1),
+    };
+  });
+
+  expect(metrics.blank.lineHeight).toBeCloseTo(metrics.text.lineHeight, 1);
+  expect(Number.isFinite(metrics.text.visualCursorHeight)).toBe(true);
+  expect(metrics.blank.visualCursorHeight).toBe(metrics.text.visualCursorHeight);
+  expect(metrics.blank.visualCursorHeight).toBeLessThan(metrics.blank.lineHeight);
+  expect(metrics.blank.visualCursorTopOffset)
+    .toBeCloseTo(metrics.text.visualCursorTopOffset, 5);
+});
+
 test("renders unordered list source markers as bullet dots", async ({ page }) => {
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })
@@ -70,6 +114,92 @@ test("renders unordered list source markers as bullet dots", async ({ page }) =>
     return mounted.getDoc();
   });
   expect(doc).toContain("- Bullet item");
+});
+
+test("renders blockquote markers and editable unnumbered fenced-div references", async ({
+  page,
+}) => {
+  const source = [
+    "> Quoted text.",
+    "",
+    '::: {#result .thm title="Main result" someAttr="xxx"}',
+    "Statement.",
+    ":::",
+    "",
+    "Use @result and [@result].",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(doc.indexOf("Statement") + 2);
+    mounted.focus();
+  }, source);
+
+  const quoteMark = page.locator(".cf-blockquote-mark");
+  const header = page.locator(".cf-fenced-div-header");
+  const references = page.locator(".cf-fenced-div-reference");
+  await expect(quoteMark).toHaveText(">");
+  await expect(header).toHaveText("Theorem (Main result)");
+  await expect(references).toHaveText(["Theorem", "Theorem"]);
+
+  const typography = await page.evaluate(() => {
+    const marker = document.querySelector<HTMLElement>(".cf-blockquote-mark");
+    const blockHeader = document.querySelector<HTMLElement>(".cf-fenced-div-header");
+    if (!marker || !blockHeader) throw new Error("Missing block presentation");
+    return {
+      headerWeight: getComputedStyle(blockHeader).fontWeight,
+      markerFont: getComputedStyle(marker).fontFamily,
+    };
+  });
+  expect(typography.markerFont).toContain("Monaco");
+  expect(Number.parseInt(typography.headerWeight, 10)).toBeGreaterThanOrEqual(700);
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const reference = "[@result]";
+    mounted.scrollToPosition(mounted.getDoc().lastIndexOf(reference) + reference.length);
+    mounted.focus();
+  });
+  await page.keyboard.press("ArrowLeft");
+  await expect(references).toHaveCount(1);
+  await expect(page.locator("#editor-root .cm-content"))
+    .toHaveAttribute("data-cst-inline", "Citation");
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(mounted.getDoc().indexOf("Statement") + 2);
+  });
+  await expect(references).toHaveCount(2);
+
+  await header.click();
+  await expect(header).toHaveCount(0);
+  await expect(page.locator(".cf-fenced-div-source"))
+    .toHaveText('::: {#result .thm title="Main result" someAttr="xxx"}');
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(mounted.getDoc().indexOf(".thm") + 1);
+    mounted.focus();
+  });
+  await page.keyboard.insertText("x");
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(mounted.getDoc().indexOf("Statement") + 2);
+  });
+
+  await expect(header).toHaveText("Xthm (Main result)");
+  await expect(references).toHaveText(["Xthm", "Xthm"]);
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return { cst: mounted.getCst()?.text, doc: mounted.getDoc() };
+  });
+  expect(state.doc).toContain(".xthm");
+  expect(state.cst).toBe(state.doc);
 });
 
 test("publishes a synchronized CST after keyboard input", async ({ page }) => {

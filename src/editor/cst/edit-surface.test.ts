@@ -45,6 +45,158 @@ describe("CST edit surface list markers", () => {
   });
 });
 
+describe("CST edit surface block presentation", () => {
+  let editor: ReturnType<typeof createSimpleEditor> | null = null;
+
+  afterEach(() => {
+    editor?.destroy();
+    editor = null;
+  });
+
+  function mount(doc: string): HTMLElement {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    editor = createSimpleEditor({ parent, doc });
+    return parent;
+  }
+
+  it("renders blockquote markers with the dedicated monospace class", () => {
+    const doc = "> quoted\n> again";
+    const parent = mount(doc);
+
+    const markers = parent.querySelectorAll(`.${CSS.blockquoteMark}`);
+    expect(markers).toHaveLength(2);
+    expect([...markers].map((marker) => marker.textContent)).toEqual([">", ">"]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("renders an unnumbered fenced-div header from its first class and title", () => {
+    const doc = [
+      "Before",
+      "",
+      '::: {#label .someRandomClass .theorem title="some title" someAttr="xxx"}',
+      "Body.",
+      ":::",
+    ].join("\n");
+    const parent = mount(doc);
+    const header = parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader}`);
+
+    expect(header?.textContent).toBe("SomeRandomClass (some title)");
+    expect(header?.dataset.blockClass).toBe("someRandomClass");
+    expect(header?.dataset.referenceId).toBe("label");
+    expect(header?.textContent).not.toMatch(/\d/);
+    expect(
+      [...parent.querySelectorAll(".cm-line")].some((line) => line.textContent === ":::"),
+    ).toBe(false);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("expands common fenced-div class abbreviations", () => {
+    const doc = [
+      "Before",
+      "",
+      "::: {.thm}",
+      "Theorem body.",
+      ":::",
+      "",
+      "::: lem",
+      "Lemma body.",
+      ":::",
+    ].join("\n");
+    const parent = mount(doc);
+
+    expect(
+      [...parent.querySelectorAll(`.${CSS.fencedDivHeader}`)].map(
+        (header) => header.textContent,
+      ),
+    ).toEqual(["Theorem", "Lemma"]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("resolves simple narrative and bracketed references to div labels", () => {
+    const doc = [
+      "Before",
+      "",
+      '::: {#main-result .thm title="Main result"}',
+      "Body.",
+      ":::",
+      "",
+      "Use @main-result and [@main-result].",
+    ].join("\n");
+    const parent = mount(doc);
+    const references = parent.querySelectorAll<HTMLElement>(
+      `.${CSS.fencedDivReference}`,
+    );
+
+    expect([...references].map((reference) => reference.textContent))
+      .toEqual(["Theorem", "Theorem"]);
+    expect([...references].map((reference) => reference.dataset.referenceId))
+      .toEqual(["main-result", "main-result"]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it("keeps the rendered header while editing the body and reveals opener source on click", () => {
+    const doc = [
+      "Before",
+      "",
+      '::: {.thm #result title="Main result"}',
+      "Body.",
+      ":::",
+    ].join("\n");
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+
+    editor.dispatch({ selection: { anchor: doc.indexOf("Body") + 2 } });
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
+      .toBe("Theorem (Main result)");
+
+    const header = parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader}`);
+    header?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+
+    expect(editor.state.selection.main.head).toBe(doc.indexOf(":::"));
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent)
+      .toBe('::: {.thm #result title="Main result"}');
+    expect(editor.state.doc.toString()).toBe(doc);
+  });
+
+  it("updates headers and references after an attribute edit", () => {
+    const doc = [
+      "Before",
+      "",
+      "::: {.thm #result}",
+      "Body.",
+      ":::",
+      "",
+      "See [@result].",
+    ].join("\n");
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
+      .toBe("Theorem");
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent)
+      .toBe("Theorem");
+
+    const classFrom = doc.indexOf("thm");
+    editor.dispatch({ changes: { from: classFrom, to: classFrom + 3, insert: "lem" } });
+
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
+      .toBe("Lemma");
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent)
+      .toBe("Lemma");
+    expect(editor.state.doc.toString()).toContain("{.lem #result}");
+  });
+
+  it("renders fenced divs with CRLF source without changing their text", () => {
+    const doc = "Before\r\n\r\n::: {.proof title='details'}\r\nBody.\r\n:::\r\n";
+    const parent = mount(doc);
+
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
+      .toBe("Proof (details)");
+    expect(editor?.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
+  });
+});
+
 describe("CST edit surface tables", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
 

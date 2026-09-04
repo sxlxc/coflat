@@ -367,7 +367,7 @@ Statement of the theorem with $math$.
 :::
 ```
 
-The title is a Pandoc attribute. It is plain text, not inline markdown. For standard above-header blocks, the title appears parenthesized after the block label: **Theorem 1** (Main Result). For `figure`, `table`, and `algorithm` blocks, the title becomes the caption.
+The title is a Pandoc attribute. It is plain text, not inline markdown. The editor currently renders a standard block as an unnumbered bold label followed by its parenthesized title: **Theorem (Main Result)**. Publication renderers may add numbering, such as **Theorem 1** (Main Result). For `figure`, `table`, and `algorithm` blocks, the title becomes the publication caption.
 
 Attributes inside `{...}`:
 - `.classname` -- block type (required, first class is the primary type)
@@ -388,6 +388,8 @@ Content.
 ```
 
 This is equivalent to `::: {.theorem}`. It cannot carry a title.
+
+For editor presentation, common abbreviated classes expand to their mathematical labels: `thm` to Theorem, `lem` to Lemma, `cor` to Corollary, `prop` to Proposition, `def` or `defn` to Definition, `conj` to Conjecture, `prob` to Problem, `ex` to Example, `rem` to Remark, `pf` or `prf` to Proof, `fig` to Figure, `tbl` to Table, and `alg` to Algorithm. Canonical documents should continue to use the full built-in class names when downstream export behavior matters.
 
 ### No self-closing blocks
 

@@ -15,6 +15,8 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import {
+  fenceClosed,
+  fenceInfo,
   headingLevel,
   mathDisplay,
   type NodeKind,
@@ -22,6 +24,10 @@ import {
   type SyntaxTree,
 } from "pandocmd-cst";
 import { CSS } from "../../core/constants/css-classes";
+import {
+  getBlockManifestEntry,
+  getManifestBlockTitle,
+} from "../../core/constants/block-manifest";
 import {
   createDisplayMathContentElement,
   createDisplayMathSurfaceElement,
@@ -64,6 +70,276 @@ const LINK_SOURCE_KINDS: ReadonlySet<NodeKind> = new Set([
   "ReferenceLabel",
   "AttributeList",
 ]);
+
+const FENCED_DIV_CLASS_ABBREVIATIONS: ReadonlyMap<string, string> = new Map([
+  ["abs", "abstract"],
+  ["alg", "algorithm"],
+  ["conj", "conjecture"],
+  ["cor", "corollary"],
+  ["def", "definition"],
+  ["defn", "definition"],
+  ["ex", "example"],
+  ["fig", "figure"],
+  ["lem", "lemma"],
+  ["pf", "proof"],
+  ["prf", "proof"],
+  ["prob", "problem"],
+  ["prop", "proposition"],
+  ["rem", "remark"],
+  ["tbl", "table"],
+  ["thm", "theorem"],
+]);
+
+interface FencedDivInfo {
+  readonly className: string;
+  readonly id?: string;
+  readonly title?: string;
+}
+
+interface FencedDivPresentation extends FencedDivInfo {
+  readonly label: string;
+}
+
+interface FencedDivSourceRanges {
+  readonly openerFrom: number;
+  readonly openerTo: number;
+  readonly closerFrom?: number;
+  readonly closerTo?: number;
+}
+
+const FENCED_DIV_ATTRIBUTE_TOKEN = /(?:[^\s"'\\]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')+/g;
+
+function attributeValueText(value: string): string {
+  const quote = value[0];
+  return (quote === "\"" || quote === "'") && value.at(-1) === quote
+    ? value.slice(1, -1)
+    : value;
+}
+
+/** Read the already-delimited `fenceInfo` property published by the CST. */
+function parseFencedDivInfo(value: string | undefined): FencedDivInfo | null {
+  const info = value?.trim();
+  if (!info) return null;
+  if (!info.startsWith("{")) {
+    return info.includes(" ") || info.includes("\t")
+      ? null
+      : { className: info };
+  }
+  if (!info.endsWith("}")) return null;
+
+  let className: string | undefined;
+  let id: string | undefined;
+  let title: string | undefined;
+  const body = info.slice(1, -1);
+  for (const token of body.match(FENCED_DIV_ATTRIBUTE_TOKEN) ?? []) {
+    if (token.startsWith(".")) {
+      className ??= token.slice(1);
+      continue;
+    }
+    if (token.startsWith("#")) {
+      id = token.slice(1);
+      continue;
+    }
+    const equal = token.indexOf("=");
+    if (equal > 0 && token.slice(0, equal) === "title") {
+      title = attributeValueText(token.slice(equal + 1));
+    }
+  }
+
+  return className ? { className, id, title } : null;
+}
+
+function fencedDivDisplayLabel(className: string): string {
+  const normalized = className.toLocaleLowerCase();
+  const canonical = FENCED_DIV_CLASS_ABBREVIATIONS.get(normalized) ?? normalized;
+  const manifest = getBlockManifestEntry(canonical);
+  if (manifest) return getManifestBlockTitle(manifest);
+  const [first = "", ...rest] = [...className];
+  return `${first.toLocaleUpperCase()}${rest.join("")}`;
+}
+
+function fencedDivPresentation(node: SyntaxNode): FencedDivPresentation | null {
+  const info = parseFencedDivInfo(node.prop(fenceInfo));
+  return info ? { ...info, label: fencedDivDisplayLabel(info.className) } : null;
+}
+
+function fencedDivSourceRanges(
+  state: EditorState,
+  node: SyntaxNode,
+): FencedDivSourceRanges | null {
+  const directFenceMarks = [...node.children()].filter(
+    (child) => child.kind === "FenceMark",
+  );
+  const opener = directFenceMarks[0];
+  if (!opener) return null;
+  const openerLine = state.doc.lineAt(opener.from);
+  const closer = node.prop(fenceClosed) && directFenceMarks.length > 1
+    ? directFenceMarks[directFenceMarks.length - 1]
+    : undefined;
+  return {
+    openerFrom: node.from,
+    openerTo: openerLine.to,
+    ...(closer ? { closerFrom: closer.from, closerTo: closer.to } : {}),
+  };
+}
+
+function selectionTouchesSourceRange(
+  state: EditorState,
+  from: number,
+  to: number,
+): boolean {
+  return state.selection.ranges.some((range) => (
+    range.empty
+      ? from <= range.head && range.head <= to
+      : range.from < to && from < range.to
+  ));
+}
+
+function rangeContainsNode(
+  ranges: readonly { readonly from: number; readonly to: number }[],
+  node: SyntaxNode,
+): boolean {
+  return ranges.some((range) => range.from <= node.from && node.to <= range.to);
+}
+
+function bindSourceReveal(
+  element: HTMLElement,
+  view: EditorView,
+  position: number,
+): void {
+  element.addEventListener("mousedown", (event) => {
+    if (
+      event.button !== 0
+      || event.altKey
+      || event.ctrlKey
+      || event.metaKey
+      || event.shiftKey
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    view.focus();
+    view.dispatch({
+      selection: EditorSelection.cursor(position),
+      scrollIntoView: true,
+      userEvent: "select.pointer",
+    });
+  });
+}
+
+class CstFencedDivHeaderWidget extends WidgetType {
+  constructor(
+    private readonly presentation: FencedDivPresentation,
+    private readonly source: string,
+    private readonly sourceFrom: number,
+  ) {
+    super();
+  }
+
+  eq(other: CstFencedDivHeaderWidget): boolean {
+    return other.presentation.label === this.presentation.label
+      && other.presentation.title === this.presentation.title
+      && other.presentation.id === this.presentation.id
+      && other.source === this.source
+      && other.sourceFrom === this.sourceFrom;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const ownerDocument = view.dom.ownerDocument;
+    const header = ownerDocument.createElement("span");
+    header.className = CSS.fencedDivHeader;
+    header.dataset.blockClass = this.presentation.className;
+    if (this.presentation.id) {
+      header.dataset.referenceId = this.presentation.id;
+    }
+    header.setAttribute("aria-label", this.source);
+    header.title = "Edit fenced div attributes";
+
+    header.textContent = this.presentation.title
+      ? `${this.presentation.label} (${this.presentation.title})`
+      : this.presentation.label;
+    bindSourceReveal(header, view, this.sourceFrom);
+    return header;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+interface FencedDivTarget {
+  readonly id: string;
+  readonly label: string;
+}
+
+function collectFencedDivTargets(tree: SyntaxTree): ReadonlyMap<string, FencedDivTarget> {
+  const targets = new Map<string, FencedDivTarget>();
+  tree.iterate((node) => {
+    if (node.kind !== "FencedDiv") return;
+    const presentation = fencedDivPresentation(node);
+    if (presentation?.id && !targets.has(presentation.id)) {
+      targets.set(presentation.id, {
+        id: presentation.id,
+        label: presentation.label,
+      });
+    }
+    return;
+  });
+  return targets;
+}
+
+function childText(node: SyntaxNode, kind: NodeKind): string | null {
+  return childOfKind(node, kind)?.text() ?? null;
+}
+
+function simpleFencedDivReferenceKey(node: SyntaxNode): string | null {
+  if (node.kind === "ExampleReference") {
+    const key = childText(node, "CitationKey");
+    return key && node.text() === `@${key}` ? key : null;
+  }
+  if (node.kind !== "Citation") return null;
+  const items = [...node.children()].filter((child) => child.kind === "CitationItem");
+  if (items.length !== 1) return null;
+  const key = childText(items[0], "CitationKey");
+  return key && node.text() === `[@${key}]` ? key : null;
+}
+
+function referenceKeyNode(node: SyntaxNode): SyntaxNode | null {
+  if (node.kind === "ExampleReference") return childOfKind(node, "CitationKey");
+  const item = childOfKind(node, "CitationItem");
+  return item ? childOfKind(item, "CitationKey") : null;
+}
+
+class CstFencedDivReferenceWidget extends WidgetType {
+  constructor(
+    private readonly target: FencedDivTarget,
+    private readonly source: string,
+    private readonly editPosition: number,
+  ) {
+    super();
+  }
+
+  eq(other: CstFencedDivReferenceWidget): boolean {
+    return other.target.id === this.target.id
+      && other.target.label === this.target.label
+      && other.source === this.source
+      && other.editPosition === this.editPosition;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const reference = view.dom.ownerDocument.createElement("span");
+    reference.className = CSS.fencedDivReference;
+    reference.dataset.referenceId = this.target.id;
+    reference.textContent = this.target.label;
+    reference.setAttribute("aria-label", this.source);
+    reference.title = `Edit reference to ${this.target.id}`;
+    bindSourceReveal(reference, view, this.editPosition);
+    return reference;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
 
 class CstBulletListMarkerWidget extends WidgetType {
   eq(other: CstBulletListMarkerWidget): boolean {
@@ -150,11 +426,12 @@ function sourceHighlightClass(node: SyntaxNode): string | null {
     case "CodeMark":
     case "MathMark":
     case "ListMark":
-    case "QuoteMark":
     case "BracketMark":
     case "ParenMark":
     case "TableDelimiter":
       return "tok-punctuation";
+    case "QuoteMark":
+      return CSS.blockquoteMark;
     case "LinkDestination":
       return "tok-url";
     case "CitationKey":
@@ -492,6 +769,50 @@ function addSetextHeadingPresentation(
   }).range(firstLine.from));
 }
 
+function addFencedDivPresentation(
+  ranges: Array<ReturnType<Decoration["range"]>>,
+  suppressedSourceRanges: Array<{ readonly from: number; readonly to: number }>,
+  view: EditorView,
+  node: SyntaxNode,
+): void {
+  const state = view.state;
+  const presentation = fencedDivPresentation(node);
+  const sourceRanges = fencedDivSourceRanges(state, node);
+  if (!presentation || !sourceRanges) return;
+
+  const addSourceRange = (
+    from: number,
+    to: number,
+    renderedHeader: boolean,
+  ): void => {
+    if (from >= to) return;
+    suppressedSourceRanges.push({ from, to });
+    if (selectionTouchesSourceRange(state, from, to)) {
+      ranges.push(Decoration.mark({ class: CSS.fencedDivSource }).range(from, to));
+      return;
+    }
+    if (renderedHeader) {
+      ranges.push(Decoration.replace({
+        widget: new CstFencedDivHeaderWidget(
+          presentation,
+          state.sliceDoc(from, to),
+          from,
+        ),
+      }).range(from, to));
+      return;
+    }
+    ranges.push(Decoration.replace({}).range(from, to));
+  };
+
+  addSourceRange(sourceRanges.openerFrom, sourceRanges.openerTo, true);
+  if (
+    sourceRanges.closerFrom !== undefined
+    && sourceRanges.closerTo !== undefined
+  ) {
+    addSourceRange(sourceRanges.closerFrom, sourceRanges.closerTo, false);
+  }
+}
+
 function addCodeBlockPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
   state: EditorState,
@@ -780,9 +1101,23 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
   const activePipeTables = activePipeTableKeys(state, tree);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
+  const suppressedFencedDivSourceRanges: Array<{
+    readonly from: number;
+    readonly to: number;
+  }> = [];
+  let fencedDivTargets: ReadonlyMap<string, FencedDivTarget> | null = null;
+
+  const getFencedDivTarget = (id: string): FencedDivTarget | undefined => {
+    fencedDivTargets ??= collectFencedDivTargets(tree);
+    return fencedDivTargets.get(id);
+  };
 
   for (const visible of view.visibleRanges) {
     tree.iterate((node) => {
+      if (
+        node.kind !== "FencedDiv"
+        && rangeContainsNode(suppressedFencedDivSourceRanges, node)
+      ) return false;
       const key = nodeKey(node);
       const isActive = active.has(key);
       const inlineClass = DELIMITED_INLINE_CLASSES[node.kind];
@@ -840,6 +1175,36 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
           decorated.add(key);
           addSetextHeadingPresentation(ranges, state, node);
           return;
+        case "FencedDiv":
+          if (decorated.has(key)) return;
+          decorated.add(key);
+          addFencedDivPresentation(
+            ranges,
+            suppressedFencedDivSourceRanges,
+            view,
+            node,
+          );
+          return;
+        case "Citation":
+        case "ExampleReference": {
+          if (decorated.has(key)) return false;
+          const referenceKey = simpleFencedDivReferenceKey(node);
+          const target = referenceKey ? getFencedDivTarget(referenceKey) : undefined;
+          if (!target) return;
+          decorated.add(key);
+          if (!isActive) {
+            const keyNode = referenceKeyNode(node);
+            ranges.push(Decoration.replace({
+              widget: new CstFencedDivReferenceWidget(
+                target,
+                node.text(),
+                keyNode?.from ?? node.from,
+              ),
+            }).range(node.from, node.to));
+            return false;
+          }
+          return;
+        }
         case "FencedCodeBlock":
         case "IndentedCodeBlock":
           if (decorated.has(key)) return false;
@@ -912,6 +1277,44 @@ function containingMath(node: SyntaxNode | null): SyntaxNode | null {
   return null;
 }
 
+function containingFencedDivReference(node: SyntaxNode | null): SyntaxNode | null {
+  let current = node;
+  while (current) {
+    if (current.kind === "Citation" || current.kind === "ExampleReference") {
+      return current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function enterRenderedFencedDivReference(
+  view: EditorView,
+  direction: "left" | "right",
+): boolean {
+  const selection = view.state.selection.main;
+  if (!selection.empty) return false;
+  const tree = getPandocTree(view.state);
+  const reference = containingFencedDivReference(
+    tree.resolve(selection.head, direction),
+  );
+  if (!reference) return false;
+  if (direction === "right" && reference.from !== selection.head) return false;
+  if (direction === "left" && reference.to !== selection.head) return false;
+  const key = simpleFencedDivReferenceKey(reference);
+  if (!key || !collectFencedDivTargets(tree).has(key)) return false;
+  const keyNode = referenceKeyNode(reference);
+  if (!keyNode) return false;
+  view.dispatch({
+    selection: EditorSelection.cursor(
+      direction === "right" ? keyNode.from : keyNode.to,
+    ),
+    scrollIntoView: true,
+    userEvent: "select",
+  });
+  return true;
+}
+
 function enterRenderedMath(view: EditorView, direction: "left" | "right"): boolean {
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
@@ -942,6 +1345,17 @@ export const cstMathKeyboardNavigation: Extension = keymap.of([
   },
 ]);
 
+export const cstFencedDivReferenceKeyboardNavigation: Extension = keymap.of([
+  {
+    key: "ArrowRight",
+    run: (view) => enterRenderedFencedDivReference(view, "right"),
+  },
+  {
+    key: "ArrowLeft",
+    run: (view) => enterRenderedFencedDivReference(view, "left"),
+  },
+]);
+
 export const cstEditTheme: Extension = EditorView.theme({
   ".cf-cst-superscript": {
     fontSize: "0.78em",
@@ -958,6 +1372,30 @@ export const cstEditTheme: Extension = EditorView.theme({
     color: "var(--cf-fg)",
     fontFamily: "var(--cf-content-font)",
     fontWeight: "700",
+  },
+  [`.${CSS.blockquoteMark}`]: {
+    color: "var(--cf-muted)",
+    fontFamily: "var(--cf-code-font)",
+  },
+  [`.${CSS.fencedDivHeader}`]: {
+    color: "var(--cf-fg)",
+    cursor: "pointer",
+    fontStyle: "normal",
+    fontWeight: "700",
+  },
+  [`.${CSS.fencedDivSource}`]: {
+    color: "var(--cf-muted)",
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "0.86em",
+    fontStyle: "normal",
+    fontWeight: "400",
+  },
+  [`.${CSS.fencedDivReference}`]: {
+    color: "var(--cf-accent)",
+    cursor: "pointer",
+    textDecoration: "underline",
+    textDecorationStyle: "dotted",
+    textUnderlineOffset: "0.16em",
   },
   ".cm-line.cf-cst-code-block": {
     backgroundColor: "var(--cf-subtle)",
@@ -991,5 +1429,6 @@ export const cstEditSurface: Extension = [
   cstTableSurface,
   cstEditDecorationPlugin,
   cstMathKeyboardNavigation,
+  cstFencedDivReferenceKeyboardNavigation,
   cstEditTheme,
 ];

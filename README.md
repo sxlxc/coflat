@@ -54,6 +54,8 @@ as semantic HTML tables; clicking one reveals its Markdown source and keeps a
 live table preview beside the edit. All content can be edited as Markdown
 without using a mouse.
 
+Fenced div openers render as bold, unnumbered class labels with an optional parenthesized `title`; common class abbreviations such as `thm` and `lem` expand to their full labels. A fenced div `#id` resolves from simple `@id` and `[@id]` references. Entering an opener or reference reveals its literal source, and blockquote `>` markers use the source monospace font.
+
 ## Public entries
 
 - `@chaoxu/coflat` — the editable CST-backed editor

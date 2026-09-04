@@ -45,8 +45,20 @@ export const coflatTheme = EditorView.theme({
   ".cm-gutters": {
     display: "none",
   },
+  // CM6's positioning rectangle follows browser caret metrics, which Firefox
+  // expands to the full line height on an empty row. Keep that rectangle for
+  // placement, but paint a fixed text-height cursor at its center.
   ".cm-cursor": {
-    borderLeftColor: "var(--cf-fg)",
+    borderLeft: "0",
+  },
+  ".cm-cursor::after": {
+    borderLeft: "1.2px solid var(--cf-fg)",
+    content: "\"\"",
+    height: "1.2em",
+    left: "0",
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
   },
   // CM6's synthetic multi-line rectangles fill out to the content edges.
   // Keep its cursor layer, but paint each selection over its actual text.
