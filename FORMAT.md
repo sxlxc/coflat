@@ -22,7 +22,7 @@ Ordered by how often agents get them wrong:
 2. **Use standard Pandoc structure.** Blockquotes, definition lists, indented code, and reference-style links are accepted by the fixed dialect. Use fenced divs when the content needs theorem-like semantics or a stable block id.
 3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text, not markdown or math.
 4. **Nest divs with more colons outside.** The outer div uses more colons than the inner (`::::` outside, `:::` inside); same-count nesting misparses. Every div needs its matching explicit closer with the same colon count as its opener.
-5. **Math uses `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`**, never backticks or code fences. A source-only `{#eq:name}` after display math is literal in the fixed dialect and does not create an equation target. Escape a literal dollar in prose as `\$`.
+5. **Math uses `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`**, never backticks or code fences. To label display math, wrap it in `::: {.equation #eq:name}`; do not append pandoc-crossref-style `{#eq:name}` text after the math. Escape a literal dollar in prose as `\$`.
 6. **Cross-reference with `[@id]` or narrative `@id`** using the prefix conventions in "Cross-References"; a bare key without a known prefix is treated as a BibTeX citation.
 7. **Do not rely on disabled extensions** such as `==mark==`, alerts, wikilinks, emoji shortcodes, bare-URI autolinks, or GFM-only math forms. They remain literal text. See "Disabled Extensions".
 8. **Code fences are only for literal artifacts** — code, command output, raw data, certificates, and algorithm bodies — never for prose, mathematical statements, or formulas.
@@ -321,17 +321,31 @@ $$
 
 Display math can interrupt a paragraph (no blank line required before `$$` or `\[`).
 
-### Equation attributes
+### Labeled display equations
 
-Display math uses `$$...$$` or `\[...\]`. In the fixed dialect, a following Pandoc attribute is a separate literal paragraph rather than part of the math node:
+Display math uses `$$...$$` or `\[...\]`. To give one display equation a stable cross-reference target, place exactly that math block inside an `.equation` fenced div with an `#eq:` ID:
 
 ```markdown
+::: {.equation #eq:einstein}
 $$
 E = mc^2
-$$ {#eq:einstein}
+$$
+:::
 ```
 
-This source does not create a CST equation target, so `[@eq:einstein]` remains unresolved unless a downstream renderer supplies that target. Raw LaTeX `\begin{equation}\label{eq:...}...\end{equation}` is allowed as opaque raw TeX but likewise does not add a CST equation target.
+The fenced div is a native Pandoc `Div`: its `#eq:einstein` identifier survives parsing, while its body remains ordinary display math. Reference it with `[@eq:einstein]` or narrative `@eq:einstein`. An `.equation` div must have one `#eq:` ID, contain exactly one display math block, and have no `title` or other body content. Use bare display math when no reference target is needed.
+
+For LaTeX export, `.equation` follows the environment-backed fenced-div convention: the class selects the `equation` environment, the div ID becomes its label, and the sole display-math contents become the environment body.
+
+```latex
+\begin{equation}\label{eq:einstein}
+E = mc^2
+\end{equation}
+```
+
+Coflat does not use pandoc-crossref equation-label syntax. A trailing `{#eq:einstein}` after `$$...$$` is literal text in Pandoc's AST and is not a canonical Coflat equation label. Raw LaTeX `\begin{equation}\label{...}...\end{equation}` is opaque raw TeX and is likewise not the canonical authoring form.
+
+This convention defines equation identity only. Coflat does not yet automatically number all display math; that numbering policy is intentionally deferred.
 
 **Escape rules.** A literal dollar sign in prose is written `\$` and does not open inline math. Inside `$...$` inline math, a backslash escapes the following character, so `$ \$50 $` is a math span containing a literal `$`. Display math `\[...\]` and inline math `\(...\)` are the LaTeX-style alternative syntaxes for `$$...$$` and `$...$`; the same backslash-escape applies to their contents. Dollar-math is suppressed inside fenced code blocks and inline code spans.
 
@@ -452,6 +466,7 @@ Display math and fenced divs are independent block structures. A display math op
 | `conjecture` | theorem | italic | -- |
 | `definition` | definition | normal | -- |
 | `problem` | theorem | normal | -- |
+| `equation` | -- (numbering deferred) | normal | exactly one labeled display math block |
 | `example` | -- (unnumbered) | normal | -- |
 | `remark` | -- (unnumbered) | normal | -- |
 | `proof` | -- (unnumbered) | normal | QED tombstone at end |
@@ -591,6 +606,7 @@ IDs are conventionally prefixed by target kind. The LaTeX exporter uses these pr
 | `cor:` | corollary |
 | `prop:` | proposition |
 | `def:` | definition |
+| `eq:` | equation |
 | `fig:` | figure |
 | `tbl:` | table |
 | `alg:` | algorithm |
@@ -784,6 +800,7 @@ Each built-in block maps to a LaTeX environment. Unknown classes are passed thro
 | `.conjecture` | `conjecture` | |
 | `.definition` | `definition` | |
 | `.problem` | `problem` | |
+| `.equation` | `equation` | Sole display math becomes the environment body; `#id` → `\label` |
 | `.example` | `example` | |
 | `.remark` | `remark` | |
 | `.proof` | `proof` | |
@@ -800,7 +817,7 @@ Each built-in block maps to a LaTeX environment. Unknown classes are passed thro
 | `$...$` | `\(...\)` |
 | `\(...\)` | `\(...\)` (passthrough) |
 | `$$...$$` | `\[...\]` |
-| `$$...$$ {#eq:id}` | display math followed by literal attribute text |
+| `$$...$$ {#eq:id}` | display math followed by literal text; not a Coflat equation label |
 | `==highlight==` | literal text (`mark` is disabled) |
 | `[@id]` where `id` begins with an xref prefix | `\cref{id}` |
 | `[@id]` otherwise | `\cite{id}` |
