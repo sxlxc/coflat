@@ -14,6 +14,7 @@ interface TypographySnapshot {
 
 interface TypographyEditorHarness {
   getDoc(): string;
+  setDoc(doc: string): void;
   scrollToPosition(position: number): void;
 }
 
@@ -92,6 +93,135 @@ test("renders hierarchical section numbers as heading presentation", async ({ pa
     getComputedStyle(element, "::before").content
   );
   expect(generatedNumber).toContain("1.");
+});
+
+test("renders inline and display KaTeX at the document font size", async ({ page }) => {
+  await page.evaluate(() => {
+    const editor = (window as unknown as {
+      __coflatTypographyEditor: TypographyEditorHarness;
+    }).__coflatTypographyEditor;
+    editor.setDoc("Inline $x^2$.\n\n$$y^2$$");
+  });
+
+  const sizes = await page.evaluate(() => {
+    const fontSize = (selector: string): string => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`Missing math fixture element: ${selector}`);
+      return getComputedStyle(element).fontSize;
+    };
+    return {
+      inline: fontSize(".cf-math-inline .katex"),
+      display: fontSize(".cf-math-display .katex"),
+    };
+  });
+
+  expect(Number.parseFloat(sizes.inline)).toBeCloseTo(18);
+  expect(Number.parseFloat(sizes.display)).toBeCloseTo(18);
+});
+
+test("keeps an inline math preview within the existing line height", async ({ page }) => {
+  await page.evaluate(() => {
+    const editor = (window as unknown as {
+      __coflatTypographyEditor: TypographyEditorHarness;
+    }).__coflatTypographyEditor;
+    editor.setDoc("Before $x^2$ after.");
+  });
+  await page.evaluate(() => document.fonts.ready);
+
+  const line = page.locator(".cm-line").first();
+  const heightBefore = await line.evaluate((element) =>
+    element.getBoundingClientRect().height
+  );
+  await page.locator(".cf-math-inline:not(.cf-cst-math-preview)").click();
+
+  const preview = page.locator(".cf-math-inline.cf-cst-math-preview");
+  await expect(preview).toBeVisible();
+  const heightAfter = await line.evaluate((element) =>
+    element.getBoundingClientRect().height
+  );
+  const previewHeight = await preview.evaluate((element) =>
+    element.getBoundingClientRect().height
+  );
+
+  expect(Math.abs(heightAfter - heightBefore)).toBeLessThanOrEqual(0.5);
+  expect(previewHeight).toBeLessThanOrEqual(heightAfter + 0.5);
+});
+
+test("keeps display math in place and reveals its source afterward", async ({ page }) => {
+  await page.evaluate(() => {
+    const editor = (window as unknown as {
+      __coflatTypographyEditor: TypographyEditorHarness;
+    }).__coflatTypographyEditor;
+    editor.setDoc([
+      "Before",
+      "",
+      "$$",
+      "\\int_0^1 x^2\\,dx = \\frac{1}{3}",
+      "$$",
+      "",
+      "After",
+    ].join("\n"));
+  });
+  await page.evaluate(() => document.fonts.ready);
+
+  const rendered = page.locator(
+    ".cf-math-display:not(.cf-cst-math-preview)",
+  );
+  await expect(rendered).toBeVisible();
+  const before = await rendered.evaluate((element) => {
+    const math = element.querySelector<HTMLElement>(".katex-display");
+    if (!math) throw new Error("Missing rendered display math");
+    const outerRect = element.getBoundingClientRect();
+    const mathRect = math.getBoundingClientRect();
+    return {
+      label: element.getAttribute("aria-label"),
+      outerTop: outerRect.top,
+      mathWidth: mathRect.width,
+      mathHeight: mathRect.height,
+      paddingTop: getComputedStyle(element).paddingTop,
+    };
+  });
+
+  await rendered.click();
+  const preview = page.locator(".cf-math-display.cf-cst-math-preview");
+  await expect(preview).toBeVisible();
+  await expect(page.locator(".cf-math-source")).not.toHaveCount(0);
+  const after = await preview.evaluate((element) => {
+    const math = element.querySelector<HTMLElement>(".katex-display");
+    const source = document.querySelector<HTMLElement>(
+      ".cf-source-delimiter, .cf-math-source",
+    );
+    if (!math || !source) throw new Error("Missing active display math content");
+    const outerRect = element.getBoundingClientRect();
+    const mathRect = math.getBoundingClientRect();
+    const sourceRect = source.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      borderTopWidth: style.borderTopWidth,
+      boxShadow: style.boxShadow,
+      label: element.getAttribute("aria-label"),
+      outerTop: outerRect.top,
+      outerBottom: outerRect.bottom,
+      mathWidth: mathRect.width,
+      mathHeight: mathRect.height,
+      paddingTop: style.paddingTop,
+      previewPrecedesSource: Boolean(
+        element.compareDocumentPosition(source)
+        & Node.DOCUMENT_POSITION_FOLLOWING
+      ),
+      sourceTop: sourceRect.top,
+    };
+  });
+
+  expect(after.label).toBe(before.label);
+  expect(Math.abs(after.outerTop - before.outerTop)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(after.mathWidth - before.mathWidth)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(after.mathHeight - before.mathHeight)).toBeLessThanOrEqual(0.5);
+  expect(after.paddingTop).toBe(before.paddingTop);
+  expect(after.borderTopWidth).toBe("0px");
+  expect(after.boxShadow).toBe("none");
+  expect(after.previewPrecedesSource).toBe(true);
+  expect(after.sourceTop).toBeGreaterThanOrEqual(after.outerBottom - 0.5);
 });
 
 test("keeps the same measure and scale in the blueprint theme", async ({ page }) => {

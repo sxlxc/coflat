@@ -109,6 +109,11 @@
   vertical-align: baseline;
 }
 
+.cf-doc-inline-math .katex,
+.cf-doc-display-math .katex {
+  font-size: 1em;
+}
+
 .cf-doc-display-math,
 .cf-math-display {
   box-sizing: border-box;

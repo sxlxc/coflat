@@ -1097,7 +1097,9 @@ function buildDisplayMathDecorationState(
 
     ranges.push(
       isActive
-        ? Decoration.widget({ widget, block: true, side: 1 }).range(node.to)
+        ? Decoration.widget({ widget, block: true, side: -1 }).range(
+            displayMathReplacementFrom(state, node),
+          )
         : Decoration.replace({ widget, block: true }).range(
             displayMathReplacementFrom(state, node),
             node.to,
@@ -1549,20 +1551,26 @@ export const cstEditTheme: Extension = EditorView.theme({
   },
   ".cf-cst-math-preview": {
     background: "var(--cf-bg)",
-    border: "1px solid var(--cf-border)",
+  },
+  ".cf-math-inline.cf-cst-math-preview": {
+    border: "0",
     borderRadius: "3px",
-    boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
+    boxShadow:
+      "inset 0 0 0 1px var(--cf-border), 0 4px 14px rgba(0, 0, 0, 0.12)",
+    boxSizing: "border-box",
     display: "inline-block",
-    marginInlineStart: "0.45em",
-    padding: "0.15em 0.4em",
-    verticalAlign: "middle",
+    margin: "0 0 0 0.25em",
+    padding: "0 0.25em",
+    verticalAlign: "baseline",
   },
   ".cf-math-display.cf-cst-math-preview": {
+    border: "0",
+    borderRadius: "0",
+    boxShadow: "none",
     display: "block",
-    marginBlock: "0.45em",
-    marginInline: "auto",
-    padding: "0.45em 0.75em",
-    width: "fit-content",
+    margin: "0",
+    padding: "0.35em 0",
+    width: "auto",
   },
 });
 
