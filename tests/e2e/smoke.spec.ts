@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 interface EditorHarness {
   focus(): void;
@@ -11,6 +11,20 @@ interface EditorHarness {
   getDoc(): string;
   setDoc(doc: string): void;
   scrollToPosition(position: number): void;
+}
+
+async function cursorLineNumber(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const view = (window as unknown as {
+      __coflatEditorView: {
+        state: {
+          doc: { lineAt(position: number): { number: number } };
+          selection: { main: { head: number } };
+        };
+      };
+    }).__coflatEditorView;
+    return view.state.doc.lineAt(view.state.selection.main.head).number;
+  });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -237,6 +251,57 @@ test("renders a table and opens its live editing preview on click", async ({ pag
   expect(state.doc).toContain("| **AlphaX** | 1 |");
   expect(state.cst).toBe(state.doc);
   await expect(preview.locator("tbody strong")).toHaveText("AlphaX");
+});
+
+test("maps pointer clicks to the visible source line after a rendered table", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const source = [
+      "| Item | Value |",
+      "| --- | --- |",
+      "| Alpha | 1 |",
+      "# Title after table",
+      "First paragraph line.",
+      "Click target paragraph.",
+      "Last paragraph line.",
+    ].join("\n");
+    mounted.setDoc(source);
+    mounted.scrollToPosition(source.indexOf("Last paragraph"));
+  });
+
+  const target = page.locator("#editor-root .cm-line", {
+    hasText: "Click target paragraph.",
+  });
+  await expect(target).toHaveCount(1);
+  await target.click({ position: { x: 40, y: 8 } });
+
+  expect(await cursorLineNumber(page)).toBe(6);
+});
+
+test("moves the cursor to the preceding line above a paragraph after a table", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    const source = [
+      "| Item | Value |",
+      "| --- | --- |",
+      "| Alpha | 1 |",
+      "# Title after table",
+      "Paragraph after title.",
+    ].join("\n");
+    mounted.setDoc(source);
+    mounted.scrollToPosition(source.indexOf("Paragraph"));
+    mounted.focus();
+  });
+
+  await page.keyboard.press("ArrowUp");
+
+  expect(await cursorLineNumber(page)).toBe(4);
 });
 
 test("bounds multi-line code selection to text inside the padded background", async ({ page }) => {

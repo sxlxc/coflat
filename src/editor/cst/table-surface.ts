@@ -794,9 +794,10 @@ export const cstTableTheme: Extension = EditorView.theme({
   ".cf-cst-table": {
     boxSizing: "border-box",
     cursor: "pointer",
-    marginBlock: "0.55em",
     maxWidth: "100%",
     overflowX: "auto",
+    // CM6's block-widget height map does not include vertical margins.
+    paddingBlock: "0.55em",
     width: "100%",
   },
   ".cf-cst-table:hover": {
