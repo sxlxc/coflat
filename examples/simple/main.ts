@@ -7,6 +7,12 @@ import "./style.css";
 
 const editorRoot = document.querySelector<HTMLElement>("#editor");
 if (!editorRoot) throw new Error("Missing #editor root");
+const viewSourceButton = document.querySelector<HTMLButtonElement>("#view-source");
+if (!viewSourceButton) throw new Error("Missing #view-source button");
+const sourceDialog = document.querySelector<HTMLDialogElement>("#source-dialog");
+if (!sourceDialog) throw new Error("Missing #source-dialog");
+const documentSource = document.querySelector<HTMLElement>("#document-source");
+if (!documentSource) throw new Error("Missing #document-source");
 
 const documents = {
   showcase: showcaseDoc,
@@ -17,6 +23,11 @@ type DocumentId = keyof typeof documents;
 const editor = mountEditor({
   parent: editorRoot,
   doc: documents.showcase,
+});
+
+viewSourceButton.addEventListener("click", () => {
+  documentSource.textContent = editor.getDoc();
+  sourceDialog.showModal();
 });
 
 function isDocumentId(value: string | undefined): value is DocumentId {

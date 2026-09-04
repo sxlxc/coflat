@@ -338,3 +338,22 @@ test("can replace the entire document using only the keyboard", async ({ page })
     doc: "Everything is source-editable.",
   });
 });
+
+test("showcase source layer displays the current document", async ({ page }) => {
+  await page.goto("/examples/simple/");
+  await expect(page.locator("#editor .cm-editor")).toBeVisible();
+
+  const source = "# Current source\n\nEdited in the showcase.";
+  await page.locator("#editor .cm-content").click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.insertText(source);
+  await page.getByRole("button", { name: "View source" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Document source" });
+  await expect(dialog).toBeVisible();
+  expect(await dialog.locator("code").textContent()).toBe(source);
+
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "View source" })).toBeFocused();
+});

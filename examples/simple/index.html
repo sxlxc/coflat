@@ -21,6 +21,18 @@
             Format guide
           </a>
         </nav>
+        <div class="demo-tools">
+          <div class="demo-tools-label">Development</div>
+          <button
+            id="view-source"
+            class="demo-source-button"
+            type="button"
+            aria-controls="source-dialog"
+            aria-haspopup="dialog"
+          >
+            View source
+          </button>
+        </div>
         <nav class="demo-nav demo-nav-secondary" aria-label="Project links">
           <a href="https://github.com/chaoxu/coflat">GitHub</a>
           <a href="https://github.com/chaoxu/coflat/blob/main/FORMAT.md">FORMAT.md</a>
@@ -30,6 +42,15 @@
         <div id="editor"></div>
       </main>
     </div>
+    <dialog id="source-dialog" class="demo-source-dialog" aria-labelledby="source-dialog-title">
+      <div class="demo-source-header">
+        <h2 id="source-dialog-title">Document source</h2>
+        <form method="dialog">
+          <button class="demo-source-close" type="submit">Close</button>
+        </form>
+      </div>
+      <pre class="demo-source-code"><code id="document-source"></code></pre>
+    </dialog>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
