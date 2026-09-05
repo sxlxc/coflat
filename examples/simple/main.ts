@@ -2,6 +2,8 @@ import "katex/dist/katex.min.css";
 import "../../src/editor/editor-theme.css";
 import { mountEditor } from "../../editor";
 import formatDoc from "../../FORMAT.md?raw";
+import exampleDoc from "./example.md?raw";
+import referenceBibliography from "./ref.bib?raw";
 import showcaseDoc from "./showcase.md?raw";
 import "./style.css";
 
@@ -17,12 +19,17 @@ if (!documentSource) throw new Error("Missing #document-source");
 const documents = {
   showcase: showcaseDoc,
   format: formatDoc,
+  example: exampleDoc,
 } as const;
 type DocumentId = keyof typeof documents;
 
 const editor = mountEditor({
   parent: editorRoot,
   doc: documents.showcase,
+  readTextResource: async (path) => {
+    if (path === "ref.bib") return referenceBibliography;
+    throw new Error(`Unknown example resource: ${path}`);
+  },
 });
 
 viewSourceButton.addEventListener("click", () => {
@@ -31,7 +38,7 @@ viewSourceButton.addEventListener("click", () => {
 });
 
 function isDocumentId(value: string | undefined): value is DocumentId {
-  return value === "showcase" || value === "format";
+  return value === "showcase" || value === "format" || value === "example";
 }
 
 for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-doc-id]")) {
