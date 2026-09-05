@@ -540,31 +540,42 @@ describe("CST edit surface tables", () => {
     expect(rendered?.querySelector("tbody tr:first-child")?.textContent).toBe("");
   });
 
-  it("snaps table clicks to UTF-16 code-point boundaries", () => {
+  it.each(["\n", "\r\n"])("maps every click in a cell to its source start with %j line endings", (lineEnding) => {
     const doc = [
       "Before",
       "",
       "| Item | Value |",
       "| --- | --- |",
-      "| 😀 | 1 |",
-    ].join("\n");
+      "| 😀 中文 | **value** |",
+      "| next ||",
+    ].join(lineEnding);
     const parent = mount(doc);
-    const cell = parent.querySelector<HTMLElement>(
-      ".cf-cst-table:not(.cf-cst-table-preview) tbody td",
-    );
-    if (!cell || !editor) throw new Error("Missing rendered table cell");
-    cell.getBoundingClientRect = () => new DOMRect(0, 0, 100, 20);
-
-    cell.dispatchEvent(new MouseEvent("mousedown", {
-      bubbles: true,
-      button: 0,
-      clientX: 50,
-    }));
-
-    const emojiFrom = doc.indexOf("😀");
-    expect(editor.state.selection.main.head).toBe(emojiFrom + 2);
-    editor.dispatch({ changes: { from: emojiFrom + 2, insert: "X" } });
-    expect(editor.state.doc.toString()).toContain("| 😀X | 1 |");
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.state.doc.toString();
+    const tree = getPandocTree(editor.state);
+    for (const [selector, anchor] of [
+      ["tbody tr:first-child td:first-child", source.indexOf("😀")],
+      ["tbody strong", source.indexOf("**value**")],
+      ["thead th:last-child", source.indexOf("Value")],
+      ["tbody tr:last-child td:last-child", source.indexOf("||") + 1],
+    ] as const) {
+      for (const clientX of [0, 50, 99]) {
+        const target = parent.querySelector<HTMLElement>(`.cf-cst-table ${selector}`);
+        if (!target) throw new Error("Missing rendered table cell");
+        const cell = target.closest("td, th");
+        if (!cell) throw new Error("Missing cell container");
+        cell.getBoundingClientRect = () => new DOMRect(0, 0, 100, 20);
+        target.dispatchEvent(new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX,
+        }));
+        expect(editor.state.selection.main.head).toBe(anchor);
+        expect(editor.state.selection.main.empty).toBe(true);
+        expect(editor.state.doc.toString()).toBe(source);
+        expect(getPandocTree(editor.state)).toBe(tree);
+      }
+    }
   });
 
   it("visibly marks inactive block replacements covered by a selection", () => {

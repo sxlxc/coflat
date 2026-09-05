@@ -531,18 +531,6 @@ function trimSourceBounds(
   };
 }
 
-function nearestCodePointBoundary(source: string, target: number): number {
-  let previous = 0;
-  for (const character of source) {
-    const next = previous + character.length;
-    if (target <= next) {
-      return target - previous < next - target ? previous : next;
-    }
-    previous = next;
-  }
-  return source.length;
-}
-
 function currentCellSlot(
   table: SyntaxNode,
   section: TableSection,
@@ -556,11 +544,10 @@ function currentCellSlot(
   return normalizedSlots(row, columns)[column] ?? null;
 }
 
-function tablePositionFromPointer(
+function tableCellSourcePosition(
   view: EditorView,
   table: SyntaxNode,
   cell: HTMLElement | null,
-  event: MouseEvent,
 ): number {
   if (!cell) {
     const firstRow = sectionRows(table, "TableHead")[0]
@@ -574,20 +561,11 @@ function tablePositionFromPointer(
   const column = Number.parseInt(cell.dataset.column ?? "0", 10);
   const slot = currentCellSlot(table, section, row, column);
   if (!slot) return table.from;
-  const bounds = trimSourceBounds(
+  return trimSourceBounds(
     view.state,
     slot.node?.from ?? slot.from,
     slot.node?.to ?? slot.to,
-  );
-  const rect = cell.getBoundingClientRect();
-  const fraction = rect.width > 0
-    ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-    : 0;
-  const source = view.state.sliceDoc(bounds.from, bounds.to);
-  return bounds.from + nearestCodePointBoundary(
-    source,
-    source.length * fraction,
-  );
+  ).from;
 }
 
 function resolveWidgetTable(
@@ -701,7 +679,7 @@ class CstTableWidget extends WidgetType {
       const target = event.target instanceof Element
         ? event.target.closest<HTMLElement>("[data-cst-table-cell]")
         : null;
-      const anchor = tablePositionFromPointer(view, current, target, event);
+      const anchor = tableCellSourcePosition(view, current, target);
       event.preventDefault();
       event.stopPropagation();
       view.focus();
@@ -752,7 +730,7 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
     }
     ranges.push(
       isActive
-        ? Decoration.widget({ widget, block: true, side: 1 }).range(node.to)
+        ? Decoration.widget({ widget, block: true, side: -1 }).range(node.from)
         : Decoration.replace({ widget, block: true }).range(node.from, node.to),
     );
     return false;
@@ -900,16 +878,6 @@ export const cstTableTheme: Extension = EditorView.theme({
   ".cf-cst-table:hover": {
     outline: "1px solid var(--cf-border)",
     outlineOffset: "2px",
-  },
-  ".cf-cst-table-preview": {
-    background: "var(--cf-bg)",
-    border: "1px solid var(--cf-border)",
-    borderRadius: "3px",
-    boxShadow: "0 4px 14px rgba(0, 0, 0, 0.12)",
-    padding: "0.5em",
-  },
-  ".cf-cst-table-preview:hover": {
-    outline: "none",
   },
 });
 

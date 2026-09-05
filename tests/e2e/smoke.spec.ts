@@ -665,6 +665,65 @@ test("renders a table and opens its live editing preview on click", async ({ pag
   await expect(preview.locator("tbody strong")).toHaveText("AlphaX");
 });
 
+test("keeps the table in place above its source and navigates by cell", async ({ page }) => {
+  const source = "Before\n\n| Item | Value |\n| --- | --- |\n| 😀 中文 | **value** |\n\nAfter";
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(0);
+  }, source);
+  const table = page.locator(".cf-cst-table table");
+  const original = await table.boundingBox();
+  if (!original) throw new Error("Missing table geometry");
+  const cell = table.locator("tbody td").first();
+  const cellBox = await cell.boundingBox();
+  if (!cellBox) throw new Error("Missing cell geometry");
+  await cell.click({ position: { x: cellBox.width - 3, y: cellBox.height / 2 } });
+
+  const sourceLines = page.locator(".cm-line.cf-table-source");
+  await expect(sourceLines).toHaveCount(3);
+  await expect.poll(async () => {
+    const current = await table.boundingBox();
+    return current && Math.abs(current.y - original.y);
+  }).toBeLessThan(1);
+  const active = await table.boundingBox();
+  const firstSource = await sourceLines.first().boundingBox();
+  if (!active || !firstSource) throw new Error("Missing editing geometry");
+  expect(active.x).toBeCloseTo(original.x, 0);
+  expect(active.width).toBeCloseTo(original.width, 0);
+  expect(active.height).toBeCloseTo(original.height, 0);
+  expect(firstSource.y).toBeGreaterThanOrEqual(active.y + active.height);
+
+  const cursorPosition = () => page.evaluate(() => (
+    (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor.getCursorContext()?.position
+  ));
+  expect(await cursorPosition()).toBe(source.indexOf("😀"));
+  await cell.click({ position: { x: 3, y: cellBox.height / 2 } });
+  expect(await cursorPosition()).toBe(source.indexOf("😀"));
+  await table.locator("tbody strong").click();
+  expect(await cursorPosition()).toBe(source.indexOf("**value**"));
+  await expect(page.locator(".cm-content")).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.insertText("X");
+  await expect(table.locator("tbody strong")).toHaveText("Xvalue");
+  const edited = source.replace("**value**", "**Xvalue**");
+  expect(await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return { doc: mounted.getDoc(), cst: mounted.getCst()?.text };
+  })).toEqual({ doc: edited, cst: edited });
+
+  await page.keyboard.press("ControlOrMeta+End");
+  await expect(sourceLines).toHaveCount(0);
+  for (let step = 0; step < "\n\nAfter".length; step += 1) {
+    await page.keyboard.press("ArrowLeft");
+  }
+  await expect(sourceLines).toHaveCount(3);
+});
+
 test("maps pointer clicks to the visible source line after a rendered table", async ({
   page,
 }) => {
