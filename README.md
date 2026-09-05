@@ -40,6 +40,9 @@ const editor = mountEditor({
   onCursorContextChange({ block, inline }) {
     console.log(block?.kind, inline?.kind);
   },
+  async readTextResource(path) {
+    return workspace.readTextRelativeToCurrentDocument(path);
+  },
 });
 ```
 
@@ -54,13 +57,9 @@ as semantic HTML tables; clicking one reveals its Markdown source and keeps a
 live table preview beside the edit. All content can be edited as Markdown
 without using a mouse.
 
-YAML metadata remains part of the editable source but is collapsed behind a
-small `YAML` button. A string `title` is presented as the centered paper title,
-and `math` entries are passed to every KaTeX surface as document macros.
-`bibliography` is parsed as metadata but bibliography loading and rendering are
-not yet part of the editor surface.
+YAML metadata remains part of the editable source but is collapsed behind a small `YAML` button. A string `title` is presented as the centered paper title, and `math` entries are passed to every KaTeX surface as document macros. When `bibliography` is present, Coflat asks the host's `readTextResource` callback for the declared bibliography and optional `csl` files, renders citations with CSL (IEEE by default), and appends the cited bibliography entries. Citation-js is loaded lazily only for such documents.
 
-Fenced div openers render as bold, unnumbered class labels with an optional parenthesized `title`; common class abbreviations such as `thm` and `lem` expand to their full labels. A fenced div `#id` resolves from simple `@id` and `[@id]` references. Entering an opener or reference reveals its literal source, and blockquote `>` markers use the source monospace font.
+Theorem, lemma, corollary, proposition, figure, and table fenced divs share one source-order counter; proofs, remarks, and every other class stay unnumbered. Common abbreviations such as `thm`, `lem`, `fig`, and `tbl` use the same policy. Display math inside `.equation` or `.eq` fenced divs has a separate `(1)`, `(2)`, … sequence; ordinary display math stays unnumbered, and an equation wrapper's `#id` attaches an autoref target to its sole display equation. A fenced-div `#id` resolves from simple `@id` and `[@id]` references, with local targets taking precedence over bibliography keys. Entering an opener or rendered reference reveals its literal source.
 
 ## Public entries
 

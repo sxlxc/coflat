@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
+  BibliographyStatus,
   EditorDocumentChange,
   MountEditorOptions,
   MountedEditor,
@@ -47,6 +48,8 @@ describe("package editor export", () => {
       PublicCursor["block"],
       PublicSave | undefined,
       PublicEvents | undefined,
+      BibliographyStatus | undefined,
+      PublicOptions["readTextResource"],
     ] | null = null;
     expect(_typecheck).toBeNull();
   });

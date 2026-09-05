@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { CSS } from "../../core/constants/css-classes";
 import { createSimpleEditor } from "../simple-editor";
+import { cstDisplayMathDecorationField } from "./edit-surface";
+import { getPandocTree } from "./pandoc-cst-field";
 
 describe("CST edit surface list markers", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
@@ -204,7 +206,7 @@ describe("CST edit surface block presentation", () => {
       [...parent.querySelectorAll(`.${CSS.fencedDivHeader}`)].map(
         (header) => header.textContent,
       ),
-    ).toEqual(["Theorem", "Lemma"]);
+    ).toEqual(["Theorem 1", "Lemma 2"]);
     expect(editor?.state.doc.toString()).toBe(doc);
   });
 
@@ -224,7 +226,7 @@ describe("CST edit surface block presentation", () => {
     );
 
     expect([...references].map((reference) => reference.textContent))
-      .toEqual(["Theorem", "Theorem"]);
+      .toEqual(["Theorem 1", "Theorem 1"]);
     expect([...references].map((reference) => reference.dataset.referenceId))
       .toEqual(["main-result", "main-result"]);
     expect(editor?.state.doc.toString()).toBe(doc);
@@ -243,7 +245,7 @@ describe("CST edit surface block presentation", () => {
 
     editor.dispatch({ selection: { anchor: doc.indexOf("Body") + 2 } });
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
-      .toBe("Theorem (Main result)");
+      .toBe("Theorem 1 (Main result)");
 
     const header = parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader}`);
     header?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
@@ -253,6 +255,27 @@ describe("CST edit surface block presentation", () => {
     expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent)
       .toBe('::: {.thm #result title="Main result"}');
     expect(editor.state.doc.toString()).toBe(doc);
+  });
+
+  it("renders inline math in fenced-div titles with document macros", () => {
+    const doc = [
+      "---",
+      "math:",
+      '  R: "\\\\mathbb{R}"',
+      "---",
+      "",
+      '::: {.thm title="Maps $f\\colon X \\to \\R$ and \\(g\\)"}',
+      "Body.",
+      ":::",
+    ].join("\n");
+    const parent = mount(doc);
+    const header = parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader}`);
+
+    expect(header?.textContent).toContain("Theorem 1 (Maps ");
+    expect(header?.textContent).not.toContain("$");
+    expect(header?.querySelectorAll(".katex")).toHaveLength(2);
+    expect(header?.querySelector(`.${CSS.mathError}`)).toBeNull();
+    expect(editor?.state.doc.toString()).toBe(doc);
   });
 
   it("updates headers and references after an attribute edit", () => {
@@ -268,17 +291,17 @@ describe("CST edit surface block presentation", () => {
     const parent = mount(doc);
     if (!editor) throw new Error("Missing mounted editor");
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
-      .toBe("Theorem");
+      .toBe("Theorem 1");
     expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent)
-      .toBe("Theorem");
+      .toBe("Theorem 1");
 
     const classFrom = doc.indexOf("thm");
     editor.dispatch({ changes: { from: classFrom, to: classFrom + 3, insert: "lem" } });
 
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
-      .toBe("Lemma");
+      .toBe("Lemma 1");
     expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent)
-      .toBe("Lemma");
+      .toBe("Lemma 1");
     expect(editor.state.doc.toString()).toContain("{.lem #result}");
   });
 
@@ -289,6 +312,102 @@ describe("CST edit surface block presentation", () => {
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
       .toBe("Proof (details)");
     expect(editor?.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
+  });
+
+  it("shares one counter across the six numbered fenced-div classes", () => {
+    const doc = [
+      "Before", "",
+      "::: {.thm}", "A", ":::", "",
+      "::: {.remark}", "B", ":::", "",
+      "::: {.fig}", "C", ":::", "",
+      "::: {.definition}", "D", ":::", "",
+      "::: {.tbl}", "E", ":::", "",
+      "::: {.prop}", "F", ":::", "",
+      "::: {.cor}", "G", ":::", "",
+      "::: {.lem}", "H", ":::",
+    ].join("\n");
+    const parent = mount(doc);
+
+    expect(
+      [...parent.querySelectorAll(`.${CSS.fencedDivHeader}`)].map(
+        (header) => header.textContent,
+      ),
+    ).toEqual([
+      "Theorem 1",
+      "Remark",
+      "Figure 2",
+      "Definition",
+      "Table 3",
+      "Proposition 4",
+      "Corollary 5",
+      "Lemma 6",
+    ]);
+    expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it.each(["$$x = 1$$", "::: {.eq #eq:first}\n$$x = 1$$\n:::"])(
+    "maps display math decorations across unrelated prose edits: %s",
+    (math) => {
+      const parent = mount(`Prose.\n\n${math}\n\nAfter.`);
+      if (!editor) throw new Error("Editor was not mounted");
+      const before = editor.state.field(cstDisplayMathDecorationField).decorations.iter().value;
+      editor.dispatch({ changes: { from: 0, insert: "中文 😀 " } });
+      const after = editor.state.field(cstDisplayMathDecorationField).decorations.iter().value;
+      expect(after).toBe(before);
+      expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+      parent.querySelector<HTMLElement>(".cf-math-display")?.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+      );
+      const position = editor.state.selection.main.head;
+      const source = editor.state.doc.toString();
+      expect(position).toBeGreaterThanOrEqual(source.indexOf("x = 1"));
+      expect(position).toBeLessThanOrEqual(source.indexOf("x = 1") + 5);
+    },
+  );
+
+  it("refreshes equation numbering and IDs when its wrapper changes", () => {
+    const parent = mount("Before.\n\n::: {.eq #eq:first}\n$$x = 1$$\n:::");
+    if (!editor) throw new Error("Editor was not mounted");
+    const source = editor.state.doc.toString();
+    editor.dispatch({ changes: { from: source.indexOf("eq:first"), to: source.indexOf("eq:first") + 8, insert: "eq:other" } });
+    expect(parent.querySelector(`.${CSS.mathDisplayNumbered}`)?.id).toBe("eq:other");
+    const from = editor.state.doc.toString().indexOf(".eq");
+    editor.dispatch({ changes: { from, to: from + 3, insert: ".remark" } });
+    expect(parent.querySelector(`.${CSS.mathDisplayNumbered}`)).toBeNull();
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+  });
+
+  it("numbers only equation-div display math and resolves equation labels", () => {
+    const doc = [
+      "Before",
+      "",
+      "$$z = 0$$",
+      "",
+      "::: {.eq #eq:first}",
+      "$$x = 1$$",
+      ":::",
+      "",
+      "See [@eq:first].",
+    ].join("\n");
+    const parent = mount(doc);
+    const displayMath = parent.querySelectorAll<HTMLElement>(
+      ".cf-math-display:not(.cf-cst-math-preview)",
+    );
+    const equations = parent.querySelectorAll<HTMLElement>(
+      `.${CSS.mathDisplayNumbered}:not(.cf-cst-math-preview)`,
+    );
+
+    expect(displayMath).toHaveLength(2);
+    expect(equations).toHaveLength(1);
+    expect([...equations].map((equation) => (
+      equation.querySelector(`.${CSS.mathDisplayNumber}`)?.textContent
+    ))).toEqual(["(1)"]);
+    expect(equations[0]?.id).toBe("eq:first");
+    expect(displayMath[0]?.classList.contains(CSS.mathDisplayNumbered)).toBe(false);
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent)
+      .toBe("(1)");
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)).toBeNull();
+    expect(editor?.state.doc.toString()).toBe(doc);
   });
 });
 

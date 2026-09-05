@@ -12,6 +12,7 @@
     "editor.ts",
     "numeric.ts",
     "latex.ts",
+    "src/editor/types/citation-js.d.ts",
     "src/editor/types/vite-raw.d.ts",
     "src/editor/latex/*.d.mts"
   ],

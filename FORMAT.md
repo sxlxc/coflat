@@ -20,7 +20,7 @@ Ordered by how often agents get them wrong:
 
 1. **One paragraph = one source line.** A single source newline inside a paragraph is preserved visually by the editor, so hard-wrapped prose appears with ragged line breaks. Never wrap prose at a source-column width; a blank line starts a new paragraph. See "Paragraphs and Line Breaks".
 2. **Use standard Pandoc structure.** Blockquotes, definition lists, indented code, and reference-style links are accepted by the fixed dialect. Use fenced divs when the content needs theorem-like semantics or a stable block id.
-3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text, not markdown or math.
+3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text except for inline math delimited by `$...$` or `\(...\)`; other Markdown is not parsed there.
 4. **Nest divs with more colons outside.** The outer div uses more colons than the inner (`::::` outside, `:::` inside); same-count nesting misparses. Every div needs its matching explicit closer with the same colon count as its opener.
 5. **Math uses `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`**, never backticks or code fences. To label display math, wrap it in `::: {.equation #eq:name}`; do not append pandoc-crossref-style `{#eq:name}` text after the math. Escape a literal dollar in prose as `\$`.
 6. **Cross-reference with `[@id]` or narrative `@id`** using the prefix conventions in "Cross-References"; a bare key without a known prefix is treated as a BibTeX citation.
@@ -102,7 +102,6 @@ funding: Document-level funding statement.
 acknowledgements: We thank the reviewers.
 relatedversion: https://arxiv.org/abs/0000.00000
 
-numbering: global
 imageFolder: images
 math:
   \R: "\\mathbb{R}"
@@ -110,10 +109,6 @@ math:
 latex:
   template: article
   bibliography: reference.bib
-blocks:
-  claim:
-    title: Claim
-    counter: theorem
 ---
 ```
 
@@ -182,12 +177,11 @@ the scholarly identity of the article:
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `bibliography` | string | Path to `.bib` file (relative to document). |
+| `bibliography` | string or list of strings | Path(s) to `.bib`, CSL JSON, or CSL YAML data, relative to the document. |
 | `csl` | string | Path to CSL style file. |
-| `numbering` | `"global"` \| `"grouped"` | Block numbering scheme. `global`: all numbered blocks share one counter. `grouped`: each type has its own. |
+| `nocite` | string or list | Pandoc-style keys to include in the bibliography without an inline citation; `@*` includes every loaded entry. |
 | `math` | map | KaTeX macro definitions (`\command: "expansion"`); the leading backslash on a macro name is optional. |
 | `latex` | map | LaTeX export options. Supported keys: `template`, `bibliography`, `csl`. |
-| `blocks` | map | Custom block definitions and overrides (`title`, `numbered`, `counter`, enable/disable). |
 | `imageFolder` | string | Default folder for pasted/dropped images. Also accepts `image-folder`. |
 
 Project-level config in `coflat.yaml` uses the same Coflat document config
@@ -345,7 +339,7 @@ E = mc^2
 
 Coflat does not use pandoc-crossref equation-label syntax. A trailing `{#eq:einstein}` after `$$...$$` is literal text in Pandoc's AST and is not a canonical Coflat equation label. Raw LaTeX `\begin{equation}\label{...}...\end{equation}` is opaque raw TeX and is likewise not the canonical authoring form.
 
-This convention defines equation identity only. Coflat does not yet automatically number all display math; that numbering policy is intentionally deferred.
+Only display-math CST nodes inside `.equation` or `.eq` fenced divs receive a document-global number in source order. Ordinary display math remains unnumbered. The editor places `(1)`, `(2)`, and so on at the right edge without widening the article; an `.equation #id` wrapper associates its ID with its sole display math, so `[@eq:einstein]` renders as `(1)`. The wrapper itself has no separate header or counter entry.
 
 **Escape rules.** A literal dollar sign in prose is written `\$` and does not open inline math. Inside `$...$` inline math, a backslash escapes the following character, so `$ \$50 $` is a math span containing a literal `$`. Display math `\[...\]` and inline math `\(...\)` are the LaTeX-style alternative syntaxes for `$$...$$` and `$...$`; the same backslash-escape applies to their contents. Dollar-math is suppressed inside fenced code blocks and inline code spans.
 
@@ -383,7 +377,7 @@ Statement of the theorem with $math$.
 :::
 ```
 
-The title is a Pandoc attribute. It is plain text, not inline markdown. The editor currently renders a standard block as an unnumbered bold label followed by its parenthesized title: **Theorem (Main Result)**. Publication renderers may add numbering, such as **Theorem 1** (Main Result). For `figure`, `table`, and `algorithm` blocks, the title becomes the publication caption.
+The title is a Pandoc attribute. It is plain text except for inline math delimited by `$...$` or `\(...\)`, which the editor renders with the document's KaTeX macros; other inline Markdown is not parsed. The editor renders the six numbered classes with their shared document-global number and an optional parenthesized title, for example **Theorem 1 (Main Result)**. Other classes render a bold, unnumbered label. For `figure`, `table`, and `algorithm` blocks, the title also becomes the publication caption.
 
 Attributes inside `{...}`:
 - `.classname` -- block type (required, first class is the primary type)
@@ -459,24 +453,24 @@ Display math and fenced divs are independent block structures. A display math op
 
 | Type | Counter group | Body style | Special behavior |
 |------|--------------|-----------|-----------------|
-| `theorem` | theorem | italic | -- |
-| `lemma` | theorem | italic | -- |
-| `corollary` | theorem | italic | -- |
-| `proposition` | theorem | italic | -- |
-| `conjecture` | theorem | italic | -- |
-| `definition` | definition | normal | -- |
-| `problem` | theorem | normal | -- |
-| `equation` | -- (numbering deferred) | normal | exactly one labeled display math block |
+| `theorem` | numbered-block | italic | -- |
+| `lemma` | numbered-block | italic | -- |
+| `corollary` | numbered-block | italic | -- |
+| `proposition` | numbered-block | italic | -- |
+| `conjecture` | -- (unnumbered) | italic | -- |
+| `definition` | -- (unnumbered) | normal | -- |
+| `problem` | -- (unnumbered) | normal | -- |
+| `equation` | equation | normal | exactly one labeled display math block; wrapper header hidden |
 | `example` | -- (unnumbered) | normal | -- |
 | `remark` | -- (unnumbered) | normal | -- |
 | `proof` | -- (unnumbered) | normal | QED tombstone at end |
-| `algorithm` | algorithm | normal | verbatim code-fence body |
-| `algo` | algorithm | normal | line-mode pseudocode body (see below) |
-| `figure` | figure | normal | caption rendered below content |
-| `table` | table | normal | caption rendered below content |
+| `algorithm` | -- (unnumbered) | normal | verbatim code-fence body |
+| `algo` | -- (unnumbered) | normal | line-mode pseudocode body (see below) |
+| `figure` | numbered-block | normal | caption rendered below content |
+| `table` | numbered-block | normal | caption rendered below content |
 | `blockquote` | -- (unnumbered) | normal | header label hidden |
 
-Counter groups: blocks sharing a counter group are numbered together. E.g., Theorem 1, Lemma 2, Corollary 3 all share the "theorem" counter.
+The `numbered-block` counter is fixed and document-global: only theorem, lemma, corollary, proposition, figure, and table advance it, including their abbreviations. For example, Theorem 1, Figure 2, and Lemma 3 form one sequence. Equation numbers form a separate document-global sequence.
 
 Typical numbered figure/table usage:
 
@@ -548,9 +542,9 @@ Rules:
 - The body has **no nested block structure**: a line starting with `:::`,
   `#`, `-`, or ` ``` ` is still just a pseudocode line. Only the exact
   matching closing fence ends the block.
-- `.algo` shares the `algorithm` counter group and the `alg:` ID prefix, so
-  `.algo` and `.algorithm` blocks number together and cross-reference the
-  same way. The `title` attribute becomes the caption, as with `.algorithm`.
+- `.algo` and `.algorithm` are unnumbered in the editor. Both use the `alg:` ID
+  prefix for explicit references, and the `title` attribute becomes the
+  caption.
 - There are no keywords, line numbers, or automatic styling — the Erickson
   aesthetic is plain text plus math plus indentation.
 
@@ -565,34 +559,15 @@ instead of `FencedDiv` (same fence syntax, opener attributes, nesting, and
 closer rules), and each body line parses as an `AlgoLine` node with inline
 content.
 
-### Custom block types
+### Other block types
 
-Define in frontmatter:
-
-```yaml
-blocks:
-  claim:
-    title: Claim
-    counter: theorem    # share counter with theorem family
-  axiom:
-    title: Axiom
-    counter: axiom      # own counter group
-```
-
-`blocks:` entries can be:
-- `false` -- disable a built-in block type for this document
-- `true` -- explicitly enable an existing block type
-- an object with:
-  - `title` -- override the rendered label
-  - `numbered` -- enable/disable numbering for that block type
-  - `counter` -- shared counter group name
-  - `counter: null` -- remove an inherited shared group and use the block's own counter
+Any other first class remains a valid Pandoc fenced div. Coflat derives a readable label from its class name but does not number it. Document metadata cannot override the fixed numbered class set or counter policy.
 
 ## Cross-References
 
 Reference fenced blocks and headings by their `#id` attribute. A host may also resolve document-external targets through `DocumentContext`.
 
-> **Parser vs. semantics scope.** `[@id]` and `@id` are not tokenized by Coflat's markdown parser; they appear in the syntax tree as ordinary text (matching Pandoc core, which leaves them for `pandoc-crossref` and `citeproc` to resolve). The reference index, renderer, and LaTeX exporter recognize and resolve them as a downstream semantic pass. Tooling that needs to highlight or rewrite these tokens should run against the semantic index, not the parse tree.
+`pandocmd-cst` tokenizes bracketed citation clusters and narrative `@id` forms as `Citation` / `ExampleReference` nodes. Coflat derives local targets and citation presentation directly from those nodes; it does not scan Markdown source with a second parser.
 
 ### ID prefixes
 
@@ -628,14 +603,13 @@ See [@sec:background].             --> "See Section 1.1."
 
 ### Clusters
 
-Multiple references can be clustered with `;`. Each item is resolved independently, so mixed cross-reference/citation clusters are supported:
+Bibliography citations can be clustered with `;`:
 
 ```markdown
-[@thm:main; @sec:background]
-[@thm:main; @karger2000]
+[@karger2000; @stein2001]
 ```
 
-Resolution order: fenced blocks (by fenced div `#id`) -> headings (by heading `#id`) -> host-supplied targets -> citations (by bib key). If an ID matches a fenced block, it takes priority over a citation with the same key.
+Simple standalone local references resolve from fenced-div `#id` values. Local targets take priority over bibliography entries with the same key. A mixed local/bibliography cluster remains literal source so Coflat does not silently discard either item.
 
 ### Cross-reference example
 
@@ -647,7 +621,7 @@ Cross-reference example: [@thm:format-live].
 
 ## Citations
 
-Require a `.bib` file specified in frontmatter `bibliography:` or project `coflat.yaml`.
+Set `bibliography:` in frontmatter and provide the editor host's `readTextResource(path)` callback. Paths are passed to the host exactly as written so it can resolve them relative to the current document. BibTeX (`.bib`), CSL JSON, and CSL YAML are supported; `csl:` optionally selects a style.
 
 ### Parenthetical
 
@@ -666,10 +640,10 @@ Results from [@karger2000; @stein2001].
 ### Narrative
 
 ```markdown
-@karger2000 showed that...          --> "Karger (2000) showed that..."
+@karger2000 showed that...          --> "Karger [1] showed that..." (default IEEE style)
 ```
 
-Citation formatting depends on the CSL style. Default: IEEE numeric (`[1]`, `[2]`). A bibliography section is automatically appended at the end of the document listing all cited entries.
+Citation formatting depends on the CSL style. Default: IEEE numeric (`[1]`, `[2]`). A bibliography section is automatically appended at the end of the document listing cited and `nocite` entries.
 
 ## Footnotes
 

@@ -197,7 +197,7 @@ test("renders and keyboard-edits collapsed YAML metadata", async ({ page }) => {
   expect(state.cst).toBe(state.doc);
 });
 
-test("renders blockquote markers and editable unnumbered fenced-div references", async ({
+test("renders blockquote markers and editable numbered fenced-div references", async ({
   page,
 }) => {
   const source = [
@@ -221,8 +221,8 @@ test("renders blockquote markers and editable unnumbered fenced-div references",
   const header = page.locator(".cf-fenced-div-header");
   const references = page.locator(".cf-fenced-div-reference");
   await expect(quoteMark).toHaveText(">");
-  await expect(header).toHaveText("Theorem (Main result)");
-  await expect(references).toHaveText(["Theorem", "Theorem"]);
+  await expect(header).toHaveText("Theorem 1 (Main result)");
+  await expect(references).toHaveText(["Theorem 1", "Theorem 1"]);
 
   const typography = await page.evaluate(() => {
     const marker = document.querySelector<HTMLElement>(".cf-blockquote-mark");
@@ -304,7 +304,7 @@ test("keeps fenced-div layout stable when revealing its opener source", async ({
   }, source);
 
   const header = page.locator(".cf-fenced-div-header");
-  await expect(header).toHaveText("Theorem (Main result)");
+  await expect(header).toHaveText("Theorem 1 (Main result)");
   const renderedLayout = await header.evaluate((element) => {
     const openerLine = element.closest<HTMLElement>(".cm-line");
     const statementLine = [...document.querySelectorAll<HTMLElement>(".cm-line")]
@@ -456,6 +456,155 @@ test("renders display math and opens its live editing popup on click", async ({ 
   expect(state.doc).toContain("x^2+1\\,dx");
   expect(state.cst).toBe(state.doc);
   await expect(popup).toHaveAttribute("aria-label", /x\^2\+1/);
+});
+
+test("numbers only equation-div math and keeps its edit preview on one row", async ({ page }) => {
+  const source = [
+    "::: {.equation #eq:first}",
+    "$$\\frac{a_1+a_2+a_3+a_4+a_5+a_6+a_7+a_8}{b_1+b_2+b_3+b_4+b_5+b_6+b_7+b_8} = y$$",
+    ":::",
+    "",
+    "$$z = 2$$",
+    "",
+    "See [@eq:first].",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(doc.indexOf("See"));
+  }, source);
+
+  const equations = page.locator(
+    ".cf-math-display-numbered:not(.cf-cst-math-preview)",
+  );
+  await expect(page.locator(
+    ".cf-math-display:not(.cf-cst-math-preview)",
+  )).toHaveCount(2);
+  await expect(equations).toHaveCount(1);
+  await expect(equations.locator(".cf-math-display-number"))
+    .toHaveText("(1)");
+  await expect(page.locator(".cf-fenced-div-reference")).toHaveText("(1)");
+  await expect(equations.first()).toHaveAttribute("id", "eq:first");
+  await expect(page.locator(
+    ".cf-math-display:not(.cf-math-display-numbered):not(.cf-cst-math-preview)",
+  )).toHaveCount(1);
+
+  const bounds = await equations.evaluateAll((elements) => elements.map((element) => {
+    const surface = element.getBoundingClientRect();
+    const article = element.closest(".cm-content")?.getBoundingClientRect();
+    const number = element.querySelector(".cf-math-display-number")
+      ?.getBoundingClientRect();
+    if (!article || !number) throw new Error("Missing equation layout geometry");
+    return {
+      articleRight: article.right,
+      articleWidth: article.width,
+      numberRight: number.right,
+      surfaceRight: surface.right,
+      surfaceWidth: surface.width,
+    };
+  }));
+  for (const bound of bounds) {
+    expect(bound.surfaceWidth).toBeLessThanOrEqual(bound.articleWidth + 1);
+    expect(bound.surfaceRight).toBeLessThanOrEqual(bound.articleRight + 1);
+    expect(bound.numberRight).toBeLessThanOrEqual(bound.surfaceRight + 1);
+    expect(bound.surfaceRight - bound.numberRight).toBeLessThanOrEqual(1);
+  }
+
+  const renderedHeight = await equations.first().evaluate(
+    (element) => element.getBoundingClientRect().height,
+  );
+  await equations.first().click();
+
+  const preview = page.locator(
+    ".cf-math-display-numbered.cf-cst-math-preview",
+  );
+  await expect(preview).toHaveCount(1);
+  await expect(preview.locator(".cf-math-display-number")).toHaveText("(1)");
+  const previewLayout = await preview.evaluate((element) => {
+    const surface = element.getBoundingClientRect();
+    const number = element.querySelector(".cf-math-display-number")
+      ?.getBoundingClientRect();
+    if (!number) throw new Error("Missing active equation number");
+    return {
+      height: surface.height,
+      numberBottom: number.bottom,
+      numberTop: number.top,
+      surfaceBottom: surface.bottom,
+      surfaceTop: surface.top,
+    };
+  });
+  expect(Math.abs(previewLayout.height - renderedHeight)).toBeLessThanOrEqual(1);
+  expect(previewLayout.numberTop).toBeGreaterThanOrEqual(previewLayout.surfaceTop - 1);
+  expect(previewLayout.numberBottom)
+    .toBeLessThanOrEqual(previewLayout.surfaceBottom + 1);
+});
+
+test("keeps citation and math source reachable after unrelated prose typing", async ({ page }) => {
+  const source = "---\nbibliography: references.bib\n---\nProse.\n\n::: {.eq #eq:first}\n$$x = 1$$\n:::\n\nSee [@smith2024].";
+  await page.evaluate((doc) => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    editor.setDoc(doc);
+    editor.scrollToPosition(doc.indexOf("Prose."));
+    editor.focus();
+  }, source);
+  await expect(page.locator(".cf-citation")).toHaveText("[1]");
+  await page.keyboard.insertText("中文 😀 ");
+  await expect(page.locator(".cf-math-display-number")).toHaveText("(1)");
+  await page.locator(".cf-math-display").click();
+  const mathPosition = await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    return { position: editor.getCursorContext()?.position, body: editor.getDoc().indexOf("x = 1") };
+  });
+  expect(mathPosition.position).toBeGreaterThanOrEqual(mathPosition.body);
+  expect(mathPosition.position).toBeLessThanOrEqual(mathPosition.body + 5);
+  await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    editor.scrollToPosition(editor.getDoc().indexOf("[@smith2024]") + "[@smith2024]".length);
+  });
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".cf-citation")).toHaveCount(0);
+  await page.keyboard.insertText("X");
+  const result = await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  });
+  expect(result.doc).toBe(source.replace("Prose.", "中文 😀 Prose.").replace("@smith2024", "@smith2024X"));
+  expect(result.cst).toBe(result.doc);
+});
+
+test("loads YAML citations and enters rendered citation source from the keyboard", async ({ page }) => {
+  const source = [
+    "---",
+    "bibliography: references.bib",
+    "---",
+    "See [@smith2024].",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.setDoc(doc);
+    mounted.scrollToPosition(doc.indexOf("]") + 1);
+    mounted.focus();
+  }, source);
+
+  const citation = page.locator(".cf-citation");
+  await expect(citation).toContainText("1");
+  await expect(page.locator(".cf-bibliography-entry"))
+    .toContainText("A Useful Result");
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(citation).toHaveCount(0);
+  await expect(page.locator("#editor-root .cm-content"))
+    .toHaveAttribute("data-cst-inline", "Citation");
+
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return { cst: mounted.getCst()?.text, doc: mounted.getDoc() };
+  });
+  expect(state.doc).toBe(source);
+  expect(state.cst).toBe(source);
 });
 
 test("renders a table and opens its live editing preview on click", async ({ page }) => {

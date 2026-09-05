@@ -129,6 +129,28 @@
   max-width: 100%;
 }
 
+.cf-math-display-numbered {
+  align-items: center;
+  column-gap: 0.75em;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.cf-math-display-numbered .cf-math-display-content {
+  justify-self: center;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.cf-math-display-number {
+  font-variant-numeric: tabular-nums;
+  justify-self: end;
+  white-space: nowrap;
+}
+
 .cf-doc-flow .cf-doc-table-block {
   border-collapse: collapse;
   font-size: var(--cf-table-font-size);

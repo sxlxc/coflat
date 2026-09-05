@@ -259,6 +259,23 @@ local function handle_table_div(el)
   return nil
 end
 
+local function handle_equation(el)
+  if #el.content ~= 1 then return nil end
+  local block = el.content[1]
+  if (block.t ~= "Para" and block.t ~= "Plain") or #block.content ~= 1 then
+    return nil
+  end
+  local math = block.content[1]
+  if math.t ~= "Math" or math.mathtype ~= "DisplayMath" then return nil end
+  return {
+    raw(table.concat({
+      "\\begin{equation}" .. label_for(el.identifier),
+      math.text,
+      "\\end{equation}",
+    }, "\n")),
+  }
+end
+
 local function handle_algorithm(el)
   local title = markdown_title_to_latex(pop_title(el) or "")
   local id = el.identifier
@@ -340,6 +357,7 @@ end
 
 local function transform_div(el)
   local cls, kind = first_latex_class(el.classes)
+  if kind == "equation" then return handle_equation(el) end
   if kind == "environment" then
     return make_env(syntax.latex_environment_by_block[cls], pop_title(el), el.identifier, el.content)
   end

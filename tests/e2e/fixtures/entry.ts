@@ -5,6 +5,14 @@ import { mountEditor } from "../../../editor";
 import { requiredHTMLElement } from "./utils";
 
 const root = requiredHTMLElement("editor-root");
+const bibliography = `
+@article{smith2024,
+  author = {Smith, Alice},
+  title = {A Useful Result},
+  journal = {Journal of Examples},
+  year = {2024}
+}
+`;
 
 const mounted = mountEditor({
   parent: root,
@@ -25,6 +33,10 @@ const mounted = mountEditor({
     "| **Alpha** | 1 |",
     "| Beta | 2 |",
   ].join("\n"),
+  readTextResource: async (path) => {
+    if (path === "references.bib") return bibliography;
+    throw new Error(`Unexpected fixture resource: ${path}`);
+  },
 });
 
 // Expose for assertions if needed by future specs.

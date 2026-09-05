@@ -70,6 +70,17 @@ describe("LaTeX filter custom blocks", () => {
     expect(latex).toContain("\\begin{algorithm}[H]\\caption{Main procedure}\\label{alg:main}");
   });
 
+  it.skipIf(!hasPandoc)("unwraps a labeled display equation into one LaTeX environment", () => {
+    const latex = runPandoc([
+      "::: {.equation #eq:einstein}",
+      "$$E = mc^2$$",
+      ":::",
+    ].join("\n"));
+
+    expect(latex).toContain("\\begin{equation}\\label{eq:einstein}\nE = mc^2\n\\end{equation}");
+    expect(latex).not.toContain("\\[");
+  });
+
   it.skipIf(!hasPandoc)("glues the environment end onto the final paragraph", () => {
     const latex = runPandoc("::: {.proof}\nThe result follows.\n:::\n");
 

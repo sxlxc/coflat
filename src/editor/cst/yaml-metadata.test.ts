@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CSS } from "../../core/constants/css-classes";
 import { createSimpleEditor } from "../simple-editor";
 import { getPandocTree } from "./pandoc-cst-field";
+import { getYamlCitationMetadata } from "./yaml-metadata";
 
 describe("CST YAML metadata presentation", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
@@ -135,13 +136,18 @@ describe("CST YAML metadata presentation", () => {
     expect(parent.querySelectorAll(`.${CSS.mathError}`)).toHaveLength(0);
   });
 
-  it("keeps title-less metadata editable while bibliography remains inert", () => {
+  it("keeps title-less bibliography metadata hidden and available to loaders", () => {
     const doc = "---\nbibliography: references.bib\n---\nBody";
     const parent = mount(doc);
 
     expect(parent.querySelector(".cf-doc-title")).toBeNull();
     expect(parent.querySelector(`.${CSS.yamlToggle}`)?.textContent).toBe("YAML");
     expect(parent.textContent).not.toContain("references.bib");
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(getYamlCitationMetadata(editor.state)).toEqual({
+      bibliographyPaths: ["references.bib"],
+      nocite: [],
+    });
     expect(editor?.state.doc.toString()).toBe(doc);
   });
 

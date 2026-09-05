@@ -65,11 +65,15 @@
     "e2e:install": "playwright install --with-deps chromium"
   },
   "peerDependencies": {
+    "@citation-js/core": "^0.7.21",
+    "@citation-js/plugin-bibtex": "^0.7.21",
+    "@citation-js/plugin-csl": "^0.7.22",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "citeproc": "^2.4.63",
     "dompurify": "^3.4.1",
     "katex": "0.16.38",
     "yaml": "^2.8.3"

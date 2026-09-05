@@ -1,9 +1,13 @@
 export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
+  "@citation-js/core",
+  "@citation-js/plugin-bibtex",
+  "@citation-js/plugin-csl",
   "@codemirror/commands",
   "@codemirror/language",
   "@codemirror/search",
   "@codemirror/state",
   "@codemirror/view",
+  "citeproc",
   "dompurify",
   "katex",
   "yaml",

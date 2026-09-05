@@ -24,6 +24,7 @@ export type LatexExportKind =
   | "algorithm"
   | "blockquote"
   | "environment"
+  | "equation"
   | "figure"
   | "none"
   | "table";
@@ -86,46 +87,44 @@ export interface BlockManifestEntry {
  * The complete block manifest.
  *
  * Order matches the registration order in default-plugins.ts.
- * Counter groups:
- * - "theorem": theorem, lemma, corollary, proposition, conjecture, problem
- * - "definition": definition
- * - "algorithm": algorithm
- * - unnumbered: abstract, proof, remark, example, blockquote
+ * The editor's one fenced-div counter is shared by theorem, lemma,
+ * corollary, proposition, figure, and table. Every other div is unnumbered.
  */
 export const BLOCK_MANIFEST = [
   // Document prose blocks — unnumbered
   { name: "abstract",   counterGroup: undefined,    numbered: false, bodyStyle: "normal", latexExportKind: "none", searchIndexed: false },
 
   // Theorem family — shared counter, italic body
-  { name: "theorem",     counterGroup: "theorem",    numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "theorem" },
-  { name: "lemma",       counterGroup: "theorem",    numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "lemma" },
-  { name: "corollary",   counterGroup: "theorem",    numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "corollary" },
-  { name: "proposition", counterGroup: "theorem",    numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "proposition" },
-  { name: "conjecture",  counterGroup: "theorem",    numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "conjecture" },
+  { name: "theorem",     counterGroup: "numbered-block", numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "theorem" },
+  { name: "lemma",       counterGroup: "numbered-block", numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "lemma" },
+  { name: "corollary",   counterGroup: "numbered-block", numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "corollary" },
+  { name: "proposition", counterGroup: "numbered-block", numbered: true,  bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "proposition" },
+  { name: "conjecture",  counterGroup: undefined,        numbered: false, bodyStyle: "italic", latexExportKind: "environment", latexEnvironment: "conjecture" },
 
-  // Definition — own counter, normal body
-  { name: "definition",  counterGroup: "definition", numbered: true,  bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "definition" },
+  // Other theorem-like blocks — unnumbered
+  { name: "definition",  counterGroup: undefined, numbered: false, bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "definition" },
 
-  // Problem — theorem counter, normal body
-  { name: "problem",     counterGroup: "theorem",    numbered: true,  bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "problem" },
+  { name: "problem",     counterGroup: undefined, numbered: false, bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "problem" },
 
   // Unnumbered blocks — no counter
   { name: "proof",       counterGroup: undefined,    numbered: false, bodyStyle: "normal", specialBehavior: "qed", headerPosition: "inline", latexExportKind: "environment", latexEnvironment: "proof" },
   { name: "remark",      counterGroup: undefined,    numbered: false, bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "remark" },
   { name: "example",     counterGroup: undefined,    numbered: false, bodyStyle: "normal", latexExportKind: "environment", latexEnvironment: "example" },
 
-  // Algorithm — own counter, normal body
-  { name: "algorithm",   counterGroup: "algorithm",  numbered: true,  bodyStyle: "normal", latexExportKind: "algorithm" },
+  // Algorithms — unnumbered
+  { name: "algorithm",   counterGroup: undefined, numbered: false, bodyStyle: "normal", latexExportKind: "algorithm" },
 
-  // Erickson-style pseudocode — shares the algorithm counter; line-mode body
+  // Erickson-style pseudocode — line-mode body
   // (one AlgoLine per physical line, indentation = leading whitespace)
-  { name: "algo",        counterGroup: "algorithm",  numbered: true,  bodyStyle: "normal", bodyMode: "lines", title: "Algorithm", latexExportKind: "algo" },
+  { name: "algo",        counterGroup: undefined, numbered: false, bodyStyle: "normal", bodyMode: "lines", title: "Algorithm", latexExportKind: "algo" },
 
-  // Figure — own counter, caption below content
-  { name: "figure",      counterGroup: "figure",     numbered: true,  bodyStyle: "normal", captionPosition: "below", latexExportKind: "figure" },
+  // Figure and table — shared counter, caption below content
+  { name: "figure",      counterGroup: "numbered-block", numbered: true, bodyStyle: "normal", captionPosition: "below", latexExportKind: "figure" },
 
-  // Table — own counter, caption below content
-  { name: "table",       counterGroup: "table",      numbered: true,  bodyStyle: "normal", captionPosition: "below", latexExportKind: "table" },
+  { name: "table",       counterGroup: "numbered-block", numbered: true, bodyStyle: "normal", captionPosition: "below", latexExportKind: "table" },
+
+  // Structural wrapper that gives its sole display-math child a label.
+  { name: "equation",    counterGroup: undefined, numbered: false, bodyStyle: "normal", displayHeader: false, latexExportKind: "equation", searchIndexed: false },
 
   // Blockquote — unnumbered, special rendering, no header label
   { name: "blockquote",  counterGroup: undefined,    numbered: false, bodyStyle: "normal", specialBehavior: "blockquote", displayHeader: false, latexExportKind: "blockquote", searchIndexed: false },
@@ -245,17 +244,20 @@ export const LATEX_ENVIRONMENT_BY_BLOCK: ReadonlyMap<string, string> = new Map(
     .map((entry) => [entry.name, entry.latexEnvironment ?? entry.name] as const),
 );
 
-/** Shared counter group name for theorem-family blocks. */
-export const THEOREM_COUNTER = "theorem";
+/** Shared counter group name for all numbered fenced divs. */
+export const NUMBERED_BLOCK_COUNTER = "numbered-block";
 
-/** Counter group name for definition blocks. */
+/** @deprecated Use NUMBERED_BLOCK_COUNTER. */
+export const THEOREM_COUNTER = NUMBERED_BLOCK_COUNTER;
+
+/** Legacy counter group name retained for compatibility. */
 export const DEFINITION_COUNTER = "definition";
 
-/** Counter group name for algorithm blocks. */
+/** Legacy counter group name retained for compatibility. */
 export const ALGORITHM_COUNTER = "algorithm";
 
-/** Counter group name for figure blocks. */
-export const FIGURE_COUNTER = "figure";
+/** Shared counter group name for numbered figure blocks. */
+export const FIGURE_COUNTER = NUMBERED_BLOCK_COUNTER;
 
-/** Counter group name for table blocks. */
-export const TABLE_COUNTER = "table";
+/** Shared counter group name for numbered table blocks. */
+export const TABLE_COUNTER = NUMBERED_BLOCK_COUNTER;

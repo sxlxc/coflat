@@ -16,7 +16,6 @@ import {
 } from "@codemirror/view";
 import {
   fenceClosed,
-  fenceInfo,
   headingLevel,
   mathDisplay,
   type NodeKind,
@@ -25,12 +24,9 @@ import {
 } from "pandocmd-cst";
 import { CSS } from "../../core/constants/css-classes";
 import {
-  getBlockManifestEntry,
-  getManifestBlockTitle,
-} from "../../core/constants/block-manifest";
-import {
   createDisplayMathContentElement,
   createDisplayMathSurfaceElement,
+  syncDisplayMathEquationNumber,
 } from "../../core/math-display-surface";
 import {
   createInlineMathSurfaceElement,
@@ -40,8 +36,14 @@ import {
   initialHeadingNumberCounters,
   nextHeadingNumber,
 } from "../../core/semantics/heading-numbering";
+import { cstCitationSurface } from "../citations/citation-surface";
 import { renderKatexToHtml } from "../render/katex-render";
 import { getPandocCursorContext } from "./cursor-context";
+import {
+  cstDocumentPresentationField,
+  type FencedDivPresentation,
+  getDocumentPresentation,
+} from "./document-presentation";
 import {
   getPandocInvalidations,
   getPandocTree,
@@ -80,96 +82,11 @@ const LINK_SOURCE_KINDS: ReadonlySet<NodeKind> = new Set([
   "AttributeList",
 ]);
 
-const FENCED_DIV_CLASS_ABBREVIATIONS: ReadonlyMap<string, string> = new Map([
-  ["abs", "abstract"],
-  ["alg", "algorithm"],
-  ["conj", "conjecture"],
-  ["cor", "corollary"],
-  ["def", "definition"],
-  ["defn", "definition"],
-  ["ex", "example"],
-  ["fig", "figure"],
-  ["lem", "lemma"],
-  ["pf", "proof"],
-  ["prf", "proof"],
-  ["prob", "problem"],
-  ["prop", "proposition"],
-  ["rem", "remark"],
-  ["tbl", "table"],
-  ["thm", "theorem"],
-]);
-
-interface FencedDivInfo {
-  readonly className: string;
-  readonly id?: string;
-  readonly title?: string;
-}
-
-interface FencedDivPresentation extends FencedDivInfo {
-  readonly label: string;
-}
-
 interface FencedDivSourceRanges {
   readonly openerFrom: number;
   readonly openerTo: number;
   readonly closerFrom?: number;
   readonly closerTo?: number;
-}
-
-const FENCED_DIV_ATTRIBUTE_TOKEN = /(?:[^\s"'\\]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')+/g;
-
-function attributeValueText(value: string): string {
-  const quote = value[0];
-  return (quote === "\"" || quote === "'") && value.at(-1) === quote
-    ? value.slice(1, -1)
-    : value;
-}
-
-/** Read the already-delimited `fenceInfo` property published by the CST. */
-function parseFencedDivInfo(value: string | undefined): FencedDivInfo | null {
-  const info = value?.trim();
-  if (!info) return null;
-  if (!info.startsWith("{")) {
-    return info.includes(" ") || info.includes("\t")
-      ? null
-      : { className: info };
-  }
-  if (!info.endsWith("}")) return null;
-
-  let className: string | undefined;
-  let id: string | undefined;
-  let title: string | undefined;
-  const body = info.slice(1, -1);
-  for (const token of body.match(FENCED_DIV_ATTRIBUTE_TOKEN) ?? []) {
-    if (token.startsWith(".")) {
-      className ??= token.slice(1);
-      continue;
-    }
-    if (token.startsWith("#")) {
-      id = token.slice(1);
-      continue;
-    }
-    const equal = token.indexOf("=");
-    if (equal > 0 && token.slice(0, equal) === "title") {
-      title = attributeValueText(token.slice(equal + 1));
-    }
-  }
-
-  return className ? { className, id, title } : null;
-}
-
-function fencedDivDisplayLabel(className: string): string {
-  const normalized = className.toLocaleLowerCase();
-  const canonical = FENCED_DIV_CLASS_ABBREVIATIONS.get(normalized) ?? normalized;
-  const manifest = getBlockManifestEntry(canonical);
-  if (manifest) return getManifestBlockTitle(manifest);
-  const [first = "", ...rest] = [...className];
-  return `${first.toLocaleUpperCase()}${rest.join("")}`;
-}
-
-function fencedDivPresentation(node: SyntaxNode): FencedDivPresentation | null {
-  const info = parseFencedDivInfo(node.prop(fenceInfo));
-  return info ? { ...info, label: fencedDivDisplayLabel(info.className) } : null;
 }
 
 function fencedDivSourceRanges(
@@ -240,16 +157,20 @@ class CstFencedDivHeaderWidget extends WidgetType {
     private readonly presentation: FencedDivPresentation,
     private readonly source: string,
     private readonly sourceFrom: number,
+    private readonly macros: Readonly<Record<string, string>>,
+    private readonly macrosKey: string,
   ) {
     super();
   }
 
   eq(other: CstFencedDivHeaderWidget): boolean {
     return other.presentation.label === this.presentation.label
+      && other.presentation.number === this.presentation.number
       && other.presentation.title === this.presentation.title
       && other.presentation.id === this.presentation.id
       && other.source === this.source
-      && other.sourceFrom === this.sourceFrom;
+      && other.sourceFrom === this.sourceFrom
+      && other.macrosKey === this.macrosKey;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -263,9 +184,15 @@ class CstFencedDivHeaderWidget extends WidgetType {
     header.setAttribute("aria-label", this.source);
     header.title = "Edit fenced div attributes";
 
-    header.textContent = this.presentation.title
-      ? `${this.presentation.label} (${this.presentation.title})`
-      : this.presentation.label;
+    const numberedLabel = this.presentation.number === undefined
+      ? this.presentation.label
+      : `${this.presentation.label} ${this.presentation.number}`;
+    header.append(numberedLabel);
+    if (this.presentation.title) {
+      header.append(" (");
+      appendFencedDivTitle(header, this.presentation.title, this.macros);
+      header.append(")");
+    }
     bindSourceReveal(header, view, this.sourceFrom);
     return header;
   }
@@ -275,25 +202,86 @@ class CstFencedDivHeaderWidget extends WidgetType {
   }
 }
 
-interface FencedDivTarget {
-  readonly id: string;
-  readonly label: string;
+interface FencedDivTitlePart {
+  readonly kind: "math" | "text";
+  readonly value: string;
 }
 
-function collectFencedDivTargets(tree: SyntaxTree): ReadonlyMap<string, FencedDivTarget> {
-  const targets = new Map<string, FencedDivTarget>();
-  tree.iterate((node) => {
-    if (node.kind !== "FencedDiv") return;
-    const presentation = fencedDivPresentation(node);
-    if (presentation?.id && !targets.has(presentation.id)) {
-      targets.set(presentation.id, {
-        id: presentation.id,
-        label: presentation.label,
-      });
+function isEscapedAt(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function titleMathClose(
+  title: string,
+  from: number,
+  delimiter: "$" | "\\)",
+): number {
+  for (let cursor = from; cursor < title.length; cursor += 1) {
+    if (title.startsWith(delimiter, cursor) && !isEscapedAt(title, cursor)) {
+      return cursor;
     }
-    return;
-  });
-  return targets;
+  }
+  return -1;
+}
+
+/** Split only the inline-math syntax allowed inside a fenced-div title. */
+function fencedDivTitleParts(title: string): FencedDivTitlePart[] {
+  const parts: FencedDivTitlePart[] = [];
+  let textFrom = 0;
+  let cursor = 0;
+  while (cursor < title.length) {
+    const dollar = title[cursor] === "$"
+      && title[cursor + 1] !== "$"
+      && title[cursor - 1] !== "$"
+      && !isEscapedAt(title, cursor);
+    const paren = title.startsWith("\\(", cursor)
+      && !isEscapedAt(title, cursor);
+    if (!dollar && !paren) {
+      cursor += 1;
+      continue;
+    }
+
+    const openLength = paren ? 2 : 1;
+    const closeDelimiter: "$" | "\\)" = paren ? "\\)" : "$";
+    const close = titleMathClose(title, cursor + openLength, closeDelimiter);
+    if (close < 0 || close === cursor + openLength) {
+      cursor += openLength;
+      continue;
+    }
+    if (textFrom < cursor) {
+      parts.push({ kind: "text", value: title.slice(textFrom, cursor) });
+    }
+    parts.push({
+      kind: "math",
+      value: title.slice(cursor + openLength, close),
+    });
+    cursor = close + closeDelimiter.length;
+    textFrom = cursor;
+  }
+  if (textFrom < title.length) {
+    parts.push({ kind: "text", value: title.slice(textFrom) });
+  }
+  return parts;
+}
+
+function appendFencedDivTitle(
+  parent: HTMLElement,
+  title: string,
+  macros: Readonly<Record<string, string>>,
+): void {
+  for (const part of fencedDivTitleParts(title)) {
+    if (part.kind === "text") {
+      parent.append(part.value);
+      continue;
+    }
+    const math = createInlineMathSurfaceElement(parent.ownerDocument, part.value);
+    renderMath(math, part.value, false, macros);
+    parent.appendChild(math);
+  }
 }
 
 function childText(node: SyntaxNode, kind: NodeKind): string | null {
@@ -320,7 +308,7 @@ function referenceKeyNode(node: SyntaxNode): SyntaxNode | null {
 
 class CstFencedDivReferenceWidget extends WidgetType {
   constructor(
-    private readonly target: FencedDivTarget,
+    private readonly target: { readonly id: string; readonly label: string },
     private readonly source: string,
     private readonly editPosition: number,
   ) {
@@ -525,6 +513,8 @@ class CstMathWidget extends WidgetType {
     private readonly bodyFrom: number,
     private readonly bodyTo: number,
     private readonly selected = false,
+    private readonly equationNumber?: number,
+    private readonly equationId?: string,
   ) {
     super();
   }
@@ -535,7 +525,9 @@ class CstMathWidget extends WidgetType {
       && other.isDisplay === this.isDisplay
       && other.preview === this.preview
       && other.macrosKey === this.macrosKey
-      && other.selected === this.selected;
+      && other.selected === this.selected
+      && other.equationNumber === this.equationNumber
+      && other.equationId === this.equationId;
   }
 
   private bindSourceReveal(surface: HTMLElement, view: EditorView): void {
@@ -586,12 +578,16 @@ class CstMathWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const ownerDocument = view.dom.ownerDocument;
     if (this.isDisplay) {
-      const surface = createDisplayMathSurfaceElement(ownerDocument, this.latex);
+      const surface = createDisplayMathSurfaceElement(ownerDocument, this.latex, {
+        equationNumber: this.equationNumber,
+        id: this.equationId,
+      });
       const content = createDisplayMathContentElement(ownerDocument);
       if (this.preview) surface.classList.add("cf-cst-math-preview");
       if (this.selected) surface.classList.add(CSS.selectionRange);
       renderMath(content, this.latex, true, this.macros);
       surface.appendChild(content);
+      syncDisplayMathEquationNumber(surface, this.equationNumber);
       this.bindSourceReveal(surface, view);
       return surface;
     }
@@ -854,9 +850,11 @@ function addFencedDivPresentation(
   suppressedSourceRanges: Array<{ readonly from: number; readonly to: number }>,
   view: EditorView,
   node: SyntaxNode,
+  presentation: FencedDivPresentation | undefined,
+  macros: Readonly<Record<string, string>>,
+  macrosKey: string,
 ): void {
   const state = view.state;
-  const presentation = fencedDivPresentation(node);
   const sourceRanges = fencedDivSourceRanges(state, node);
   if (!presentation || !sourceRanges) return;
 
@@ -877,6 +875,8 @@ function addFencedDivPresentation(
           presentation,
           state.sliceDoc(from, to),
           from,
+          macros,
+          macrosKey,
         ),
       }).range(from, to));
       return;
@@ -884,7 +884,11 @@ function addFencedDivPresentation(
     ranges.push(Decoration.replace({}).range(from, to));
   };
 
-  addSourceRange(sourceRanges.openerFrom, sourceRanges.openerTo, true);
+  addSourceRange(
+    sourceRanges.openerFrom,
+    sourceRanges.openerTo,
+    presentation.canonicalClassName !== "equation",
+  );
   if (
     sourceRanges.closerFrom !== undefined
     && sourceRanges.closerTo !== undefined
@@ -999,6 +1003,7 @@ function addMathPresentation(
 
 interface DisplayMathDecorationState {
   readonly mathMacrosKey: string;
+  readonly presentation: ReturnType<typeof getDocumentPresentation>;
   readonly selectionSignature: string;
   readonly decorations: DecorationSet;
 }
@@ -1071,6 +1076,7 @@ function buildDisplayMathDecorationState(
   const selected = selectedDisplayMathKeys(state, tree);
   const macros = getYamlMathMacros(state);
   const macrosKey = getYamlMathMacrosKey(state);
+  const presentation = getDocumentPresentation(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
   tree.iterate((node) => {
@@ -1081,6 +1087,7 @@ function buildDisplayMathDecorationState(
     const body = childOfKind(node, "OpaqueBody");
     if (!body) return false;
     const isActive = active.has(nodeKey(node));
+    const equation = presentation.equationsByMathFrom.get(node.from);
     const widget = new CstMathWidget(
       body.text(),
       node.text(),
@@ -1093,6 +1100,8 @@ function buildDisplayMathDecorationState(
       body.from,
       body.to,
       !isActive && selected.has(nodeKey(node)),
+      equation?.number,
+      equation?.id,
     );
 
     ranges.push(
@@ -1110,6 +1119,7 @@ function buildDisplayMathDecorationState(
 
   return {
     mathMacrosKey: macrosKey,
+    presentation,
     selectionSignature: displayMathSelectionSignature(state, tree),
     decorations: Decoration.set(ranges, true),
   };
@@ -1148,6 +1158,19 @@ function transactionTouchesDisplayMath(transaction: Transaction): boolean {
   ));
 }
 
+function equationPresentationChanged(
+  before: ReturnType<typeof getDocumentPresentation>,
+  after: ReturnType<typeof getDocumentPresentation>,
+  transaction: Transaction,
+): boolean {
+  if (before.equationsByMathFrom.size !== after.equationsByMathFrom.size) return true;
+  for (const [from, equation] of before.equationsByMathFrom) {
+    const mapped = after.equationsByMathFrom.get(transaction.changes.mapPos(from, 1));
+    if (mapped?.number !== equation.number || mapped.id !== equation.id) return true;
+  }
+  return false;
+}
+
 /**
  * Display math replaces line breaks, so CM6 requires these decorations from a
  * state field rather than the viewport ViewPlugin used for inline styling.
@@ -1165,7 +1188,11 @@ export const cstDisplayMathDecorationField =
         tree,
       );
       const macrosKey = getYamlMathMacrosKey(transaction.state);
-      if (macrosKey !== value.mathMacrosKey) {
+      const presentation = getDocumentPresentation(transaction.state);
+      if (
+        macrosKey !== value.mathMacrosKey
+        || equationPresentationChanged(value.presentation, presentation, transaction)
+      ) {
         return buildDisplayMathDecorationState(transaction.state);
       }
       if (!transaction.docChanged) {
@@ -1180,6 +1207,7 @@ export const cstDisplayMathDecorationField =
       ) {
         return {
           mathMacrosKey: macrosKey,
+          presentation,
           selectionSignature,
           decorations: value.decorations.map(transaction.changes),
         };
@@ -1200,18 +1228,13 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
   const activePipeTables = activePipeTableKeys(state, tree);
   const macros = getYamlMathMacros(state);
   const macrosKey = getYamlMathMacrosKey(state);
+  const presentation = getDocumentPresentation(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
   const suppressedFencedDivSourceRanges: Array<{
     readonly from: number;
     readonly to: number;
   }> = [];
-  let fencedDivTargets: ReadonlyMap<string, FencedDivTarget> | null = null;
-
-  const getFencedDivTarget = (id: string): FencedDivTarget | undefined => {
-    fencedDivTargets ??= collectFencedDivTargets(tree);
-    return fencedDivTargets.get(id);
-  };
 
   for (const visible of view.visibleRanges) {
     tree.iterate((node) => {
@@ -1286,13 +1309,18 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
             suppressedFencedDivSourceRanges,
             view,
             node,
+            presentation.fencedDivsByFrom.get(node.from),
+            macros,
+            macrosKey,
           );
           return;
         case "Citation":
         case "ExampleReference": {
           if (decorated.has(key)) return false;
           const referenceKey = simpleFencedDivReferenceKey(node);
-          const target = referenceKey ? getFencedDivTarget(referenceKey) : undefined;
+          const target = referenceKey
+            ? presentation.localTargets.get(referenceKey)
+            : undefined;
           if (!target) return;
           decorated.add(key);
           if (!isActive) {
@@ -1398,6 +1426,7 @@ function enterRenderedFencedDivReference(
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
   const tree = getPandocTree(view.state);
+  const presentation = getDocumentPresentation(view.state);
   const reference = containingFencedDivReference(
     tree.resolve(selection.head, direction),
   );
@@ -1405,7 +1434,7 @@ function enterRenderedFencedDivReference(
   if (direction === "right" && reference.from !== selection.head) return false;
   if (direction === "left" && reference.to !== selection.head) return false;
   const key = simpleFencedDivReferenceKey(reference);
-  if (!key || !collectFencedDivTargets(tree).has(key)) return false;
+  if (!key || !presentation.localTargets.has(key)) return false;
   const keyNode = referenceKeyNode(reference);
   if (!keyNode) return false;
   view.dispatch({
@@ -1567,15 +1596,15 @@ export const cstEditTheme: Extension = EditorView.theme({
     border: "0",
     borderRadius: "0",
     boxShadow: "none",
-    display: "block",
     margin: "0",
     padding: "0.35em 0",
-    width: "auto",
   },
 });
 
 export const cstEditSurface: Extension = [
   cstYamlMetadataField,
+  cstDocumentPresentationField,
+  cstCitationSurface,
   cstHeadingNumberDecorationField,
   cstDisplayMathDecorationField,
   cstTableSurface,

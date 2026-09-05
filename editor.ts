@@ -12,6 +12,10 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { minimalChange } from "./src/core/minimal-change";
+import {
+  type BibliographyStatus,
+  citationResourceExtension,
+} from "./src/editor/citations/citation-surface";
 import { getPandocCursorContext } from "./src/editor/cst/cursor-context";
 import { getPandocTree } from "./src/editor/cst/pandoc-cst-field";
 import {
@@ -122,6 +126,7 @@ export interface StatusEvents {
   onSaveSucceeded?(): void;
   onSaveFailed?(event: { readonly error: string }): void;
   onDirtyChange?(dirty: boolean): void;
+  onBibliographyStatusChange?(status: BibliographyStatus): void;
 }
 
 export interface MountEditorOptions extends Omit<SimpleEditorConfig, "doc"> {
@@ -129,6 +134,8 @@ export interface MountEditorOptions extends Omit<SimpleEditorConfig, "doc"> {
   readonly onChange?: (doc: string) => void;
   readonly onDocumentChange?: (change: EditorDocumentChange) => void;
   readonly onCursorContextChange?: (context: PandocCursorContext) => void;
+  /** Resolve YAML `bibliography` and `csl` paths relative to the host document. */
+  readonly readTextResource?: (path: string) => Promise<string>;
   readonly saveHandler?: SaveHandler;
   readonly statusEvents?: StatusEvents;
 }
@@ -305,6 +312,16 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
     extensions: [
       updateListener,
       saveKeymap,
+      citationResourceExtension({
+        ...(options.readTextResource
+          ? { readTextResource: options.readTextResource }
+          : {}),
+        ...(options.statusEvents?.onBibliographyStatusChange
+          ? {
+            onStatusChange: options.statusEvents.onBibliographyStatusChange,
+          }
+          : {}),
+      }),
       ...(options.extensions ?? []),
     ],
   });
@@ -424,3 +441,4 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
 }
 
 export { createSimpleEditor as createEditor };
+export type { BibliographyStatus } from "./src/editor/citations/citation-surface";

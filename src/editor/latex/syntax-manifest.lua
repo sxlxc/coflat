@@ -28,6 +28,7 @@ return {
     proof = "environment",
     remark = "environment",
     example = "environment",
+    equation = "equation",
     algorithm = "algorithm",
     algo = "algo",
     figure = "figure",

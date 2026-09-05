@@ -11,6 +11,9 @@ const editor = mountEditor({
   onChange(source) {},
   onDocumentChange({ changes, tree }) {},
   onCursorContextChange({ block, inline, path }) {},
+  async readTextResource(path) {
+    return workspace.readTextRelativeToCurrentDocument(path);
+  },
   saveHandler,
   statusEvents,
 });
@@ -28,6 +31,8 @@ Navigation helpers use zero-based source offsets or one-based lines.
 `SaveHandler` is optional. Coflat wires `Mod-s`, dirty state, and optional
 debounced autosave; the host owns persistence, authorization, conflicts, and
 retry policy.
+
+`readTextResource(path)` is optional unless the document declares YAML `bibliography`. Coflat passes each `bibliography` path and the optional `csl` path exactly as written; the host resolves it relative to the current document and returns UTF-8 text. Bibliography progress and failures are reported through `statusEvents.onBibliographyStatusChange`. Coflat never reads the host filesystem directly.
 
 There are no mode controls, reader APIs, panels, pickers, uploads, or mouse-only
 commands in this contract. Hosts may append normal CM6 extensions, but those

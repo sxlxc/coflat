@@ -16,10 +16,13 @@ import { DOCUMENT_SURFACE_CLASS } from "../../core/document-surface-classes";
 import { getPandocTree } from "./pandoc-cst-field";
 
 interface YamlMetadata {
+  readonly bibliographyPaths: readonly string[];
+  readonly cslPath?: string;
   readonly editFrom: number;
   readonly from: number;
   readonly mathMacros: Record<string, string>;
   readonly mathMacrosKey: string;
+  readonly nocite: readonly string[] | "all";
   readonly source: string;
   readonly title?: string;
   readonly to: number;
@@ -76,8 +79,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function yamlTitleAndMacros(node: SyntaxNode): {
+function yamlPresentationMetadata(node: SyntaxNode): {
+  readonly bibliographyPaths: readonly string[];
+  readonly cslPath?: string;
   readonly mathMacros: Record<string, string>;
+  readonly nocite: readonly string[] | "all";
   readonly title?: string;
 } {
   let parsed: unknown;
@@ -86,9 +92,19 @@ function yamlTitleAndMacros(node: SyntaxNode): {
   } catch (_error) {
     // Invalid YAML is a normal transient state while its visible source is
     // being edited. Rendering resumes as soon as the document becomes valid.
-    return { mathMacros: EMPTY_MATH_MACROS };
+    return {
+      bibliographyPaths: [],
+      mathMacros: EMPTY_MATH_MACROS,
+      nocite: [],
+    };
   }
-  if (!isRecord(parsed)) return { mathMacros: EMPTY_MATH_MACROS };
+  if (!isRecord(parsed)) {
+    return {
+      bibliographyPaths: [],
+      mathMacros: EMPTY_MATH_MACROS,
+      nocite: [],
+    };
+  }
 
   const mathMacros: Record<string, string> = {};
   const math = parsed["math"];
@@ -98,11 +114,32 @@ function yamlTitleAndMacros(node: SyntaxNode): {
       mathMacros[name.startsWith("\\") ? name : `\\${name}`] = expansion;
     }
   }
+  const bibliography = parsed["bibliography"];
+  const bibliographyPaths = typeof bibliography === "string"
+    ? [bibliography]
+    : Array.isArray(bibliography)
+      ? bibliography.filter((value): value is string => typeof value === "string")
+      : [];
+  const csl = parsed["csl"];
+  const nociteValue = parsed["nocite"];
+  const nociteSource = Array.isArray(nociteValue)
+    ? nociteValue.filter((value): value is string => typeof value === "string")
+      .join(" ")
+    : typeof nociteValue === "string"
+      ? nociteValue
+      : "";
+  const nocite = /(?:^|\s)@\*(?:\s|$)/.test(nociteSource)
+    ? "all" as const
+    : [...nociteSource.matchAll(/@([A-Za-z0-9_](?:[A-Za-z0-9_:.#$%&+?<>~\x2f-]*[A-Za-z0-9_#$%&+?<>~\x2f-])?)/g)]
+      .map((match) => match[1]);
   const title = parsed["title"];
   return {
+    bibliographyPaths,
+    ...(typeof csl === "string" && csl ? { cslPath: csl } : {}),
     mathMacros: Object.keys(mathMacros).length > 0
       ? mathMacros
       : EMPTY_MATH_MACROS,
+    nocite,
     ...(typeof title === "string" && title ? { title } : {}),
   };
 }
@@ -110,12 +147,21 @@ function yamlTitleAndMacros(node: SyntaxNode): {
 function readYamlMetadata(state: EditorState): YamlMetadata | null {
   const node = yamlMetadataNode(state);
   if (!node) return null;
-  const { mathMacros, title } = yamlTitleAndMacros(node);
+  const {
+    bibliographyPaths,
+    cslPath,
+    mathMacros,
+    nocite,
+    title,
+  } = yamlPresentationMetadata(node);
   return {
+    bibliographyPaths,
+    ...(cslPath ? { cslPath } : {}),
     editFrom: yamlEditPosition(node),
     from: node.from,
     mathMacros,
     mathMacrosKey: mathMacrosKey(mathMacros),
+    nocite,
     source: node.text(),
     ...(title ? { title } : {}),
     to: node.to,
@@ -337,4 +383,27 @@ export function getYamlMetadataEnd(state: EditorState): number | null {
 
 export function isYamlMetadataActive(state: EditorState): boolean {
   return state.field(cstYamlMetadataField, false)?.active ?? false;
+}
+
+export interface YamlCitationMetadata {
+  readonly bibliographyPaths: readonly string[];
+  readonly cslPath?: string;
+  readonly nocite: readonly string[] | "all";
+}
+
+const EMPTY_CITATION_METADATA: YamlCitationMetadata = Object.freeze({
+  bibliographyPaths: [],
+  nocite: [],
+});
+
+export function getYamlCitationMetadata(
+  state: EditorState,
+): YamlCitationMetadata {
+  const metadata = state.field(cstYamlMetadataField, false)?.metadata;
+  if (!metadata) return EMPTY_CITATION_METADATA;
+  return {
+    bibliographyPaths: metadata.bibliographyPaths,
+    ...(metadata.cslPath ? { cslPath: metadata.cslPath } : {}),
+    nocite: metadata.nocite,
+  };
 }
