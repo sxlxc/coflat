@@ -32,6 +32,143 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("tracks nested fenced divs across previews while editing from the keyboard", async ({ page }) => {
+  const source = [
+    "Before", "", ":::: {.theorem}", "Statement.", "",
+    "::: {.proof}", "中文 😀 proof.", "", "$$", "x = 1", "$$", "",
+    "| A | B |", "| --- | --- |", "| 1 | 2 |", "",
+    "End of proof.", ":::", "::::", "", "After",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    editor.setDoc(doc);
+    editor.scrollToPosition(0);
+    editor.focus();
+  }, source);
+  const bars = page.locator(".cf-fenced-div-range");
+  await expect(bars).toHaveCount(0);
+  await expect(page.locator(".cf-block-qed")).toHaveText("∎");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(bars).toHaveCount(1);
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press("ArrowDown");
+  await expect(bars).toHaveCount(2);
+
+  const measure = async () => page.evaluate(() => {
+    const markers = [...document.querySelectorAll(".cf-fenced-div-range")]
+      .map((element) => element.getBoundingClientRect());
+    const headers = [...document.querySelectorAll(".cf-fenced-div-header")]
+      .map((element) => element.closest(".cm-line")?.getBoundingClientRect());
+    const qed = document.querySelector(".cf-block-qed");
+    const qedLine = qed?.closest(".cm-line");
+    const closer = qedLine?.nextElementSibling?.getBoundingClientRect();
+    const previews = [...document.querySelectorAll(".cf-math-display, .cf-doc-table-block")]
+      .map((element) => element.getBoundingClientRect());
+    if (markers.length !== 2 || !headers[0] || !headers[1] || !qed || !closer) {
+      throw new Error("Missing nested div presentation");
+    }
+    return {
+      alignedTop: Math.abs(markers[0].top - headers[0].top) < 1
+        && Math.abs(markers[1].top - headers[1].top) < 1,
+      alignedBottom: Math.abs(markers[1].bottom - closer.bottom) < 1,
+      qedOnText: qedLine?.textContent === "End of proof.∎",
+      separate: markers[1].right < markers[0].left,
+      inMargin: markers[0].right < headers[0].left,
+      spansPreviews: previews.length >= 2 && previews.every((preview) => (
+        markers[1].top < preview.top && markers[1].bottom > preview.bottom
+      )),
+    };
+  });
+  await expect.poll(measure).toEqual({
+    alignedTop: true, alignedBottom: true, qedOnText: true, separate: true, inMargin: true, spansPreviews: true,
+  });
+  await page.keyboard.insertText("X");
+  await page.setViewportSize({ width: 640, height: 720 });
+  await expect.poll(measure).toEqual({
+    alignedTop: true, alignedBottom: true, qedOnText: true, separate: true, inMargin: true, spansPreviews: true,
+  });
+  await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    editor.scrollToPosition(editor.getDoc().lastIndexOf("\n:::\n") + 1);
+  });
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText(":::");
+  await expect(page.locator(".cf-block-qed")).toHaveCount(1);
+  await page.keyboard.press("ArrowDown");
+  await expect(bars).toHaveCount(1);
+  await page.keyboard.press("ArrowDown");
+  await expect(bars).toHaveCount(0);
+  const result = await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  });
+  expect(result.doc).toContain("X");
+  expect(result.cst).toBe(result.doc);
+});
+
+for (const [name, body, previewSelector, sourceSelector] of [
+  ["display math", "$$\nx = 1\n$$", ".cf-math-display", ".cf-math-source-line"],
+  ["pipe table", "| A | B |\n| --- | --- |\n| 中文 😀 | 2 |", ".cf-doc-table-block", ".cf-table-source"],
+]) {
+  test(`keeps the proof tombstone after a terminal ${name} preview`, async ({ page }) => {
+    const source = `Before\n\n::: {.proof}\n${body}\n:::\n\nAfter`;
+    const closer = source.lastIndexOf(":::");
+    await page.evaluate((doc) => {
+      const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+      editor.setDoc(doc);
+      editor.scrollToPosition(0);
+      editor.focus();
+    }, source);
+    const qed = page.locator(".cf-block-qed");
+    await expect(qed).toHaveCount(1);
+    await expect(qed).toBeVisible();
+    await expect.poll(async () => {
+      const preview = await page.locator(previewSelector).boundingBox();
+      const marker = await qed.boundingBox();
+      return preview !== null && marker !== null && marker.y >= preview.y + preview.height - 1;
+    }).toBe(true);
+
+    await page.evaluate((position) => {
+      (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.scrollToPosition(position);
+    }, closer);
+    await expect(page.locator(".cf-fenced-div-source")).toHaveText(":::");
+    await expect(qed).toBeVisible();
+    await page.keyboard.press("ArrowUp");
+    await expect(page.locator(sourceSelector).first()).toBeVisible();
+    await expect(qed).toHaveCount(1);
+    await expect(qed).toBeVisible();
+    await page.keyboard.insertText(" ");
+    await expect(qed).toHaveCount(1);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await expect(qed).toBeVisible();
+    const result = await page.evaluate(() => {
+      const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    });
+    expect(result.doc.length).toBe(source.length + 1);
+    expect(result.cst).toBe(result.doc);
+  });
+}
+
+test("gives display math source full gray rows and dark monospace text", async ({ page }) => {
+  await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    editor.setDoc("Before\n\n$$\nx = 1\n+ 2\n$$\n\nAfter");
+    editor.scrollToPosition(editor.getDoc().indexOf("x = 1"));
+    editor.focus();
+  });
+  const lines = page.locator(".cm-line.cf-math-source-line");
+  await expect(lines).toHaveCount(4);
+  for (const line of await lines.all()) {
+    await expect(line).toHaveCSS("background-color", "rgb(245, 246, 248)");
+    await expect(line).toHaveCSS("color", "rgb(32, 33, 36)");
+    await expect(line).toHaveCSS("font-family", /Monaco/);
+  }
+  await expect(page.locator(".cf-math-source").first()).toHaveCSS("color", "rgb(32, 33, 36)");
+  await page.keyboard.insertText("y + ");
+  await expect(lines).toHaveCount(4);
+});
+
 test("mounts one editable CST-backed surface", async ({ page }) => {
   await expect(page.locator("#editor-root .cm-content"))
     .toHaveAttribute("contenteditable", "true");
@@ -631,6 +768,8 @@ test("renders a table and opens its live editing preview on click", async ({ pag
     .toHaveAttribute("data-cst-block", "TableCell");
   const sourceLines = page.locator("#editor-root .cm-line.cf-table-source");
   await expect(sourceLines).toHaveCount(4);
+  await expect(sourceLines.first()).toHaveCSS("background-color", "rgb(245, 246, 248)");
+  await expect(sourceLines.first()).toHaveCSS("color", "rgb(32, 33, 36)");
   const sourceTypography = await sourceLines.first().evaluate((element) => {
     const source = getComputedStyle(element);
     const contentElement = element.closest(".cm-content");

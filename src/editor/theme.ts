@@ -2,13 +2,14 @@ import { EditorView } from "@codemirror/view";
 import { CSS } from "../core/constants/css-classes";
 
 const sourceTypography = {
+  backgroundColor: "var(--cf-subtle)",
+  color: "var(--cf-fg)",
   fontFamily: "var(--cf-code-font)",
   fontSize: "0.86em",
 } as const;
 
 const sourceText = {
   ...sourceTypography,
-  color: "var(--cf-muted)",
   fontStyle: "normal",
   fontWeight: "400",
   lineHeight: "0",
@@ -128,7 +129,13 @@ export const coflatTheme = EditorView.theme({
     textUnderlineOffset: "0.16em",
   },
   ".cf-source-delimiter, .cf-inline-source, .cf-math-source": sourceText,
-  ".cm-line.cf-table-source": sourceTypography,
+  ".cm-line.cf-table-source, .cm-line.cf-math-source-line": sourceTypography,
+  ".cf-table-source .tok-punctuation, .cf-table-source .tok-meta": {
+    color: "inherit",
+  },
+  ".cf-math-source-line .cf-math-source, .cf-math-source-line .cf-source-delimiter": {
+    fontSize: "inherit",
+  },
   ".tok-punctuation, .tok-meta": {
     color: "var(--cf-muted)",
   },

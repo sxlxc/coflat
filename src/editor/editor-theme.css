@@ -47,6 +47,5 @@
 
 .cf-math-inline.cf-cst-math-preview {
   border: 0;
-  border-radius: 3px;
-  box-shadow: inset 0 0 0 1px var(--cf-border);
+  box-shadow: none;
 }

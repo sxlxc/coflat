@@ -731,7 +731,8 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
     ranges.push(
       isActive
         ? Decoration.widget({ widget, block: true, side: -1 }).range(node.from)
-        : Decoration.replace({ widget, block: true }).range(node.from, node.to),
+        // Allow trailing inline widgets, such as a proof tombstone, at the end.
+        : Decoration.replace({ widget, block: true, inclusiveEnd: false }).range(node.from, node.to),
     );
     return false;
   });
@@ -874,10 +875,6 @@ export const cstTableTheme: Extension = EditorView.theme({
     // CM6's block-widget height map does not include vertical margins.
     paddingBlock: "0.55em",
     width: "100%",
-  },
-  ".cf-cst-table:hover": {
-    outline: "1px solid var(--cf-border)",
-    outlineOffset: "2px",
   },
 });
 

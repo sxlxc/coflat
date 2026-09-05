@@ -8,8 +8,11 @@ import {
 import {
   Decoration,
   type DecorationSet,
+  Direction,
   EditorView,
   keymap,
+  layer,
+  RectangleMarker,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -50,6 +53,7 @@ import {
 } from "./pandoc-cst-field";
 import {
   activePipeTableKeys,
+  cstTableDecorationField,
   cstTableSurface,
 } from "./table-surface";
 import {
@@ -109,6 +113,25 @@ function fencedDivSourceRanges(
   };
 }
 
+function lastFencedDivContentLine(
+  state: EditorState,
+  node: SyntaxNode,
+): number | null {
+  const fences = fencedDivSourceRanges(state, node);
+  if (!fences) return null;
+  const body = [...node.children()].filter((child) => (
+    child.from > fences.openerTo
+    && child.to <= (fences.closerFrom ?? node.to)
+    && child.kind !== "BlankLines"
+    && child.kind !== "LineEnding"
+    && child.kind !== "Whitespace"
+  )).at(-1);
+  if (!body) return null;
+  if (body.kind === "FencedDiv") return lastFencedDivContentLine(state, body);
+  const lastCharacter = body.from + body.text().trimEnd().length - 1;
+  return lastCharacter < body.from ? null : state.doc.lineAt(lastCharacter).to;
+}
+
 function selectionTouchesSourceRange(
   state: EditorState,
   from: number,
@@ -151,6 +174,81 @@ function bindSourceReveal(
     });
   });
 }
+
+class CstProofQedWidget extends WidgetType {
+  eq(): boolean {
+    return true;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const qed = view.dom.ownerDocument.createElement("span");
+    qed.className = CSS.blockQed;
+    qed.textContent = "∎";
+    qed.setAttribute("aria-label", "End of proof");
+    return qed;
+  }
+}
+
+const proofQedWidget = new CstProofQedWidget();
+
+export function selectedFencedDivs(state: EditorState): readonly SyntaxNode[] {
+  const tree = getPandocTree(state);
+  const divs = new Map<number, SyntaxNode>();
+  for (const range of state.selection.ranges) {
+    tree.iterate((node) => {
+      if (node.kind !== "FencedDiv") return;
+      const end = node.prop(fenceClosed) ? Math.max(node.from, node.to - 1) : node.to;
+      if (!selectionTouchesSourceRange(state, node.from, state.doc.lineAt(end).to)) {
+        return false;
+      }
+      divs.set(node.from, node);
+    }, {
+      // Iteration excludes boundary-touching nodes and empty ranges, whereas
+      // a cursor at either fence edge still belongs to the div.
+      from: Math.max(0, range.from - 1),
+      to: Math.min(tree.length, range.to + 1),
+    });
+  }
+  return [...divs.values()];
+}
+
+// A measured layer keeps the range continuous across wrapped lines and block
+// previews without changing the editable document's layout.
+const cstFencedDivRangeLayer = layer({
+  above: false,
+  update: (update) => update.docChanged || update.selectionSet,
+  markers(view) {
+    const markers: RectangleMarker[] = [];
+    const content = view.contentDOM.getBoundingClientRect();
+    const scroll = view.scrollDOM.getBoundingClientRect();
+    const padding = Number.parseFloat(getComputedStyle(view.contentDOM).paddingLeft);
+    const baseLeft = (view.textDirection === Direction.LTR
+      ? scroll.left
+      : scroll.right - view.scrollDOM.clientWidth * view.scaleX)
+      - view.scrollDOM.scrollLeft * view.scaleX;
+    const left = content.left - baseLeft + padding * view.scaleX;
+    const top = view.documentTop - scroll.top
+      + view.scrollDOM.scrollTop * view.scaleY;
+
+    for (const node of selectedFencedDivs(view.state)) {
+      const end = node.prop(fenceClosed) ? Math.max(node.from, node.to - 1) : node.to;
+      let depth = 0;
+      for (let parent = node.parent; parent; parent = parent.parent) {
+        if (parent.kind === "FencedDiv") depth += 1;
+      }
+      const first = view.lineBlockAt(node.from);
+      const last = view.lineBlockAt(end);
+      markers.push(new RectangleMarker(
+        CSS.fencedDivRange,
+        left - (12 + depth * 6) * view.scaleX,
+        top + first.top,
+        2 * view.scaleX,
+        last.bottom - first.top,
+      ));
+    }
+    return markers;
+  },
+});
 
 class CstFencedDivHeaderWidget extends WidgetType {
   constructor(
@@ -894,6 +992,24 @@ function addFencedDivPresentation(
     && sourceRanges.closerTo !== undefined
   ) {
     addSourceRange(sourceRanges.closerFrom, sourceRanges.closerTo, false);
+    if (presentation.canonicalClassName === "proof") {
+      const contentEnd = lastFencedDivContentLine(state, node);
+      if (contentEnd !== null) {
+        let position = contentEnd;
+        for (const decorations of [
+          state.field(cstDisplayMathDecorationField).decorations,
+          state.field(cstTableDecorationField).decorations,
+        ]) {
+          decorations.between(contentEnd, contentEnd, (from, to, decoration) => {
+            if (decoration.spec.block && from < to) position = Math.max(position, to);
+          });
+        }
+        ranges.push(Decoration.widget({
+          widget: proofQedWidget,
+          side: 1,
+        }).range(position));
+      }
+    }
   }
 }
 
@@ -1109,11 +1225,21 @@ function buildDisplayMathDecorationState(
         ? Decoration.widget({ widget, block: true, side: -1 }).range(
             displayMathReplacementFrom(state, node),
           )
-        : Decoration.replace({ widget, block: true }).range(
+        // Allow trailing inline widgets, such as a proof tombstone, at the end.
+        : Decoration.replace({ widget, block: true, inclusiveEnd: false }).range(
             displayMathReplacementFrom(state, node),
             node.to,
           ),
     );
+    if (isActive) {
+      const first = state.doc.lineAt(node.from).number;
+      const last = state.doc.lineAt(Math.max(node.from, node.to - 1)).number;
+      for (let line = first; line <= last; line += 1) {
+        ranges.push(Decoration.line({
+          attributes: { class: CSS.mathSourceLine },
+        }).range(state.doc.line(line).from));
+      }
+    }
     return false;
   });
 
@@ -1536,7 +1662,8 @@ export const cstEditTheme: Extension = EditorView.theme({
     outlineOffset: "2px",
   },
   [`.cm-line.${CSS.yamlSource}`]: {
-    color: "var(--cf-muted)",
+    backgroundColor: "var(--cf-subtle)",
+    color: "var(--cf-fg)",
     fontFamily: "var(--cf-code-font)",
     fontSize: "0.82em",
   },
@@ -1557,11 +1684,24 @@ export const cstEditTheme: Extension = EditorView.theme({
     verticalAlign: "baseline",
   },
   [`.${CSS.fencedDivSource}`]: {
-    color: "var(--cf-muted)",
+    backgroundColor: "var(--cf-subtle)",
+    color: "var(--cf-fg)",
     fontFamily: "var(--cf-code-font)",
     fontSize: "0.86em",
     fontStyle: "normal",
     fontWeight: "400",
+  },
+  [`.${CSS.fencedDivRange}`]: {
+    backgroundColor: "var(--cf-muted)",
+    pointerEvents: "none",
+  },
+  [`.${CSS.blockQed}`]: {
+    color: "var(--cf-fg)",
+    float: "right",
+    fontFamily: "var(--cf-content-font)",
+    fontStyle: "normal",
+    fontWeight: "400",
+    userSelect: "none",
   },
   [`.${CSS.fencedDivReference}`]: {
     color: "var(--cf-accent)",
@@ -1583,9 +1723,7 @@ export const cstEditTheme: Extension = EditorView.theme({
   },
   ".cf-math-inline.cf-cst-math-preview": {
     border: "0",
-    borderRadius: "3px",
-    boxShadow:
-      "inset 0 0 0 1px var(--cf-border), 0 4px 14px rgba(0, 0, 0, 0.12)",
+    boxShadow: "none",
     boxSizing: "border-box",
     display: "inline-block",
     margin: "0 0 0 0.25em",
@@ -1609,6 +1747,7 @@ export const cstEditSurface: Extension = [
   cstDisplayMathDecorationField,
   cstTableSurface,
   cstEditDecorationPlugin,
+  cstFencedDivRangeLayer,
   cstMathKeyboardNavigation,
   cstFencedDivReferenceKeyboardNavigation,
   cstEditTheme,

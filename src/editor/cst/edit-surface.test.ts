@@ -1,10 +1,80 @@
 import { redo, undo } from "@codemirror/commands";
-import { afterEach, describe, expect, it } from "vitest";
+import { EditorSelection, EditorState } from "@codemirror/state";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CSS } from "../../core/constants/css-classes";
 import { createSimpleEditor } from "../simple-editor";
-import { cstDisplayMathDecorationField } from "./edit-surface";
-import { getPandocTree } from "./pandoc-cst-field";
+import { cstDisplayMathDecorationField, selectedFencedDivs } from "./edit-surface";
+import { getPandocTree, pandocCstField } from "./pandoc-cst-field";
+
+describe("selected fenced div traversal", () => {
+  const doc = "Before\n\n:::: {.theorem}\nStatement.\n\n::: {.proof}\n中文 😀.\n:::\n::::\n\nAfter";
+  const outer = doc.indexOf("::::");
+  const inner = doc.indexOf("::: {.proof}");
+  const innerEnd = doc.indexOf("\n:::\n") + 4;
+  const outerEnd = doc.lastIndexOf("::::") + 4;
+
+  it.each([
+    [0, []],
+    [outer, [outer]],
+    [inner, [outer, inner]],
+    [innerEnd, [outer, inner]],
+    [outerEnd, [outer]],
+    [outerEnd + 1, []],
+    [doc.length, []],
+  ])("finds the enclosing divs at position %i", (position, expected) => {
+    const state = EditorState.create({ doc, selection: { anchor: position }, extensions: [pandocCstField] });
+    expect(selectedFencedDivs(state).map((node) => node.from)).toEqual(expected);
+  });
+
+  it("finds enclosed divs and deduplicates multiple selections", () => {
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.create([
+        EditorSelection.range(outer, inner + 1),
+        EditorSelection.cursor(innerEnd),
+      ]),
+      extensions: [pandocCstField, EditorState.allowMultipleSelections.of(true)],
+    });
+    expect(selectedFencedDivs(state).map((node) => node.from)).toEqual([outer, inner]);
+    const selected = state.update({ selection: { anchor: doc.length, head: 0 } }).state;
+    expect(selectedFencedDivs(selected).map((node) => node.from)).toEqual([outer, inner]);
+    expect(getPandocTree(selected)).toBe(getPandocTree(state));
+  });
+
+  it.each(["", "::: {.proof}\nBody.", "::: {.proof}\nBody.\n:::"])("handles document edges in %j", (source) => {
+    const state = EditorState.create({ doc: source, selection: { anchor: source.length }, extensions: [pandocCstField] });
+    expect(selectedFencedDivs(state)).toHaveLength(source ? 1 : 0);
+  });
+
+  it("prunes unrelated prose on a large document's cursor movement", () => {
+    const source = "Ordinary *prose* with words.\n\n".repeat(24_000);
+    let state = EditorState.create({ doc: source, extensions: [pandocCstField] });
+    const tree = getPandocTree(state);
+    const iterate = tree.iterate.bind(tree);
+    let visited = 0;
+    const spy = vi.spyOn(tree, "iterate").mockImplementation((visitor, range) => {
+      iterate({
+        enter(node) {
+          visited += 1;
+          return typeof visitor === "function" ? visitor(node) : visitor.enter?.(node);
+        },
+        leave: typeof visitor === "function" ? undefined : visitor.leave,
+      }, range);
+    });
+    try {
+      for (const anchor of [1, Math.floor(source.length / 2), source.length - 1]) {
+        state = state.update({ selection: { anchor } }).state;
+        visited = 0;
+        expect(selectedFencedDivs(state)).toEqual([]);
+        expect(visited).toBeLessThan(20);
+        expect(getPandocTree(state)).toBe(tree);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 describe("CST edit surface list markers", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
@@ -312,6 +382,59 @@ describe("CST edit surface block presentation", () => {
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
       .toBe("Proof (details)");
     expect(editor?.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
+  });
+
+  it.each(["proof", "pf", "prf"])("keeps the %s tombstone while editing its closing fence", (className) => {
+    const parent = mount(`Before\r\n\r\n::: {.${className}}\r\n中文 😀.\r\n\r\n:::\r\n\r\nAfter`);
+    if (!editor) throw new Error("Editor was not mounted");
+    const doc = editor.state.doc.toString();
+    const closer = doc.lastIndexOf(":::");
+    expect(parent.querySelector(`.${CSS.blockQed}`)?.textContent).toBe("∎");
+    expect(parent.querySelector(`.${CSS.blockQed}`)?.closest(".cm-line")?.textContent)
+      .toBe("中文 😀.∎");
+    const tree = getPandocTree(editor.state);
+    editor.dispatch({ selection: { anchor: closer } });
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(":::");
+    expect(parent.querySelectorAll(`.${CSS.blockQed}`)).toHaveLength(1);
+    expect(parent.querySelector(`.${CSS.blockQed}`)?.closest(".cm-line")?.textContent)
+      .toBe("中文 😀.∎");
+    expect(editor.state.selection.main.head).toBe(closer);
+    expect(getPandocTree(editor.state)).toBe(tree);
+    expect(editor.state.doc.toString()).toBe(doc);
+
+    editor.dispatch({ changes: { from: closer, to: closer + 3, insert: "" } });
+    expect(parent.querySelector(`.${CSS.blockQed}`)).toBeNull();
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    editor.dispatch({ changes: { from: closer, insert: ":::" } });
+    expect(parent.querySelectorAll(`.${CSS.blockQed}`)).toHaveLength(1);
+    expect(getPandocTree(editor.state).text).toBe(doc);
+  });
+
+  it.each([
+    ["display math", "$$\nx = 1\n$$"],
+    ["pipe table", "| A | B |\n| --- | --- |\n| 中文 😀 | 2 |"],
+    ["nested equation", "::: {.equation}\n$$\nx = 1\n$$\n:::"],
+  ])("keeps the tombstone after terminal %s previews", (_name, body) => {
+    const source = `Before\n\n:::: {.proof}\n${body}\n::::\n\nAfter`;
+    const parent = mount(source);
+    if (!editor) throw new Error("Missing mounted editor");
+    const tree = getPandocTree(editor.state);
+    const closer = source.lastIndexOf("::::");
+    const contentPosition = source.includes("x = 1") ? source.indexOf("x = 1") : source.indexOf("中文");
+    for (const anchor of [0, contentPosition, closer, source.length]) {
+      editor.dispatch({ selection: { anchor } });
+      expect(parent.querySelectorAll(`.${CSS.blockQed}`)).toHaveLength(1);
+      expect(parent.querySelector(`.${CSS.blockQed}`)?.textContent).toBe("∎");
+      expect(editor.state.selection.main.head).toBe(anchor);
+      expect(editor.state.doc.toString()).toBe(source);
+      expect(getPandocTree(editor.state)).toBe(tree);
+    }
+    editor.dispatch({ changes: { from: closer, to: closer + 4, insert: "" } });
+    expect(parent.querySelectorAll(`.${CSS.blockQed}`)).toHaveLength(0);
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    editor.dispatch({ changes: { from: closer, insert: "::::" } });
+    expect(parent.querySelectorAll(`.${CSS.blockQed}`)).toHaveLength(1);
+    expect(getPandocTree(editor.state).text).toBe(source);
   });
 
   it("shares one counter across the six numbered fenced-div classes", () => {
