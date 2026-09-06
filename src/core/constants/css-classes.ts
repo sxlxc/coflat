@@ -38,6 +38,7 @@ export const CSS = {
   fencedDivReference: "cf-fenced-div-reference",
   citation: "cf-citation",
   citationNarrative: "cf-citation-narrative",
+  referencePreview: "cf-reference-preview",
   bibliography: "cf-bibliography",
   bibliographyHeading: "cf-bibliography-heading",
   bibliographyList: "cf-bibliography-list",

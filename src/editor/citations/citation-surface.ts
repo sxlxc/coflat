@@ -16,6 +16,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import type { SyntaxNode } from "pandocmd-cst";
+import type { CslJsonItem } from "../../core/citations/csl-json";
 import { CSS } from "../../core/constants/css-classes";
 import { resolvePandocNode } from "../cst/cursor-context";
 import { getDocumentPresentation } from "../cst/document-presentation";
@@ -61,21 +62,24 @@ export function citationResourceExtension(
 
 interface CitationData {
   readonly formatter: CitationFormatter | null;
+  readonly items: readonly CslJsonItem[];
   readonly requestKey: string;
   readonly status: BibliographyStatus;
 }
 
 interface CitationDataUpdate {
   readonly formatter?: CitationFormatter;
+  readonly items?: readonly CslJsonItem[];
   readonly requestKey: string;
   readonly status: BibliographyStatus;
 }
 
 const citationDataEffect = StateEffect.define<CitationDataUpdate>();
+const EMPTY_CITATION_ITEMS: readonly CslJsonItem[] = Object.freeze([]);
 
 const citationDataField = StateField.define<CitationData>({
   create() {
-    return { formatter: null, requestKey: "", status: { state: "idle" } };
+    return { formatter: null, items: EMPTY_CITATION_ITEMS, requestKey: "", status: { state: "idle" } };
   },
 
   update(value, transaction) {
@@ -83,6 +87,7 @@ const citationDataField = StateField.define<CitationData>({
       if (!effect.is(citationDataEffect)) continue;
       return {
         formatter: effect.value.formatter ?? null,
+        items: effect.value.items ?? EMPTY_CITATION_ITEMS,
         requestKey: effect.value.requestKey,
         status: effect.value.status,
       };
@@ -96,6 +101,24 @@ function resourceRequestKey(metadata: YamlCitationMetadata): string {
     ...metadata.bibliographyPaths,
     metadata.cslPath ?? "",
   ].join("\0");
+}
+
+/** All loaded entries, including keys that have not yet been cited. */
+export function getCitationItems(state: EditorState): readonly CslJsonItem[] {
+  const data = state.field(citationDataField, false);
+  return data?.requestKey === resourceRequestKey(getYamlCitationMetadata(state))
+    ? data.items
+    : EMPTY_CITATION_ITEMS;
+}
+
+const IDLE_BIBLIOGRAPHY_STATUS: BibliographyStatus = Object.freeze({ state: "idle" });
+
+/** Loading state for assistance waiting on the current document's resources. */
+export function getBibliographyStatus(state: EditorState): BibliographyStatus {
+  const data = state.field(citationDataField, false);
+  return data?.requestKey === resourceRequestKey(getYamlCitationMetadata(state))
+    ? data.status
+    : IDLE_BIBLIOGRAPHY_STATUS;
 }
 
 function errorKind(error: unknown): BibliographyFailureKind {
@@ -193,6 +216,7 @@ class CitationResourceLoader {
         if (serial !== this.serial) return;
         this.publish(view, requestKey, {
           formatter: loaded.formatter,
+          items: loaded.items,
           requestKey,
           status: loaded.status,
         });

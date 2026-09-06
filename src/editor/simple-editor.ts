@@ -28,6 +28,10 @@ import {
 } from "../core/document-surface-classes";
 import { CSS } from "../core/constants/css-classes";
 import {
+  editingAssistanceExtension,
+  type EditingAssistanceOptions,
+} from "./assistance/editing-assistance";
+import {
   getPandocCursorContext,
   pandocCursorContextField,
 } from "./cst/cursor-context";
@@ -41,6 +45,8 @@ import { coflatTheme } from "./theme";
 export interface SimpleEditorConfig {
   readonly parent: HTMLElement;
   readonly doc?: string;
+  /** Configure completion and reference previews, or disable all with false. */
+  readonly editingAssistance?: EditingAssistanceOptions | false;
   readonly extensions?: readonly Extension[];
 }
 
@@ -97,6 +103,7 @@ export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
       pandocCstField,
       pandocCursorContextField,
       cstEditSurface,
+      editingAssistanceExtension(config.editingAssistance),
       ...documentSurfaceExtensions,
       history(),
       drawSelection(),

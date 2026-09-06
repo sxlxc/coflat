@@ -8,6 +8,9 @@
 4. Decorations, syntax highlighting, and cursor context read the CST directly.
    They must not use CodeMirror's Markdown parser, regex structure scanners, or
    the retired CST-to-Lezer projection.
+   Completion and reference previews follow the same rule: targets and context
+   come from the CST, while bibliography candidates reuse host-loaded data.
+   Lexical matching of an unfinished completion prefix does not define grammar.
 5. Visual widgets never own persisted content. Every source position remains
    reachable and editable from the keyboard.
 6. Rendering may change presentation, such as KaTeX output, but cannot add

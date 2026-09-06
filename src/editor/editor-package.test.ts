@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type {
   BibliographyStatus,
   EditorDocumentChange,
+  EditingAssistanceOptions,
   MountEditorOptions,
   MountedEditor,
   PandocCursorContext,
@@ -50,6 +51,8 @@ describe("package editor export", () => {
       PublicEvents | undefined,
       BibliographyStatus | undefined,
       PublicOptions["readTextResource"],
+      PublicOptions["editingAssistance"],
+      EditingAssistanceOptions,
     ] | null = null;
     expect(_typecheck).toBeNull();
   });

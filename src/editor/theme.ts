@@ -46,6 +46,75 @@ export const coflatTheme = EditorView.theme({
   ".cm-gutters": {
     display: "none",
   },
+  ".cm-tooltip": {
+    backgroundColor: "var(--cf-bg)",
+    border: "1px solid var(--cf-border)",
+    borderRadius: "6px",
+    boxShadow: "0 4px 16px #0002",
+    color: "var(--cf-fg)",
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "14px",
+    lineHeight: "1.5",
+  },
+  ".cm-tooltip.cm-tooltip-autocomplete > ul": {
+    fontFamily: "inherit",
+    maxWidth: "min(38rem, 90vw)",
+    minWidth: "min(16rem, 80vw)",
+  },
+  ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
+    lineHeight: "1.5",
+    padding: "4px 8px",
+  },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+    backgroundColor: "var(--cf-selection)",
+    color: "var(--cf-fg)",
+  },
+  ".cm-completionDetail": {
+    color: "var(--cf-muted)",
+    fontSize: "0.85em",
+    fontStyle: "normal",
+    marginLeft: "1em",
+  },
+  ".cm-tooltip.cm-completionInfo": {
+    maxWidth: "min(28rem, 80vw)",
+    padding: "10px 12px",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  // Keep stacked completion details inside the menu's border even when CM's
+  // viewport measurements round a fractional menu width.
+  ".cm-completionInfo.cm-completionInfo-right-narrow": {
+    right: "4px",
+    width: "auto",
+  },
+  ".cm-completionInfo.cm-completionInfo-left-narrow": {
+    left: "4px",
+    width: "auto",
+  },
+  [`.${CSS.referencePreview}`]: {
+    boxSizing: "border-box",
+    maxWidth: "min(32rem, 90vw)",
+    maxHeight: "min(24rem, 60vh)",
+    overflowY: "auto",
+    overflowWrap: "anywhere",
+    padding: "10px 14px",
+    fontFamily: "var(--cf-content-font)",
+    fontSize: "16px",
+  },
+  [`.${CSS.referencePreview} section + section`]: {
+    borderTop: "1px solid var(--cf-border)",
+    marginTop: "10px",
+    paddingTop: "10px",
+  },
+  [`.${CSS.referencePreview} p`]: {
+    margin: "6px 0 0",
+    whiteSpace: "pre-wrap",
+  },
+  [`.${CSS.referencePreview} small`]: {
+    color: "var(--cf-muted)",
+    display: "block",
+    fontFamily: "var(--cf-code-font)",
+  },
   // CM6's positioning rectangle follows browser caret metrics, which Firefox
   // expands to the full line height on an empty row. Keep that rectangle for
   // placement, but paint a fixed text-height cursor at its center.

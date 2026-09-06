@@ -19,6 +19,8 @@ enters a structured inline node.
 
 Revealed source uses the monospace font with `--cf-fg` text on a `--cf-subtle` background, including full source rows for display math and tables. While the selection is inside a fenced div, `.cf-fenced-div-range` draws a continuous `--cf-muted` bar in the left margin; nested divs have separate bars. Closed proof divs display a `.cf-block-qed` tombstone on the final nonblank content line (or immediately after its block preview), including while their closing fence is being edited.
 
+Completion menus and `.cf-reference-preview` tooltips use the same `--cf-bg`, `--cf-fg`, `--cf-border`, `--cf-muted`, and `--cf-selection` tokens. Their width is bounded by the viewport, and long reference previews scroll within the popup.
+
 `--cf-content-max-width` is the usable text measure; responsive inline padding
 is added outside that width. The default document scale is 18px with a 1.4 line
 height, 1em headings from h3 downward, 1.2em h2, 1.44em h1, and a 1.728em

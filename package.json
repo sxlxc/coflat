@@ -61,13 +61,14 @@
     "lint:layers": "node scripts/check-layer-boundary.mjs",
     "publish:gitea": "node scripts/publish-gitea.mjs",
     "prepack": "pnpm build && pnpm publint",
-    "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test tests/e2e/smoke.spec.ts",
+    "test:e2e": "env -u NO_COLOR -u FORCE_COLOR playwright test tests/e2e/smoke.spec.ts tests/e2e/editing-assistance.spec.ts",
     "e2e:install": "playwright install --with-deps chromium"
   },
   "peerDependencies": {
     "@citation-js/core": "^0.7.21",
     "@citation-js/plugin-bibtex": "^0.7.21",
     "@citation-js/plugin-csl": "^0.7.22",
+    "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/language": "^6.12.4",
     "@codemirror/search": "^6.7.1",

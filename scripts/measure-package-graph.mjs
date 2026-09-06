@@ -22,7 +22,6 @@ const DYNAMIC_IMPORT_RE = /import\(\s*["']([^"']+)["']\s*\)/g;
 
 const EDITOR_FORBIDDEN_STATIC_PACKAGES = Object.freeze([
   /^@citation-js\//,
-  /^@codemirror\/autocomplete$/,
   /^@codemirror\/lang-/,
   /^@radix-ui\//,
   /^@lezer\/markdown$/,

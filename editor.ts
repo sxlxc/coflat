@@ -307,6 +307,7 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
   view = createSimpleEditor({
     parent: options.parent,
     doc: initialDoc,
+    editingAssistance: options.editingAssistance,
     extensions: [
       updateListener,
       saveKeymap,
@@ -448,4 +449,5 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
 }
 
 export { createSimpleEditor as createEditor };
+export type { EditingAssistanceOptions } from "./src/editor/assistance/editing-assistance";
 export type { BibliographyStatus } from "./src/editor/citations/citation-surface";

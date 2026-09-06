@@ -2,6 +2,7 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
   "@citation-js/core",
   "@citation-js/plugin-bibtex",
   "@citation-js/plugin-csl",
+  "@codemirror/autocomplete",
   "@codemirror/commands",
   "@codemirror/language",
   "@codemirror/search",

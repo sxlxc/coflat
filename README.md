@@ -49,6 +49,26 @@ const editor = mountEditor({
 `editor.getCst()` returns the CST paired with the current document.
 `editor.getCursorContext()` reports the nearest Pandoc block and inline nodes.
 
+Editing assistance is enabled by default. Type `@` to choose a local reference label or a loaded bibliography key; suggestions include target labels, titles, and author details. Press Ctrl-Space for Markdown snippets, including emphasis, links, math, and complete fenced divs. Use the arrow keys to choose, Enter or Tab to insert, and Tab/Shift-Tab to move between snippet fields. Escape dismisses suggestions. Hover over a reference for a text preview of its target, or put the caret in its source and press Mod-Shift-Space (Command on macOS, Control elsewhere).
+
+Both `mountEditor` and `createEditor` accept `editingAssistance: false` to disable these aids, or an options object to configure each feature:
+
+```ts
+const editor = mountEditor({
+  parent,
+  doc,
+  editingAssistance: {
+    referenceCompletion: true,
+    markupCompletion: true,
+    referencePreviews: true,
+    activateOnTyping: true,
+    hoverTime: 300,
+  },
+});
+```
+
+These are the defaults. With `activateOnTyping: false`, Ctrl-Space still opens enabled suggestions. Bibliography suggestions and previews use the same host-provided `readTextResource` data as citation rendering, including uncited entries. See [the host API](EDITOR-HOST-API.md) for details.
+
 Inline delimiters are hidden when inactive and revealed when the cursor enters
 their CST node. Inline math is rendered with Coflat's KaTeX surface when
 inactive; on entry, its literal Markdown source and a live preview are shown.
