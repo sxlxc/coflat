@@ -1072,3 +1072,56 @@ test("showcase source layer displays the current document", async ({ page }) => 
   await expect(dialog).not.toBeVisible();
   await expect(page.getByRole("button", { name: "View source" })).toBeFocused();
 });
+
+test("keeps demo undo and redo within the active file", async ({ page }) => {
+  await page.goto("/examples/simple/?doc=example");
+  const content = page.locator("#editor .cm-content");
+  const example = page.locator('[data-doc-id="example"]');
+  const format = page.locator('[data-doc-id="format"]');
+  const readSource = async (): Promise<string | null> => {
+    await page.getByRole("button", { name: "View source" }).click();
+    const source = await page.locator("#document-source").textContent();
+    await page.getByRole("button", { name: "Close" }).click();
+    return source;
+  };
+  const originalExample = await readSource();
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await readSource()).toBe(originalExample);
+
+  const draft = "# Example draft\n\n中文 😀 changes stay in this file.";
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(draft);
+  await format.click();
+  const originalFormat = await readSource();
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await readSource()).toBe(originalFormat);
+  await expect(format).toHaveAttribute("aria-current");
+  await expect(page).toHaveURL(/\?doc=format$/);
+
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText("# Format draft\n\nOnly this file changes.");
+  await format.click();
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await readSource()).toBe(originalFormat);
+
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  expect(await readSource()).toBe("# Format draft\n\nOnly this file changes.");
+  await content.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await readSource()).toBe(originalFormat);
+
+  await example.click();
+  expect(await readSource()).toBe(draft);
+  for (const key of ["ControlOrMeta+z", "ControlOrMeta+Shift+z"]) {
+    await content.focus();
+    await page.keyboard.press(key);
+    expect(await readSource()).toBe(draft);
+  }
+  await expect(example).toHaveAttribute("aria-current");
+  await expect(page).toHaveURL(/\?doc=example$/);
+});

@@ -8,11 +8,9 @@ import {
   type TextChange,
 } from "pandocmd-cst";
 
-interface PandocCstFieldValue {
+interface PandocCstFieldValue extends PandocCstInvalidations {
   readonly parser: PandocParser;
   readonly tree: SyntaxTree;
-  readonly changedRanges: readonly ChangedRange[];
-  readonly semanticChangedRanges: readonly SemanticChangedRange[];
   /** Test/debug instrumentation, not a document version. */
   readonly updateCount: number;
 }
@@ -20,6 +18,8 @@ interface PandocCstFieldValue {
 export interface PandocCstInvalidations {
   readonly changedRanges: readonly ChangedRange[];
   readonly semanticChangedRanges: readonly SemanticChangedRange[];
+  /** Full fallbacks may change remote CST nodes outside the reported ranges. */
+  readonly fullReparse: boolean;
 }
 
 const noChangedRanges: readonly ChangedRange[] = Object.freeze([]);
@@ -40,6 +40,7 @@ function fieldValue(
   changedRanges: readonly ChangedRange[],
   semanticChangedRanges: readonly SemanticChangedRange[],
   updateCount: number,
+  fullReparse = false,
 ): PandocCstFieldValue {
   return Object.freeze({
     parser,
@@ -47,6 +48,7 @@ function fieldValue(
     changedRanges,
     semanticChangedRanges,
     updateCount,
+    fullReparse,
   });
 }
 
@@ -65,6 +67,7 @@ export const pandocCstField = StateField.define<PandocCstFieldValue>({
       if (
         value.changedRanges.length === 0
         && value.semanticChangedRanges.length === 0
+        && !value.fullReparse
       ) {
         return value;
       }
@@ -91,6 +94,7 @@ export const pandocCstField = StateField.define<PandocCstFieldValue>({
       result.changedRanges,
       result.semanticChangedRanges,
       value.updateCount + 1,
+      result.metrics.mode === "full-fallback",
     );
   },
 });
@@ -122,11 +126,13 @@ export function getPandocInvalidations(state: EditorState): PandocCstInvalidatio
     return Object.freeze({
       changedRanges: noChangedRanges,
       semanticChangedRanges: noSemanticChangedRanges,
+      fullReparse: false,
     });
   }
   return Object.freeze({
     changedRanges: value.changedRanges,
     semanticChangedRanges: value.semanticChangedRanges,
+    fullReparse: value.fullReparse,
   });
 }
 

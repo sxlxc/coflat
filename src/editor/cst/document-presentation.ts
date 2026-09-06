@@ -1,7 +1,8 @@
-import { type EditorState, StateField } from "@codemirror/state";
+import { type ChangeDesc, type EditorState, StateField, type Transaction } from "@codemirror/state";
 import {
   fenceInfo,
   mathDisplay,
+  type SourceRange,
   type SyntaxNode,
   type SyntaxTree,
 } from "pandocmd-cst";
@@ -9,6 +10,7 @@ import {
   getBlockManifestEntry,
   getManifestBlockTitle,
 } from "../../core/constants/block-manifest";
+import { changedBlockRanges } from "./decoration-ranges";
 import { getPandocTree } from "./pandoc-cst-field";
 
 const FENCED_DIV_CLASS_ABBREVIATIONS: ReadonlyMap<string, string> = new Map([
@@ -165,9 +167,25 @@ export function buildDocumentPresentation(
   const fencedDivInfos = new Map<number, FencedDivInfo>();
   const fencedDivsByFrom = new Map<number, FencedDivPresentation>();
   const localTargets = new Map<string, LocalReferenceTarget>();
+  const numberedDisplayMath: SyntaxNode[] = [];
+  const equationWrapperCandidates = new Map<number, SyntaxNode[]>();
   let blockNumber = 0;
 
   tree.iterate((node) => {
+    if (
+      node.kind === "Math"
+      && (node.prop(mathDisplay) ?? false)
+      && !hasPipeTableAncestor(node)
+    ) {
+      const wrapper = containingEquationDiv(node, fencedDivInfos);
+      if (wrapper) {
+        numberedDisplayMath.push(node);
+        const candidates = equationWrapperCandidates.get(wrapper.from) ?? [];
+        candidates.push(node);
+        equationWrapperCandidates.set(wrapper.from, candidates);
+      }
+      return false;
+    }
     if (node.kind !== "FencedDiv") return;
     const info = infoForFencedDiv(node);
     if (!info) return;
@@ -189,24 +207,6 @@ export function buildDocumentPresentation(
       );
     }
     return;
-  });
-
-  const numberedDisplayMath: SyntaxNode[] = [];
-  const equationWrapperCandidates = new Map<number, SyntaxNode[]>();
-  tree.iterate((node) => {
-    if (
-      node.kind !== "Math"
-      || !(node.prop(mathDisplay) ?? false)
-      || hasPipeTableAncestor(node)
-    ) return;
-    const wrapper = containingEquationDiv(node, fencedDivInfos);
-    if (wrapper) {
-      numberedDisplayMath.push(node);
-      const candidates = equationWrapperCandidates.get(wrapper.from) ?? [];
-      candidates.push(node);
-      equationWrapperCandidates.set(wrapper.from, candidates);
-    }
-    return false;
   });
 
   const equationIdByMathFrom = new Map<number, string>();
@@ -236,6 +236,53 @@ const EMPTY_DOCUMENT_PRESENTATION: DocumentPresentation = Object.freeze({
   localTargets: new Map(),
 });
 
+function presentationNodes(
+  tree: SyntaxTree,
+  ranges: readonly SourceRange[],
+): readonly SyntaxNode[] {
+  const nodes = new Map<string, SyntaxNode>();
+  for (const range of ranges) {
+    tree.iterate((node) => {
+      if (
+        node.kind === "FencedDiv"
+        || node.kind === "PipeTable"
+        || (node.kind === "Math" && node.prop(mathDisplay))
+      ) nodes.set(`${node.kind}:${node.from}`, node);
+    }, range);
+  }
+  return [...nodes.values()].sort((left, right) => left.from - right.from);
+}
+
+function presentationStructureChanged(transaction: Transaction): boolean {
+  const ranges = changedBlockRanges(transaction);
+  const before = getPandocTree(transaction.startState);
+  const after = getPandocTree(transaction.state);
+  const oldNodes = presentationNodes(before, ranges.oldRanges);
+  const newNodes = presentationNodes(after, ranges.newRanges);
+  return oldNodes.length !== newNodes.length || oldNodes.some((node, index) => {
+    const next = newNodes[index];
+    return node.kind !== next.kind
+      || transaction.changes.mapPos(node.from, 1) !== next.from
+      || transaction.changes.mapPos(node.to, -1) !== next.to
+      || node.prop(fenceInfo) !== next.prop(fenceInfo);
+  });
+}
+
+function mapPresentationPositions<T>(
+  values: ReadonlyMap<number, T>,
+  changes: ChangeDesc,
+): ReadonlyMap<number, T> {
+  if (values.size === 0) return values;
+  const mapped = new Map<number, T>();
+  let moved = false;
+  for (const [from, value] of values) {
+    const nextFrom = changes.mapPos(from, 1);
+    moved ||= nextFrom !== from;
+    mapped.set(nextFrom, value);
+  }
+  return moved ? mapped : values;
+}
+
 export const cstDocumentPresentationField =
   StateField.define<DocumentPresentation>({
     create(state) {
@@ -243,9 +290,24 @@ export const cstDocumentPresentationField =
     },
 
     update(value, transaction) {
-      return transaction.docChanged
-        ? buildDocumentPresentation(getPandocTree(transaction.state))
-        : value;
+      if (!transaction.docChanged) return value;
+      // Ordinary prose and equation-body edits preserve numbering and targets.
+      // Compare the CST's changed structure before revisiting the entire paper.
+      if (presentationStructureChanged(transaction)) {
+        return buildDocumentPresentation(getPandocTree(transaction.state));
+      }
+      const equationsByMathFrom = mapPresentationPositions(
+        value.equationsByMathFrom,
+        transaction.changes,
+      );
+      const fencedDivsByFrom = mapPresentationPositions(
+        value.fencedDivsByFrom,
+        transaction.changes,
+      );
+      return equationsByMathFrom === value.equationsByMathFrom
+        && fencedDivsByFrom === value.fencedDivsByFrom
+        ? value
+        : { equationsByMathFrom, fencedDivsByFrom, localTargets: value.localTargets };
     },
   });
 

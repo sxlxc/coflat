@@ -44,7 +44,7 @@ function mathMacrosKey(macros: Readonly<Record<string, string>>): string {
 }
 
 function yamlMetadataNode(state: EditorState): SyntaxNode | null {
-  const first = getPandocTree(state).topLevelBlocks()[0];
+  const first = getPandocTree(state).root.firstChild();
   return first?.kind === "YamlMetadata" ? first : null;
 }
 
@@ -144,8 +144,7 @@ function yamlPresentationMetadata(node: SyntaxNode): {
   };
 }
 
-function readYamlMetadata(state: EditorState): YamlMetadata | null {
-  const node = yamlMetadataNode(state);
+function readYamlMetadata(node: SyntaxNode | null): YamlMetadata | null {
   if (!node) return null;
   const {
     bibliographyPaths,
@@ -337,12 +336,17 @@ function sameYamlSource(
 function yamlMetadataDecorationState(
   state: EditorState,
   previous?: YamlMetadataDecorationState,
+  docChanged = true,
 ): YamlMetadataDecorationState {
-  const node = yamlMetadataNode(state);
-  const metadata = previous && sameYamlSource(previous.metadata, node)
-    ? previous.metadata
-    : readYamlMetadata(state);
+  let metadata = previous?.metadata ?? null;
+  if (docChanged) {
+    const node = yamlMetadataNode(state);
+    if (!sameYamlSource(metadata, node)) metadata = readYamlMetadata(node);
+  }
   const active = metadata ? selectionTouchesMetadata(state, metadata) : false;
+  if (previous && metadata === previous.metadata && active === previous.active) {
+    return previous;
+  }
   return {
     active,
     decorations: buildYamlMetadataDecorations(state, metadata, active),
@@ -358,7 +362,7 @@ export const cstYamlMetadataField =
 
     update(value, transaction) {
       if (!transaction.docChanged && !transaction.selection) return value;
-      return yamlMetadataDecorationState(transaction.state, value);
+      return yamlMetadataDecorationState(transaction.state, value, transaction.docChanged);
     },
 
     provide(field) {

@@ -23,44 +23,49 @@ const documents = {
 } as const;
 type DocumentId = keyof typeof documents;
 
-const editor = mountEditor({
+function isDocumentId(value: string | undefined): value is DocumentId {
+  return value === "showcase" || value === "format" || value === "example";
+}
+
+const drafts: Record<DocumentId, string> = { ...documents };
+const requested = new URLSearchParams(location.search).get("doc") ?? undefined;
+let activeDocument: DocumentId = isDocumentId(requested) ? requested : "showcase";
+
+const mountDocument = (id: DocumentId): ReturnType<typeof mountEditor> => mountEditor({
   parent: editorRoot,
-  doc: documents.showcase,
+  doc: drafts[id],
   readTextResource: async (path) => {
     if (path === "ref.bib") return referenceBibliography;
     throw new Error(`Unknown example resource: ${path}`);
   },
 });
 
+let editor = mountDocument(activeDocument);
+
 viewSourceButton.addEventListener("click", () => {
   documentSource.textContent = editor.getDoc();
   sourceDialog.showModal();
 });
 
-function isDocumentId(value: string | undefined): value is DocumentId {
-  return value === "showcase" || value === "format" || value === "example";
-}
-
 for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-doc-id]")) {
+  link.toggleAttribute("aria-current", link.dataset.docId === activeDocument);
   link.addEventListener("click", (event) => {
     const id = link.dataset.docId;
     if (!isDocumentId(id)) return;
     event.preventDefault();
-    editor.setDoc(documents[id]);
+    if (id !== activeDocument) {
+      drafts[activeDocument] = editor.getDoc();
+      // File navigation starts a new undo history while retaining each draft.
+      editor.unmount();
+      activeDocument = id;
+      editor = mountDocument(id);
+    }
     for (const candidate of document.querySelectorAll<HTMLElement>("[data-doc-id]")) {
       candidate.toggleAttribute("aria-current", candidate.dataset.docId === id);
     }
     history.replaceState(null, "", `?doc=${id}`);
     editor.focus();
   });
-}
-
-const requested = new URLSearchParams(location.search).get("doc") ?? undefined;
-if (isDocumentId(requested)) {
-  editor.setDoc(documents[requested]);
-  for (const candidate of document.querySelectorAll<HTMLElement>("[data-doc-id]")) {
-    candidate.toggleAttribute("aria-current", candidate.dataset.docId === requested);
-  }
 }
 
 editor.focus();

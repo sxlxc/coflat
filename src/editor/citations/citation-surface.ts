@@ -1,10 +1,10 @@
 import {
-  type ChangeDesc,
   type EditorState,
   type Extension,
   Facet,
   StateEffect,
   StateField,
+  type Transaction,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -17,6 +17,7 @@ import {
 } from "@codemirror/view";
 import type { SyntaxNode } from "pandocmd-cst";
 import { CSS } from "../../core/constants/css-classes";
+import { resolvePandocNode } from "../cst/cursor-context";
 import { getDocumentPresentation } from "../cst/document-presentation";
 import { getPandocTree } from "../cst/pandoc-cst-field";
 import {
@@ -24,7 +25,7 @@ import {
   type YamlCitationMetadata,
 } from "../cst/yaml-metadata";
 import { sanitizeCslHtml } from "../lib/sanitize-csl-html";
-import { collectCitationClusters } from "./citation-model";
+import { collectCitationClusters, updateCitationClusters } from "./citation-model";
 import type {
   BibliographyEntryPresentation,
   BibliographyFailureKind,
@@ -245,9 +246,10 @@ function nociteIds(
 function registrationClusters(
   state: EditorState,
   formatter: CitationFormatter,
+  candidates: readonly CitationClusterPresentation[],
 ): CitationClusterPresentation[] {
   const localTargets = getDocumentPresentation(state).localTargets;
-  const clusters = collectCitationClusters(getPandocTree(state))
+  const clusters = candidates
     .filter((cluster) => isRenderableCitation(cluster, formatter, localTargets));
   const cited = new Set(clusters.flatMap((cluster) => (
     cluster.items.map((item) => item.id)
@@ -366,6 +368,7 @@ class BibliographyWidget extends WidgetType {
 }
 
 interface CitationDecorationState {
+  readonly clusters: readonly CitationClusterPresentation[];
   readonly contentKey: string;
   readonly citations: readonly {
     readonly cluster: CitationClusterPresentation;
@@ -375,6 +378,30 @@ interface CitationDecorationState {
   readonly decorations: DecorationSet;
   readonly entries: readonly BibliographyEntryPresentation[];
   readonly renderedFrom: ReadonlySet<number>;
+  readonly selectionSignature: string;
+}
+
+function citationSelectionSignature(
+  state: EditorState,
+  citations: CitationDecorationState["citations"],
+): string {
+  let signature = "";
+  for (const range of state.selection.ranges) {
+    let from = 0;
+    let to = citations.length;
+    while (from < to) {
+      const middle = (from + to) >>> 1;
+      if (citations[middle].cluster.to <= range.from) from = middle + 1;
+      else to = middle;
+    }
+    for (let index = from; index < citations.length; index += 1) {
+      const cluster = citations[index].cluster;
+      if (cluster.from >= range.to) break;
+      signature += `${index},`;
+    }
+    signature += ";";
+  }
+  return signature;
 }
 
 function citationDecorationSet(
@@ -402,45 +429,56 @@ function citationDecorationSet(
 function buildCitationDecorations(
   state: EditorState,
   previous?: CitationDecorationState,
-  changes?: ChangeDesc,
+  transaction?: Transaction,
 ): CitationDecorationState {
   const data = state.field(citationDataField);
   const formatter = data.formatter;
   if (!formatter) {
+    if (previous?.data === data) return previous;
     return {
+      clusters: [],
       contentKey: "",
       citations: [],
       data,
       decorations: Decoration.none,
       entries: [],
       renderedFrom: new Set(),
+      selectionSignature: "",
     };
   }
-  const clusters = registrationClusters(state, formatter);
+  const tree = getPandocTree(state);
+  const changes = transaction?.changes;
+  const candidates = previous?.data.formatter
+    ? transaction?.docChanged
+      ? updateCitationClusters(transaction, previous.clusters)
+      : previous.clusters
+    : collectCitationClusters(tree);
+  const clusters = registrationClusters(state, formatter, candidates);
   // Positions are intentionally excluded: prose edits can move citations
   // without changing CSL context, nocite entries, or local-target resolution.
   const contentKey = JSON.stringify(clusters.map(({ items, narrative, raw }) => (
     { items, narrative, raw }
   )));
   if (previous?.data === data && previous.contentKey === contentKey) {
-    const citations = previous.citations.map((citation, index) => {
-      const cluster = clusters[index];
-      const from = changes?.mapPos(citation.cluster.from, 1) ?? cluster.from;
-      const to = changes?.mapPos(citation.cluster.to, -1) ?? cluster.to;
-      return {
-        ...citation,
-        // A replacement may recreate an identical citation inside the changed
-        // range. In that case the current CST supplies its exact coordinates.
-        cluster: from === cluster.from && to === cluster.to
-          ? { ...citation.cluster, from, to }
-          : cluster,
-      };
-    });
+    const citations = previous.citations.map((citation, index) => ({
+      cluster: clusters[index],
+      html: citation.html,
+    }));
+    const selectionSignature = citationSelectionSignature(state, citations);
+    const canMap = changes
+      && selectionSignature === previous.selectionSignature
+      && !previous.citations.some(({ cluster }) => (
+        changes.touchesRange(cluster.from, cluster.to)
+      ));
     return {
       ...previous,
+      clusters: candidates,
       citations,
-      decorations: citationDecorationSet(state, citations, previous.entries),
+      decorations: canMap
+        ? previous.decorations.map(changes)
+        : citationDecorationSet(state, citations, previous.entries),
       renderedFrom: new Set(citations.map(({ cluster }) => cluster.from)),
+      selectionSignature,
     };
   }
   formatter.registerCitations(clusters);
@@ -456,12 +494,14 @@ function buildCitationDecorations(
     html: sanitizeCslHtml(entry.html),
   }));
   return {
+    clusters: candidates,
     contentKey,
     citations,
     data,
     decorations: citationDecorationSet(state, citations, entries),
     entries,
     renderedFrom,
+    selectionSignature: citationSelectionSignature(state, citations),
   };
 }
 
@@ -475,10 +515,16 @@ const citationDecorationField = StateField.define<CitationDecorationState>({
     if (
       transaction.docChanged
       || data !== value.data
-    ) return buildCitationDecorations(transaction.state, value, transaction.changes);
-    if (transaction.selection) {
+    ) return buildCitationDecorations(transaction.state, value, transaction);
+    if (transaction.selection && value.citations.length > 0) {
+      const selectionSignature = citationSelectionSignature(
+        transaction.state,
+        value.citations,
+      );
+      if (selectionSignature === value.selectionSignature) return value;
       return {
         ...value,
+        selectionSignature,
         decorations: citationDecorationSet(
           transaction.state,
           value.citations,
@@ -512,7 +558,7 @@ function enterRenderedCitation(
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
   const citation = containingCitation(
-    getPandocTree(view.state).resolve(selection.head, direction),
+    resolvePandocNode(getPandocTree(view.state), selection.head, direction),
   );
   if (!citation) return false;
   if (direction === "right" && citation.from !== selection.head) return false;

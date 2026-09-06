@@ -1,6 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { createSimpleEditor } from "../simple-editor";
+import { pandocCursorContextField } from "./cursor-context";
 import {
   getPandocCstUpdateCountForTesting,
   getPandocTree,
@@ -105,6 +106,36 @@ describe.skipIf(!benchmarkEnabled)("CST-backed CM6 transaction benchmark", () =>
     } finally {
       view.destroy();
     }
+  });
+
+  it("measures cursor context near the end of a large document", () => {
+    const doc = generatedDocument(700 * 1_024);
+    const position = doc.indexOf("TARGET");
+    let state = EditorState.create({
+      doc,
+      selection: { anchor: position },
+      extensions: [pandocCstField, pandocCursorContextField],
+    });
+    const durations: number[] = [];
+
+    for (let index = 0; index < warmupSamples + measuredSamples; index += 1) {
+      const start = performance.now();
+      state = state.update({
+        changes: {
+          from: position,
+          to: position + 1,
+          insert: index % 2 === 0 ? "t" : "T",
+        },
+      }).state;
+      if (index >= warmupSamples) durations.push(performance.now() - start);
+    }
+
+    expect(getPandocTree(state).text).toBe(state.doc.toString());
+    expect(state.field(pandocCursorContextField).position).toBe(position);
+    process.stdout.write(`${JSON.stringify({
+      operation: "700 KiB CST and cursor-context state transaction",
+      p95Ms: percentile(durations, 0.95),
+    })}\n`);
   });
 
   it("measures edits within a 1,000-row pipe table", {

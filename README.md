@@ -90,6 +90,8 @@ and other retired semantic caches.
 
 Run the local showcase with `pnpm dev:pages`.
 
+See [editing performance](docs/editing-performance.md) for opt-in typing, preview, and long-session measurements.
+
 ## License
 
 MIT

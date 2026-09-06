@@ -1,5 +1,5 @@
 import { type EditorState, StateField } from "@codemirror/state";
-import type { NodeKind, SyntaxNode, SyntaxTree } from "pandocmd-cst";
+import type { NodeKind, ResolveBias, SyntaxNode, SyntaxTree } from "pandocmd-cst";
 import { getPandocTree } from "./pandoc-cst-field";
 
 const INLINE_KINDS: ReadonlySet<NodeKind> = new Set([
@@ -97,13 +97,33 @@ function nearest(
   return null;
 }
 
+/** Resolve through the CST's indexed range walk without enumerating root siblings. */
+export function resolvePandocNode(
+  tree: SyntaxTree,
+  position: number,
+  bias: ResolveBias = "right",
+): SyntaxNode {
+  if (!Number.isInteger(position) || position < 0 || position > tree.length) {
+    throw new RangeError(`Offset ${position} is outside 0..${tree.length}`);
+  }
+  const from = Math.max(0, Math.min(
+    tree.length - 1,
+    position - (bias === "left" ? 1 : 0),
+  ));
+  let resolved = tree.root;
+  tree.iterate((node) => {
+    resolved = node;
+  }, { from, to: Math.min(from + 1, tree.length) });
+  return resolved;
+}
+
 export function resolvePandocCursorContext(
   tree: SyntaxTree,
   position: number,
 ): PandocCursorContext {
   const clamped = Math.max(0, Math.min(tree.length, position));
   const path: SyntaxNode[] = [];
-  let node: SyntaxNode | null = tree.resolve(clamped, "right");
+  let node: SyntaxNode | null = resolvePandocNode(tree, clamped);
   while (node) {
     path.push(node);
     node = node.parent;
@@ -128,7 +148,10 @@ export const pandocCursorContextField = StateField.define<PandocCursorContext>({
   },
 
   update(value, transaction) {
-    if (!transaction.docChanged && !transaction.selection) return value;
+    if (
+      !transaction.docChanged
+      && transaction.state.selection.main.head === value.position
+    ) return value;
     return resolvePandocCursorContext(
       getPandocTree(transaction.state),
       transaction.state.selection.main.head,

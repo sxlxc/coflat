@@ -16,6 +16,7 @@ import {
   tableAlignments,
   tableColumnCount,
   type NodeKind,
+  type SourceRange,
   type SyntaxNode,
   type SyntaxTree,
 } from "pandocmd-cst";
@@ -31,8 +32,9 @@ import {
   type TableCellAlignment,
 } from "../../core/table-surface";
 import { renderKatexToHtml } from "../render/katex-render";
+import { resolvePandocNode } from "./cursor-context";
+import { changedBlockRanges, selectionSourceRanges } from "./decoration-ranges";
 import {
-  getPandocInvalidations,
   getPandocTree,
 } from "./pandoc-cst-field";
 import {
@@ -107,7 +109,7 @@ function pipeTableAtPosition(
   position: number,
 ): SyntaxNode | null {
   for (const bias of ["right", "left"] as const) {
-    const table = containingPipeTable(tree.resolve(position, bias));
+    const table = containingPipeTable(resolvePandocNode(tree, position, bias));
     if (table) return table;
   }
   return null;
@@ -133,28 +135,21 @@ function activePipeTableSignature(state: EditorState, tree: SyntaxTree): string 
   return [...activePipeTableKeys(state, tree)].sort().join("|");
 }
 
-function selectionCoversRange(
-  state: EditorState,
-  from: number,
-  to: number,
-): boolean {
-  return state.selection.ranges.some((range) => (
-    !range.empty && range.from <= from && range.to >= to
-  ));
-}
-
 function selectedPipeTableKeys(
   state: EditorState,
   tree: SyntaxTree,
 ): ReadonlySet<string> {
   const keys = new Set<string>();
-  if (state.selection.ranges.every((range) => range.empty)) return keys;
-  tree.iterate((node) => {
-    if (
-      node.kind === "PipeTable"
-      && selectionCoversRange(state, node.from, node.to)
-    ) keys.add(tableNodeKey(node));
-  });
+  for (const range of selectionSourceRanges(state)) {
+    if (range.from === range.to) continue;
+    tree.iterate((node) => {
+      if (node.kind !== "PipeTable") return;
+      if (range.from <= node.from && range.to >= node.to) {
+        keys.add(tableNodeKey(node));
+      }
+      return false;
+    }, range);
+  }
   return keys;
 }
 
@@ -701,7 +696,10 @@ class CstTableWidget extends WidgetType {
   }
 }
 
-function buildTableDecorationState(state: EditorState): TableDecorationState {
+function tableDecorationRanges(
+  state: EditorState,
+  tables: readonly SyntaxNode[],
+): Array<ReturnType<Decoration["range"]>> {
   const tree = getPandocTree(state);
   const active = activePipeTableKeys(state, tree);
   const selected = selectedPipeTableKeys(state, tree);
@@ -709,8 +707,7 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
   const macrosKey = getYamlMathMacrosKey(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
-  tree.iterate((node) => {
-    if (node.kind !== "PipeTable") return;
+  for (const node of tables) {
     const isActive = active.has(tableNodeKey(node));
     const widget = new CstTableWidget(
       buildTablePlan(node, tree),
@@ -734,47 +731,88 @@ function buildTableDecorationState(state: EditorState): TableDecorationState {
         // Allow trailing inline widgets, such as a proof tombstone, at the end.
         : Decoration.replace({ widget, block: true, inclusiveEnd: false }).range(node.from, node.to),
     );
-    return false;
-  });
+  }
+  return ranges;
+}
 
+function buildTableDecorationState(state: EditorState): TableDecorationState {
+  const tree = getPandocTree(state);
   return {
-    mathMacrosKey: macrosKey,
+    mathMacrosKey: getYamlMathMacrosKey(state),
     selectionSignature: tableSelectionSignature(state, tree),
-    decorations: Decoration.set(ranges, true),
+    decorations: Decoration.set(tableDecorationRanges(state, pipeTablesInRanges(
+      state,
+      [{ from: 0, to: tree.length }],
+    )), true),
   };
 }
 
-function rangeTouchesPipeTable(
-  tree: SyntaxTree,
-  from: number,
-  to: number,
-): boolean {
-  if (tree.length === 0) return false;
-  const searchFrom = Math.max(0, Math.min(tree.length, from) - 1);
-  const searchTo = Math.min(
-    tree.length,
-    Math.max(searchFrom + 1, Math.min(tree.length, to) + 1),
-  );
-  let found = false;
-  tree.iterate((node) => {
-    if (node.kind === "PipeTable") {
-      found = true;
+function pipeTablesInRanges(
+  state: EditorState,
+  ranges: readonly SourceRange[],
+): SyntaxNode[] {
+  const tree = getPandocTree(state);
+  const tables = new Map<number, SyntaxNode>();
+  for (const range of ranges) {
+    tree.iterate((node) => {
+      if (node.kind !== "PipeTable") return;
+      tables.set(node.from, node);
       return false;
-    }
-    return;
-  }, { from: searchFrom, to: searchTo });
-  return found;
+    }, {
+      from: state.doc.lineAt(Math.max(0, range.from - 1)).from,
+      to: state.doc.lineAt(Math.min(tree.length, range.to + 1)).to,
+    });
+  }
+  return [...tables.values()];
 }
 
-function transactionTouchesPipeTable(transaction: Transaction): boolean {
-  const before = getPandocTree(transaction.startState);
-  const after = getPandocTree(transaction.state);
-  const invalidations = getPandocInvalidations(transaction.state).changedRanges;
-  if (invalidations.length === 0) return true;
-  return invalidations.some((range) => (
-    rangeTouchesPipeTable(before, range.oldFrom, range.oldTo)
-    || rangeTouchesPipeTable(after, range.newFrom, range.newTo)
-  ));
+function tableSourceRange(state: EditorState, table: SyntaxNode): SourceRange {
+  return { from: state.doc.lineAt(table.from).from, to: table.to };
+}
+
+function withoutTableDecorations(
+  decorations: DecorationSet,
+  ranges: readonly SourceRange[],
+): DecorationSet {
+  let result = decorations;
+  for (const range of ranges) {
+    result = result.update({
+      filterFrom: range.from,
+      filterTo: range.to,
+      filter: (from, to) => from === to
+        ? from < range.from || from >= range.to
+        : to <= range.from || from >= range.to,
+    });
+  }
+  return result;
+}
+
+function updateTableDecorations(
+  value: TableDecorationState,
+  transaction: Transaction,
+  selectionSignature: string,
+): DecorationSet {
+  const changed = changedBlockRanges(transaction);
+  const oldRanges = [...changed.oldRanges];
+  const newRanges = [...changed.newRanges];
+  if (selectionSignature !== value.selectionSignature) {
+    oldRanges.push(...selectionSourceRanges(transaction.startState));
+    newRanges.push(...selectionSourceRanges(transaction.state));
+  }
+  const oldTables = pipeTablesInRanges(transaction.startState, oldRanges);
+  const oldSourceRanges = oldTables.map((table) => tableSourceRange(transaction.startState, table));
+  // Recollect complete old tables after mapping: edits can split one table
+  // into several nodes beyond the parser's first new invalidation range.
+  newRanges.push(...oldSourceRanges.map((range) => ({
+    from: transaction.changes.mapPos(range.from, -1),
+    to: transaction.changes.mapPos(range.to, 1),
+  })));
+  const newTables = pipeTablesInRanges(transaction.state, newRanges);
+  const mapped = withoutTableDecorations(value.decorations, oldSourceRanges)
+    .map(transaction.changes);
+  return withoutTableDecorations(mapped, newTables.map((table) => (
+    tableSourceRange(transaction.state, table)
+  ))).update({ add: tableDecorationRanges(transaction.state, newTables), sort: true });
 }
 
 /** Block replacements must be supplied by a state field because they cross lines. */
@@ -790,22 +828,12 @@ export const cstTableDecorationField = StateField.define<TableDecorationState>({
     if (macrosKey !== value.mathMacrosKey) {
       return buildTableDecorationState(transaction.state);
     }
-    if (!transaction.docChanged) {
-      return selectionSignature === value.selectionSignature
-        ? value
-        : buildTableDecorationState(transaction.state);
-    }
-    if (
-      selectionSignature === value.selectionSignature
-      && !transactionTouchesPipeTable(transaction)
-    ) {
-      return {
-        mathMacrosKey: macrosKey,
-        selectionSignature,
-        decorations: value.decorations.map(transaction.changes),
-      };
-    }
-    return buildTableDecorationState(transaction.state);
+    if (!transaction.docChanged && selectionSignature === value.selectionSignature) return value;
+    return {
+      mathMacrosKey: macrosKey,
+      selectionSignature,
+      decorations: updateTableDecorations(value, transaction, selectionSignature),
+    };
   },
 
   provide(field) {
@@ -841,7 +869,7 @@ function enterRenderedTable(
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
   const tree = getPandocTree(view.state);
-  const table = containingPipeTable(tree.resolve(selection.head, direction));
+  const table = containingPipeTable(resolvePandocNode(tree, selection.head, direction));
   if (!table) return false;
   if (direction === "right" && table.from !== selection.head) return false;
   if (direction === "left" && table.to !== selection.head) return false;

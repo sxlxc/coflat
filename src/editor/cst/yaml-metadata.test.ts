@@ -1,9 +1,10 @@
 import { cursorCharLeft, undo } from "@codemirror/commands";
+import { EditorState } from "@codemirror/state";
 import { afterEach, describe, expect, it } from "vitest";
 import { CSS } from "../../core/constants/css-classes";
 import { createSimpleEditor } from "../simple-editor";
-import { getPandocTree } from "./pandoc-cst-field";
-import { getYamlCitationMetadata } from "./yaml-metadata";
+import { getPandocTree, pandocCstField } from "./pandoc-cst-field";
+import { cstYamlMetadataField, getYamlCitationMetadata } from "./yaml-metadata";
 
 describe("CST YAML metadata presentation", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
@@ -161,5 +162,32 @@ describe("CST YAML metadata presentation", () => {
     expect(parent.querySelector(".cf-doc-title")?.textContent).toBe("数学 Résumé");
     expect(editor.state.selection.main.head).toBe(metadata?.to);
     expect(editor.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
+  });
+
+  it("reuses metadata decorations until the source or revealed state changes", () => {
+    const doc = "---\ntitle: 数学 😀\n---\n\nBody text";
+    let state = EditorState.create({
+      doc,
+      selection: { anchor: doc.length },
+      extensions: [pandocCstField, cstYamlMetadataField],
+    });
+    const collapsed = state.field(cstYamlMetadataField);
+    state = state.update({ selection: { anchor: doc.length - 1 } }).state;
+    expect(state.field(cstYamlMetadataField)).toBe(collapsed);
+    state = state.update({ changes: { from: doc.length, insert: "!" } }).state;
+    expect(state.field(cstYamlMetadataField)).toBe(collapsed);
+
+    state = state.update({ selection: { anchor: doc.indexOf("title") } }).state;
+    const expanded = state.field(cstYamlMetadataField);
+    expect(expanded.active).toBe(true);
+    expect(expanded.decorations).not.toBe(collapsed.decorations);
+    state = state.update({ selection: { anchor: doc.indexOf("数学") } }).state;
+    expect(state.field(cstYamlMetadataField)).toBe(expanded);
+
+    state = state.update({ changes: { from: 4, to: 9, insert: "other" } }).state;
+    expect(state.field(cstYamlMetadataField).metadata?.title).toBeUndefined();
+    expect(getPandocTree(state).text).toBe(state.doc.toString());
+    state = state.update({ changes: { from: 0, to: doc.indexOf("Body") } }).state;
+    expect(state.field(cstYamlMetadataField).metadata).toBeNull();
   });
 });

@@ -1,9 +1,13 @@
+import type { Transaction } from "@codemirror/state";
 import {
   citationMode,
   normalizedCitationKey,
+  type SourceRange,
   type SyntaxNode,
   type SyntaxTree,
 } from "pandocmd-cst";
+import { changedBlockRanges } from "../cst/decoration-ranges";
+import { getPandocInvalidations, getPandocTree } from "../cst/pandoc-cst-field";
 import type {
   CitationClusterPresentation,
   CitationItemPresentation,
@@ -62,6 +66,7 @@ function clusterForNode(node: SyntaxNode): CitationClusterPresentation | null {
 
 export function collectCitationClusters(
   tree: SyntaxTree,
+  range?: SourceRange,
 ): CitationClusterPresentation[] {
   const clusters: CitationClusterPresentation[] = [];
   tree.iterate((node) => {
@@ -73,6 +78,40 @@ export function collectCitationClusters(
     const cluster = clusterForNode(node);
     if (cluster) clusters.push(cluster);
     return false;
-  });
+  }, range);
   return clusters;
+}
+
+export function updateCitationClusters(
+  transaction: Transaction,
+  previous: readonly CitationClusterPresentation[],
+): CitationClusterPresentation[] {
+  const tree = getPandocTree(transaction.state);
+  const { changes } = transaction;
+  const { oldRanges, newRanges } = changedBlockRanges(
+    transaction,
+    getPandocInvalidations(transaction.state).semanticChangedRanges.filter((range) => (
+      range.kinds.includes("example-number")
+    )),
+  );
+  const clusters = new Map<number, CitationClusterPresentation>();
+  for (const cluster of previous) {
+    const from = changes.mapPos(cluster.from, 1);
+    const to = changes.mapPos(cluster.to, -1);
+    if (oldRanges.some((range) => (
+      cluster.from < range.to && range.from < cluster.to
+    )) || newRanges.some((range) => (
+      from < range.to && range.from < to
+    ))) continue;
+    clusters.set(from, from === cluster.from && to === cluster.to
+      ? cluster
+      : { ...cluster, from, to });
+  }
+  for (const range of newRanges) {
+    for (const cluster of collectCitationClusters(tree, range)) {
+      // Structural and example-resolution invalidations can overlap.
+      clusters.set(cluster.from, cluster);
+    }
+  }
+  return [...clusters.values()].sort((left, right) => left.from - right.from);
 }

@@ -5,6 +5,9 @@ import {
 } from "../../../editor";
 import { CslProcessor } from "./csl-processor";
 import { CSS } from "../../core/constants/css-classes";
+import { getPandocTree, pandocCstField } from "../cst/pandoc-cst-field";
+import { cstYamlMetadataField } from "../cst/yaml-metadata";
+import { citationResourceExtension, cstCitationSurface } from "./citation-surface";
 
 const BIBTEX = `
 @article{smith2024,
@@ -94,6 +97,22 @@ describe("CST citation surface", () => {
     expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
   });
 
+  it("renders citations exposed beyond the first block of a split code fence", async () => {
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount("Prose.\n\n~~~\n\n[@smith2024]\n~~~\n\nTail.", statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
+    const original = editor?.getDoc() ?? "";
+    const from = original.indexOf("~~~") - 1;
+
+    editor?.setDoc(`${original.slice(0, from)}x${original.slice(from + 1)}`);
+
+    expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]");
+    expect(parent.querySelector(`.${CSS.bibliographyEntry}`)?.textContent).toContain("A Useful Result");
+    expect(editor?.getCst()?.text).toBe(editor?.getDoc());
+  });
+
   it("assigns numeric labels in document order and recomputes them after edits", async () => {
     const parent = mount("First [@jones2020], then [@smith2024].");
     const citationText = (): string[] => [
@@ -149,6 +168,60 @@ describe("CST citation surface", () => {
     expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
     editor?.setDoc(original);
     expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]");
+  });
+
+  it("retains citation decorations during prose typing and cursor movement", async () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const doc = "---\nbibliography: references.bib\n---\nProse.\n\nSee [@smith2024] and [@jones2020].";
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: doc.indexOf("Prose") },
+        extensions: [
+          pandocCstField,
+          cstYamlMetadataField,
+          EditorState.allowMultipleSelections.of(true),
+          citationResourceExtension({ readTextResource: async () => BIBTEX }),
+          cstCitationSurface,
+        ],
+      }),
+    });
+    try {
+      await vi.waitFor(() => expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(2));
+      const citation = parent.querySelector(`.${CSS.citation}`);
+      const bibliography = parent.querySelector(`.${CSS.bibliography}`);
+      const replace = vi.spyOn(Decoration, "replace");
+      const widget = vi.spyOn(Decoration, "widget");
+      const proseFrom = view.state.doc.toString().indexOf("Prose");
+      for (let index = 0; index < 100; index += 1) {
+        view.dispatch({ selection: { anchor: proseFrom + index % 5 } });
+      }
+      view.dispatch({ changes: { from: proseFrom, insert: "中文 😀 " } });
+      expect(replace).not.toHaveBeenCalled();
+      expect(widget).not.toHaveBeenCalled();
+      expect(parent.querySelector(`.${CSS.citation}`)).toBe(citation);
+      expect(parent.querySelector(`.${CSS.bibliography}`)).toBe(bibliography);
+
+      const firstFrom = view.state.doc.toString().indexOf("[@smith2024]");
+      const secondFrom = view.state.doc.toString().indexOf("[@jones2020]");
+      view.dispatch({ selection: EditorSelection.create([
+        EditorSelection.cursor(firstFrom + 1),
+        EditorSelection.cursor(secondFrom + 1),
+      ]) });
+      expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(0);
+      view.dispatch({ selection: { anchor: firstFrom } });
+      expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(2);
+      view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      expect(view.state.selection.main.head).toBeGreaterThan(firstFrom);
+      expect(view.state.selection.main.head).toBeLessThan(firstFrom + "[@smith2024]".length);
+      expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(1);
+      expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    } finally {
+      view.destroy();
+      parent.remove();
+    }
   });
 
   it("does not cite a bibliography key resolved as an example reference", async () => {
@@ -235,3 +308,5 @@ describe("CST citation surface", () => {
     expect(editor?.getDoc()).toContain("No citations");
   });
 });
+import { EditorSelection, EditorState } from "@codemirror/state";
+import { Decoration, EditorView } from "@codemirror/view";

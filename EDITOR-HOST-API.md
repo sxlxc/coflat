@@ -25,7 +25,9 @@ can read the same state through `getDoc()`, `getCst()`, and
 `getCursorContext()`.
 
 `setDoc()` applies a localized source change and does not echo through the host
-change callbacks. `insertText()` performs an ordinary CM6 source transaction.
+change callbacks. It updates the current document within its existing undo
+history. To open a different file, unmount the editor and mount it with that
+file's source; the host retains any unsaved drafts. `insertText()` performs an ordinary CM6 source transaction.
 Navigation helpers use zero-based source offsets or one-based lines.
 
 `SaveHandler` is optional. Coflat wires `Mod-s`, dirty state, and optional

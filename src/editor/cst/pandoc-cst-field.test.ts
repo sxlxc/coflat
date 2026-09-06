@@ -55,6 +55,7 @@ describe("pandocCstField", () => {
     expect(getPandocInvalidations(state)).toEqual({
       changedRanges: [],
       semanticChangedRanges: [],
+      fullReparse: false,
     });
     expect(getPandocCstUpdateCountForTesting(state)).toBe(0);
     tree.checkInvariants();
@@ -75,6 +76,21 @@ describe("pandocCstField", () => {
     expect(oldTree.text).toBe(doc);
     expect(getPandocCstUpdateCountForTesting(next)).toBe(1);
     expectFullParseEquivalence(next);
+  });
+
+  it("reports full reparses until the next selection-only transaction", () => {
+    const doc = "---\ntitle: Old\n---\n\nUnrelated.\n\nText.";
+    const state = createState(doc);
+    const edited = state.update({
+      changes: { from: doc.indexOf("Old"), to: doc.indexOf("Old") + 3, insert: "New" },
+    }).state;
+    expect(getPandocInvalidations(edited).fullReparse).toBe(true);
+    expect(getPandocCstUpdateCountForTesting(edited)).toBe(1);
+    const selected = edited.update({ selection: { anchor: doc.length } }).state;
+    expect(getPandocInvalidations(selected).fullReparse).toBe(false);
+    expect(getPandocTree(selected)).toBe(getPandocTree(edited));
+    expect(getPandocCstUpdateCountForTesting(selected)).toBe(1);
+    expectFullParseEquivalence(selected);
   });
 
   it("applies disjoint length-changing edits as one ordered update", () => {
@@ -121,10 +137,12 @@ describe("pandocCstField", () => {
     expect(getPandocInvalidations(selected)).toEqual({
       changedRanges: [],
       semanticChangedRanges: [],
+      fullReparse: false,
     });
     expect(getPandocInvalidations(effected)).toEqual({
       changedRanges: [],
       semanticChangedRanges: [],
+      fullReparse: false,
     });
   });
 

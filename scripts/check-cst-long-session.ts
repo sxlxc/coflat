@@ -1,5 +1,5 @@
 import { EditorState } from "@codemirror/state";
-import { getPandocTree, pandocCstField } from "../src/editor/cst/index.ts";
+import { getPandocTree, pandocCstField } from "../src/editor/cst/pandoc-cst-field.ts";
 
 const EDIT_COUNT = 10_000;
 const DOCUMENT_BYTES = 700 * 1_024;

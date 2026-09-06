@@ -1,11 +1,180 @@
 import { redo, undo } from "@codemirror/commands";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState, RangeSet } from "@codemirror/state";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CSS } from "../../core/constants/css-classes";
 import { createSimpleEditor } from "../simple-editor";
 import { cstDisplayMathDecorationField, selectedFencedDivs } from "./edit-surface";
 import { getPandocTree, pandocCstField } from "./pandoc-cst-field";
+import { cstTableDecorationField } from "./table-surface";
+
+describe("CST block selection decorations", () => {
+  it("handles mapped selections that enclose a host replacement", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    const before = EditorState.create({ doc: "abcdef", selection: { anchor: 2, head: 4 }, extensions });
+    const after = before.update({ changes: { from: 1, to: 5, insert: "\n\n$$x$$\n\n" } }).state;
+    const normalized = EditorSelection.single(after.selection.main.anchor, after.selection.main.head);
+    const rebuilt = EditorState.create({ doc: after.doc, selection: normalized, extensions });
+    expect(RangeSet.eq(
+      [after.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+    expect(selectedFencedDivs(after)).toEqual([]);
+    expect(getPandocTree(after).text).toBe("a\n\n$$x$$\n\nf");
+  });
+
+  it("updates display math locally while preserving distant decorations", () => {
+    const doc = `$$a=0$$\n\n${"Ordinary *prose* with words.\n\n".repeat(24_000)}$$x=1$$\n\nTail.`;
+    const position = doc.indexOf("x=1");
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    let state = EditorState.create({ doc, selection: { anchor: doc.length }, extensions });
+    const distant = state.field(cstDisplayMathDecorationField).decorations.iter().value;
+    const tree = getPandocTree(state);
+    const prototype: Pick<typeof tree, "iterate"> = Object.getPrototypeOf(tree);
+    const iterate = tree.iterate;
+    let visited = 0;
+    const spy = vi.spyOn(prototype, "iterate").mockImplementation(function (
+      this: typeof tree,
+      visitor,
+      range,
+    ) {
+      iterate.call(this, {
+        enter(node) {
+          visited += 1;
+          return typeof visitor === "function" ? visitor(node) : visitor.enter?.(node);
+        },
+        leave: typeof visitor === "function" ? undefined : visitor.leave,
+      }, range);
+    });
+    try {
+      for (const transaction of [
+        { selection: { anchor: position } },
+        { changes: { from: position + 1, insert: "+中文" } },
+        { selection: { anchor: doc.length } },
+      ]) {
+        visited = 0;
+        state = state.update(transaction).state;
+        expect(visited).toBeLessThan(500);
+        expect(state.field(cstDisplayMathDecorationField).decorations.iter().value).toBe(distant);
+        expect(getPandocTree(state).text).toBe(state.doc.toString());
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    const rebuilt = EditorState.create({ doc: state.doc, selection: state.selection, extensions });
+    expect(RangeSet.eq(
+      [state.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+  });
+
+  it("keeps shared source lines and neighboring math consistent with a full rebuild", () => {
+    const doc = "Before.\n\n$$a$$ and $$b$$\n\n  $$c\nd$$\n\nAfter.";
+    const extensions = [pandocCstField, cstDisplayMathDecorationField, EditorState.allowMultipleSelections.of(true)];
+    let state = EditorState.create({ doc, extensions });
+    for (const transaction of [
+      { selection: { anchor: doc.indexOf("b$$") } },
+      { selection: EditorSelection.create([
+        EditorSelection.cursor(doc.indexOf("a$$")),
+        EditorSelection.cursor(doc.indexOf("c\n")),
+      ]) },
+      { changes: { from: doc.indexOf("$$a"), to: doc.indexOf(" and"), insert: "" } },
+      { selection: { anchor: 0 } },
+      { changes: { from: 0, to: 9, insert: "中文\n" } },
+      { selection: { anchor: 0, head: 20 } },
+    ]) {
+      state = state.update(transaction).state;
+      const rebuilt = EditorState.create({ doc: state.doc, selection: state.selection, extensions });
+      expect(RangeSet.eq(
+        [state.field(cstDisplayMathDecorationField).decorations],
+        [rebuilt.field(cstDisplayMathDecorationField).decorations],
+      )).toBe(true);
+      expect(getPandocTree(state).text).toBe(state.doc.toString());
+    }
+  });
+
+  it("updates a math replacement after editing its leading source whitespace", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    const before = EditorState.create({ doc: "Start 😀.\n\n  $$x$$\n\n$$y$$", extensions });
+    const after = before.update({ changes: { from: 1, to: 12, insert: "\n\n" } }).state;
+    const rebuilt = EditorState.create({ doc: after.doc, selection: after.selection, extensions });
+    expect(RangeSet.eq(
+      [after.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+    expect(after.field(cstDisplayMathDecorationField).decorations.iter().from).toBe(3);
+  });
+
+  it("renders math exposed throughout a former table after deleting its header", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    const doc = "Start 😀.\n\n  $$x$$\n\n$$y$$ and $$z$$\n\nA|$$m$$\n---|---\n$$n$$|b\n\nEnd.\n";
+    const before = EditorState.create({ doc, extensions });
+    const after = before.update({ changes: { from: 28, to: 39, insert: "\n\n" } }).state;
+    const rebuilt = EditorState.create({ doc: after.doc, selection: after.selection, extensions });
+    expect(RangeSet.eq(
+      [after.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+  });
+
+  it("preserves math starting on another display's closing source line", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    const doc = "q:$$\n$$x$$\n:::\n$$\n\nAfter.\n";
+    const before = EditorState.create({ doc, selection: { anchor: doc.length }, extensions });
+    const after = before.update({ selection: { anchor: 0, head: 2 } }).state;
+    const rebuilt = EditorState.create({ doc: after.doc, selection: after.selection, extensions });
+    expect(RangeSet.eq(
+      [after.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+  });
+
+  it("reveals math when a selection endpoint reaches its opening source line", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    const doc = "Before.\n\n$$x$$\n\nAfter.";
+    const before = EditorState.create({ doc, extensions });
+    const after = before.update({ selection: { anchor: doc.indexOf("$$"), head: 0 } }).state;
+    const rebuilt = EditorState.create({ doc: after.doc, selection: after.selection, extensions });
+    expect(RangeSet.eq(
+      [after.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+  });
+
+  it("limits short selections to nearby CST nodes in a large document", () => {
+    const doc = "Ordinary *prose* with words.\n\n".repeat(24_000);
+    const before = EditorState.create({
+      doc,
+      extensions: [pandocCstField, cstDisplayMathDecorationField, cstTableDecorationField],
+    });
+    const tree = getPandocTree(before);
+    const iterate = tree.iterate.bind(tree);
+    let visited = 0;
+    const spy = vi.spyOn(tree, "iterate").mockImplementation((visitor, range) => {
+      iterate({
+        enter(node) {
+          visited += 1;
+          return typeof visitor === "function" ? visitor(node) : visitor.enter?.(node);
+        },
+        leave: typeof visitor === "function" ? undefined : visitor.leave,
+      }, range);
+    });
+    try {
+      for (const anchor of [1, Math.floor(doc.length / 2), doc.length - 3]) {
+        visited = 0;
+        const after = before.update({ selection: { anchor, head: anchor + 2 } }).state;
+        expect(visited).toBeLessThan(100);
+        expect(after.field(cstDisplayMathDecorationField)).toBe(before.field(cstDisplayMathDecorationField));
+        expect(after.field(cstTableDecorationField)).toBe(before.field(cstTableDecorationField));
+        expect(getPandocTree(after)).toBe(tree);
+        expect(after.selection.main.from).toBe(anchor);
+        expect(after.selection.main.to).toBe(anchor + 2);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 describe("selected fenced div traversal", () => {
   const doc = "Before\n\n:::: {.theorem}\nStatement.\n\n::: {.proof}\n中文 😀.\n:::\n::::\n\nAfter";
@@ -206,6 +375,15 @@ describe("CST edit surface block presentation", () => {
     expect(editor.state.doc.toString()).toBe(
       "# One\n\n## First {-}\n\n## Second",
     );
+  });
+
+  it("numbers a heading created in the remainder of a split paragraph", () => {
+    const parent = mount("x# New\n\n# Existing");
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(sectionNumbers(parent)).toEqual(["1"]);
+    editor.dispatch({ changes: { from: 0, to: 1, insert: "\n" } });
+    expect(sectionNumbers(parent)).toEqual(["1", "2"]);
+    expect(getPandocTree(editor.state).text).toBe("\n# New\n\n# Existing");
   });
 
   it("renders blockquote markers with the dedicated monospace class", () => {
@@ -469,14 +647,17 @@ describe("CST edit surface block presentation", () => {
   });
 
   it.each(["$$x = 1$$", "::: {.eq #eq:first}\n$$x = 1$$\n:::"])(
-    "maps display math decorations across unrelated prose edits: %s",
+    "preserves display math rendering across unrelated prose edits: %s",
     (math) => {
       const parent = mount(`Prose.\n\n${math}\n\nAfter.`);
       if (!editor) throw new Error("Editor was not mounted");
       const before = editor.state.field(cstDisplayMathDecorationField).decorations.iter().value;
+      const rendered = parent.querySelector(".cf-math-display");
       editor.dispatch({ changes: { from: 0, insert: "中文 😀 " } });
       const after = editor.state.field(cstDisplayMathDecorationField).decorations.iter().value;
-      expect(after).toBe(before);
+      if (!before || !after) throw new Error("Missing math decoration");
+      expect(after.eq(before)).toBe(true);
+      expect(parent.querySelector(".cf-math-display")).toBe(rendered);
       expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
       parent.querySelector<HTMLElement>(".cf-math-display")?.dispatchEvent(
         new MouseEvent("mousedown", { bubbles: true, button: 0 }),

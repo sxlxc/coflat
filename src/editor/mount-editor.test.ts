@@ -1,3 +1,4 @@
+import { undo } from "@codemirror/commands";
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -5,6 +6,7 @@ import { CSS } from "../core/constants/css-classes";
 import {
   type EditorDocumentChange,
   type MountedEditor,
+  type SaveHandler,
   mountEditor,
 } from "../../editor";
 
@@ -18,6 +20,7 @@ function mountWithCapturedView(options: {
   readonly doc: string;
   readonly onChange?: (doc: string) => void;
   readonly onDocumentChange?: (change: EditorDocumentChange) => void;
+  readonly saveHandler?: SaveHandler;
 }): { readonly editor: MountedEditor; readonly view: () => EditorView } {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
@@ -27,6 +30,7 @@ function mountWithCapturedView(options: {
     doc: options.doc,
     onChange: options.onChange,
     onDocumentChange: options.onDocumentChange,
+    saveHandler: options.saveHandler,
     extensions: [
       ViewPlugin.define((view) => {
         capturedView = view;
@@ -115,6 +119,41 @@ describe("mountEditor document change callbacks", () => {
     expect(editor.getDoc()).toBe("abc");
   });
 
+  it("reuses the synchronized CST source for host updates and reads", () => {
+    const onChange = vi.fn();
+    const { editor, view } = mountWithCapturedView({ doc: "数学 😀\r\nBody", onChange });
+    const transaction = view().state.update({ changes: { from: 2, insert: " notes" } });
+    const nextState = transaction.state;
+    const serialize = vi.spyOn(nextState.doc, "toString");
+    try {
+      view().update([transaction]);
+      expect(editor.getDoc()).toBe("数学 notes 😀\nBody");
+      expect(editor.getCst()?.text).toBe(editor.getDoc());
+      expect(onChange).toHaveBeenCalledWith(editor.getDoc());
+      editor.setDoc(editor.getDoc());
+      expect(serialize).not.toHaveBeenCalled();
+    } finally {
+      serialize.mockRestore();
+    }
+  });
+
+  it("saves a stable source snapshot while further typing remains dirty", async () => {
+    let finishSave: () => void = () => { throw new Error("Save has not started"); };
+    const save = vi.fn(() => new Promise<{ ok: true }>((resolve) => {
+      finishSave = () => resolve({ ok: true });
+    }));
+    const { editor, view } = mountWithCapturedView({ doc: "数学 😀", saveHandler: { save } });
+    const pending = editor.triggerSave();
+    view().dispatch({ changes: { from: 2, insert: " notes" }, userEvent: "input" });
+    finishSave();
+    await pending;
+    expect(save).toHaveBeenCalledWith({ source: "数学 😀", reason: "manual" });
+    expect(editor.isSaved()).toBe(false);
+    expect(undo(view())).toBe(true);
+    expect(editor.getDoc()).toBe("数学 😀");
+    expect(editor.isSaved()).toBe(true);
+  });
+
   it("replaces the live document when setDoc receives a different value", () => {
     const { editor, view } = mountWithCapturedView({
       doc: "alpha",
@@ -124,6 +163,25 @@ describe("mountEditor document change callbacks", () => {
     editor.setDoc("short");
 
     expect(editor.getDoc()).toBe("short");
+  });
+
+  it.each([
+    ["abcdef", "aXYZf", 2, 4],
+    ["abcdef", "aXYZf", 4, 2],
+    ["中文 😀 abcdef", "中文 😀 aXYZf", 8, 10],
+  ] as const)("replaces %s while mapping an enclosed selection", (doc, replacement, anchor, head) => {
+    const { editor, view } = mountWithCapturedView({ doc });
+    view().dispatch({ selection: { anchor, head } });
+
+    editor.setDoc(replacement);
+
+    expect(editor.getDoc()).toBe(replacement);
+    expect(editor.getCst()?.text).toBe(replacement);
+    expect(view().state.selection.main.from).toBe(replacement.indexOf("XYZ"));
+    expect(view().state.selection.main.to).toBe(replacement.indexOf("XYZ") + 3);
+    editor.insertText("done");
+    expect(editor.getDoc()).toBe(replacement.replace("XYZ", "done"));
+    expect(editor.getCst()?.text).toBe(editor.getDoc());
   });
 
   it("keeps newly loaded YAML metadata collapsed at a visible caret boundary", () => {

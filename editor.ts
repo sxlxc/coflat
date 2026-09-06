@@ -236,7 +236,7 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
     const handler = options.saveHandler;
     if (!mountedView || !handler) return;
     while (pendingSave) await pendingSave;
-    const source = mountedView.state.doc.toString();
+    const source = getPandocTree(mountedView.state).text;
     const run = (async () => {
       clearAutosave();
       options.statusEvents?.onSaveStart?.();
@@ -244,7 +244,7 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
         const result = await handler.save({ source, reason });
         if (result.ok) {
           lastSavedDoc = source;
-          setDirty(view?.state.doc.toString() !== lastSavedDoc);
+          setDirty((view ? getPandocTree(view.state).text : undefined) !== lastSavedDoc);
           options.statusEvents?.onSaveSucceeded?.();
         } else {
           options.statusEvents?.onSaveFailed?.({ error: result.error });
@@ -272,11 +272,9 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
 
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged) {
-      const source = update.state.doc.toString();
       const tree = getPandocTree(update.state);
-      if (source !== tree.text) {
-        throw new Error("CodeMirror document and Pandoc CST snapshot diverged");
-      }
+      // The CST field already checks synchronization when publishing this text.
+      const source = tree.text;
       currentDoc = source;
       setDirty(source !== lastSavedDoc);
       scheduleAutosave();
@@ -328,7 +326,7 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
 
   return {
     getDoc() {
-      return view?.state.doc.toString() ?? currentDoc;
+      return view ? getPandocTree(view.state).text : currentDoc;
     },
 
     getCst() {
@@ -342,12 +340,21 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
     setDoc(doc) {
       currentDoc = doc;
       if (!view) return;
-      const previous = view.state.doc.toString();
+      const previous = getPandocTree(view.state).text;
       if (doc === previous) return;
       const preserveYamlEdit = isYamlMetadataActive(view.state);
-      const change = minimalChange(previous, doc);
+      const changes = view.state.changes(minimalChange(previous, doc));
+      const mappedSelection = view.state.selection.map(changes);
+      // CM6 may map enclosed selection bounds in opposite directions.
+      // Normalize them so the next input can replace the mapped selection.
+      const selection = mappedSelection.ranges.some((range) => range.from > range.to)
+        ? EditorSelection.create(mappedSelection.ranges.map((range) => (
+          EditorSelection.range(range.anchor, range.head, range.goalColumn, range.bidiLevel ?? undefined, range.assoc)
+        )), mappedSelection.mainIndex)
+        : undefined;
       view.dispatch({
-        changes: change,
+        changes,
+        selection,
         annotations: programmaticDocumentChange.of(true),
         scrollIntoView: false,
       });

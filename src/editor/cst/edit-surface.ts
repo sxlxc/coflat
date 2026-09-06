@@ -22,6 +22,7 @@ import {
   headingLevel,
   mathDisplay,
   type NodeKind,
+  type SourceRange,
   type SyntaxNode,
   type SyntaxTree,
 } from "pandocmd-cst";
@@ -41,16 +42,14 @@ import {
 } from "../../core/semantics/heading-numbering";
 import { cstCitationSurface } from "../citations/citation-surface";
 import { renderKatexToHtml } from "../render/katex-render";
-import { getPandocCursorContext } from "./cursor-context";
+import { getPandocCursorContext, resolvePandocNode } from "./cursor-context";
+import { changedBlockRanges, selectionSourceRanges } from "./decoration-ranges";
 import {
   cstDocumentPresentationField,
   type FencedDivPresentation,
   getDocumentPresentation,
 } from "./document-presentation";
-import {
-  getPandocInvalidations,
-  getPandocTree,
-} from "./pandoc-cst-field";
+import { getPandocTree } from "./pandoc-cst-field";
 import {
   activePipeTableKeys,
   cstTableDecorationField,
@@ -194,7 +193,7 @@ const proofQedWidget = new CstProofQedWidget();
 export function selectedFencedDivs(state: EditorState): readonly SyntaxNode[] {
   const tree = getPandocTree(state);
   const divs = new Map<number, SyntaxNode>();
-  for (const range of state.selection.ranges) {
+  for (const range of selectionSourceRanges(state)) {
     tree.iterate((node) => {
       if (node.kind !== "FencedDiv") return;
       const end = node.prop(fenceClosed) ? Math.max(node.from, node.to - 1) : node.to;
@@ -485,9 +484,9 @@ function addAncestors(target: Set<string>, node: SyntaxNode | null): void {
 function activeNodeKeys(state: EditorState, tree: SyntaxTree): ReadonlySet<string> {
   const active = new Set<string>();
   for (const range of state.selection.ranges) {
-    addAncestors(active, tree.resolve(range.head, "right"));
+    addAncestors(active, resolvePandocNode(tree, range.head, "right"));
     if (range.anchor !== range.head) {
-      addAncestors(active, tree.resolve(range.anchor, "right"));
+      addAncestors(active, resolvePandocNode(tree, range.anchor, "right"));
     }
   }
   return active;
@@ -708,7 +707,7 @@ function mathNodeAtPosition(
   isDisplay: boolean,
 ): SyntaxNode | null {
   for (const bias of ["right", "left"] as const) {
-    const math = containingMath(tree.resolve(position, bias));
+    const math = containingMath(resolvePandocNode(tree, position, bias));
     if (math && (math.prop(mathDisplay) ?? false) === isDisplay) return math;
   }
   return null;
@@ -933,9 +932,12 @@ export const cstHeadingNumberDecorationField = StateField.define<DecorationSet>(
   },
 
   update(value, transaction) {
-    return transaction.docChanged
+    if (!transaction.docChanged) return value;
+    return transactionTouchesNodes(transaction, (node) => (
+      node.kind === "AtxHeading" || node.kind === "SetextHeading"
+    ))
       ? buildHeadingNumberDecorations(transaction.state)
-      : value;
+      : value.map(transaction.changes);
   },
 
   provide(field) {
@@ -1160,18 +1162,17 @@ function selectedDisplayMathKeys(
   tree: SyntaxTree,
 ): ReadonlySet<string> {
   const keys = new Set<string>();
-  if (state.selection.ranges.every((range) => range.empty)) return keys;
-  tree.iterate((node) => {
-    if (
-      node.kind === "Math"
-      && (node.prop(mathDisplay) ?? false)
-      && state.selection.ranges.some((range) => (
-        !range.empty
-        && range.from <= displayMathReplacementFrom(state, node)
+  for (const range of selectionSourceRanges(state)) {
+    if (range.from === range.to) continue;
+    tree.iterate((node) => {
+      if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
+      if (
+        range.from <= displayMathReplacementFrom(state, node)
         && range.to >= node.to
-      ))
-    ) keys.add(nodeKey(node));
-  });
+      ) keys.add(nodeKey(node));
+      return false;
+    }, range);
+  }
   return keys;
 }
 
@@ -1184,8 +1185,26 @@ function displayMathSelectionSignature(
   return `active:${active};selected:${selected}`;
 }
 
+function withoutSourceRanges(
+  decorations: DecorationSet,
+  ranges: readonly SourceRange[],
+): DecorationSet {
+  return decorations.update({
+    filter: (from, to) => !ranges.some((range) => (
+      from === to
+        ? range.from <= from && from < range.to
+        : from < range.to && range.from < to
+    )),
+  });
+}
+
 function buildDisplayMathDecorationState(
   state: EditorState,
+  update?: {
+    readonly nodes: readonly SyntaxNode[];
+    readonly decorations: DecorationSet;
+    readonly ranges: readonly SourceRange[];
+  },
 ): DisplayMathDecorationState {
   const tree = getPandocTree(state);
   const active = activeDisplayMathKeys(state, tree);
@@ -1195,7 +1214,7 @@ function buildDisplayMathDecorationState(
   const presentation = getDocumentPresentation(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
 
-  tree.iterate((node) => {
+  const addMath = (node: SyntaxNode): false | undefined => {
     // A table owns the rich presentation of all inline content in its cells.
     // Descendant block replacements would overlap the table replacement.
     if (node.kind === "PipeTable") return false;
@@ -1241,20 +1260,100 @@ function buildDisplayMathDecorationState(
       }
     }
     return false;
-  });
+  };
+  if (update) {
+    for (const node of update.nodes) addMath(node);
+  } else {
+    tree.iterate(addMath);
+  }
 
   return {
     mathMacrosKey: macrosKey,
     presentation,
     selectionSignature: displayMathSelectionSignature(state, tree),
-    decorations: Decoration.set(ranges, true),
+    decorations: update
+      ? withoutSourceRanges(update.decorations, update.ranges).update({
+        add: ranges,
+        sort: true,
+      })
+      : Decoration.set(ranges, true),
   };
 }
 
-function rangeTouchesDisplayMath(
+function displayMathSourceRange(
+  state: EditorState,
+  node: SyntaxNode,
+): SourceRange {
+  return {
+    from: state.doc.lineAt(node.from).from,
+    to: Math.min(state.doc.length, state.doc.lineAt(Math.max(node.from, node.to - 1)).to + 1),
+  };
+}
+
+function displayMathSourcesInRanges(
+  state: EditorState,
+  ranges: readonly SourceRange[],
+): readonly SyntaxNode[] {
+  const tree = getPandocTree(state);
+  const nodes = new Map<number, SyntaxNode>();
+  // Source-line decorations can precede a math node within its line.
+  const pending = ranges.map((range) => ({
+    from: state.doc.lineAt(Math.max(0, range.from - 1)).from,
+    to: Math.min(state.doc.length, state.doc.lineAt(Math.max(range.from, range.to - 1)).to + 1),
+  }));
+  for (const range of pending) {
+    tree.iterate((node) => {
+      if (node.kind === "PipeTable") return false;
+      if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
+      if (!nodes.has(node.from)) {
+        nodes.set(node.from, node);
+        // Math that shares source lines must be rebuilt together.
+        pending.push(displayMathSourceRange(state, node));
+      }
+      return false;
+    }, range);
+  }
+  return [...nodes.values()];
+}
+
+function updateDisplayMathDecorationState(
+  value: DisplayMathDecorationState,
+  transaction: Transaction,
+): DisplayMathDecorationState {
+  const before = transaction.startState;
+  const after = transaction.state;
+  // Selection endpoints are inclusive even when the selected text ends at
+  // the beginning of a math source line.
+  const oldRanges: SourceRange[] = selectionSourceRanges(before).flatMap((range) => (
+    [range, { from: range.to, to: range.to }]
+  ));
+  const newRanges: SourceRange[] = selectionSourceRanges(after).flatMap((range) => (
+    [range, { from: range.to, to: range.to }]
+  ));
+  const changed = changedBlockRanges(transaction);
+  oldRanges.push(...changed.oldRanges);
+  newRanges.push(...changed.newRanges);
+
+  const oldSources = displayMathSourcesInRanges(before, oldRanges).map((node) => (
+    displayMathSourceRange(before, node)
+  ));
+  const mappedSources = oldSources.map((range) => ({
+    from: transaction.changes.mapPos(range.from, -1),
+    to: transaction.changes.mapPos(range.to, 1),
+  }));
+  const nodes = displayMathSourcesInRanges(after, [...newRanges, ...mappedSources]);
+  return buildDisplayMathDecorationState(after, {
+    nodes,
+    decorations: withoutSourceRanges(value.decorations, oldSources).map(transaction.changes),
+    ranges: nodes.map((node) => displayMathSourceRange(after, node)),
+  });
+}
+
+function rangeTouchesNodes(
   tree: SyntaxTree,
   from: number,
   to: number,
+  matches: (node: SyntaxNode) => boolean,
 ): boolean {
   if (tree.length === 0) return false;
   const searchFrom = Math.max(0, Math.min(tree.length, from) - 1);
@@ -1264,7 +1363,8 @@ function rangeTouchesDisplayMath(
   );
   let found = false;
   tree.iterate((node) => {
-    if (node.kind === "Math" && (node.prop(mathDisplay) ?? false)) {
+    if (found) return false;
+    if (matches(node)) {
       found = true;
       return false;
     }
@@ -1273,14 +1373,17 @@ function rangeTouchesDisplayMath(
   return found;
 }
 
-function transactionTouchesDisplayMath(transaction: Transaction): boolean {
+function transactionTouchesNodes(
+  transaction: Transaction,
+  matches: (node: SyntaxNode) => boolean,
+): boolean {
   const before = getPandocTree(transaction.startState);
   const after = getPandocTree(transaction.state);
-  const invalidations = getPandocInvalidations(transaction.state).changedRanges;
-  if (invalidations.length === 0) return true;
-  return invalidations.some((range) => (
-    rangeTouchesDisplayMath(before, range.oldFrom, range.oldTo)
-    || rangeTouchesDisplayMath(after, range.newFrom, range.newTo)
+  const changed = changedBlockRanges(transaction);
+  return changed.oldRanges.some((range) => (
+    rangeTouchesNodes(before, range.from, range.to, matches)
+  )) || changed.newRanges.some((range) => (
+    rangeTouchesNodes(after, range.from, range.to, matches)
   ));
 }
 
@@ -1289,6 +1392,7 @@ function equationPresentationChanged(
   after: ReturnType<typeof getDocumentPresentation>,
   transaction: Transaction,
 ): boolean {
+  if (before.equationsByMathFrom === after.equationsByMathFrom) return false;
   if (before.equationsByMathFrom.size !== after.equationsByMathFrom.size) return true;
   for (const [from, equation] of before.equationsByMathFrom) {
     const mapped = after.equationsByMathFrom.get(transaction.changes.mapPos(from, 1));
@@ -1321,24 +1425,11 @@ export const cstDisplayMathDecorationField =
       ) {
         return buildDisplayMathDecorationState(transaction.state);
       }
-      if (!transaction.docChanged) {
-        return selectionSignature === value.selectionSignature
-          ? value
-          : buildDisplayMathDecorationState(transaction.state);
+      if (!transaction.docChanged && selectionSignature === value.selectionSignature) {
+        return value;
       }
 
-      if (
-        selectionSignature === value.selectionSignature
-        && !transactionTouchesDisplayMath(transaction)
-      ) {
-        return {
-          mathMacrosKey: macrosKey,
-          presentation,
-          selectionSignature,
-          decorations: value.decorations.map(transaction.changes),
-        };
-      }
-      return buildDisplayMathDecorationState(transaction.state);
+      return updateDisplayMathDecorationState(value, transaction);
     },
 
     provide(field) {
@@ -1554,7 +1645,7 @@ function enterRenderedFencedDivReference(
   const tree = getPandocTree(view.state);
   const presentation = getDocumentPresentation(view.state);
   const reference = containingFencedDivReference(
-    tree.resolve(selection.head, direction),
+    resolvePandocNode(tree, selection.head, direction),
   );
   if (!reference) return false;
   if (direction === "right" && reference.from !== selection.head) return false;
@@ -1577,7 +1668,7 @@ function enterRenderedMath(view: EditorView, direction: "left" | "right"): boole
   const selection = view.state.selection.main;
   if (!selection.empty) return false;
   const tree = getPandocTree(view.state);
-  const math = containingMath(tree.resolve(selection.head, direction));
+  const math = containingMath(resolvePandocNode(tree, selection.head, direction));
   if (!math) return false;
   if (direction === "right" && math.from !== selection.head) return false;
   if (direction === "left" && math.to !== selection.head) return false;
