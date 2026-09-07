@@ -49,11 +49,13 @@ retry policy.
 | --- | --- |
 | `referenceCompletion` | Suggest local fenced-div/equation IDs and loaded bibliography keys after `@`, including bracketed citation clusters. Local targets take precedence over matching bibliography keys. |
 | `markupCompletion` | Offer canonical Markdown snippets, wrap selections with paired delimiters, and complete brackets. Block snippets are offered at the document level to preserve fenced-div nesting. |
-| `referencePreviews` | Show a text excerpt of a local target, or bibliography title/author/publication details, on hover and through the keyboard. |
+| `referencePreviews` | Show a rendered CST excerpt of a local target, or its formatted CSL bibliography entry, on hover and through the keyboard. Bibliography metadata is shown when no formatted entry is available. |
 | `activateOnTyping` | Open enabled suggestions at supported markup triggers and `@`. When false, completion is available through Ctrl-Space. |
 | `hoverTime` | Milliseconds before opening a hover preview; defaults to `300`. |
 
-Ctrl-Space opens completion; Up/Down select an entry, Enter or Tab accepts it, and Escape dismisses it. Within a snippet, Tab/Shift-Tab move between fields. Mod-Shift-Space opens a reference preview at the caret; Escape closes it. Previews use plain text and never modify citation registration or source. Completion inserts ordinary Markdown through CodeMirror transactions and remains undoable. Code, math bodies, raw content, and YAML do not receive prose suggestions. Bibliography options become available after the host resource loader finishes; no additional resource callback is needed.
+Fenced-div previews show the block type and parenthesized title on the first line, the `@id` on the second line, and the rendered excerpt below. Bibliography previews omit the citation-number margin.
+
+Ctrl-Space opens completion; Up/Down select an entry, Enter or Tab accepts it, and Escape dismisses it. Within a snippet, Tab/Shift-Tab move between fields. Mod-Shift-Space opens a reference preview at the caret; Escape closes it. Previews render Markdown and math from the current CST and reuse sanitized CSL output; raw HTML remains text. They never modify citation registration or source. Completion inserts ordinary Markdown through CodeMirror transactions and remains undoable. Code, math bodies, raw content, and YAML do not receive prose suggestions. Bibliography options become available after the host resource loader finishes; no additional resource callback is needed.
 
 Automatic markup triggers are `:::`, `**`, `$$`, and three backticks. Ctrl-Space also offers snippets by name (for example, type `theorem` and press Ctrl-Space on an otherwise empty line). Block templates include their closing fences and insert canonical Pandoc Markdown.
 

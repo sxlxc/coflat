@@ -331,8 +331,8 @@ test("previews rendered cross-references and citations without changing source",
   await mount(page, referencesDocument, { hoverTime: 50 });
   const preview = page.locator(".cf-reference-preview");
   await page.locator(".cf-fenced-div-reference").hover();
-  await expect(preview).toContainText("Theorem 1");
-  await expect(preview).toContainText("Main result");
+  await expect(preview.locator("section > strong")).toHaveText("Theorem (Main result)");
+  await expect(preview.locator("section > strong + small")).toHaveText("@thm:main");
   await expect(preview).toContainText("Every finite example has a witness.");
   await page.screenshot({ path: testInfo.outputPath("reference-preview.png") });
   await page.mouse.move(0, 0);
@@ -342,7 +342,53 @@ test("previews rendered cross-references and citations without changing source",
   await expect(preview).toContainText("A Useful Result");
   await expect(preview).toContainText("Smith");
   await expect(preview).toContainText("2024");
+  await expect(preview.locator(".csl-entry i")).toHaveText("Journal of Examples");
+  await expect(preview).not.toContainText("[1]");
+  await expect(preview.locator(".csl-left-margin")).toHaveCount(0);
+  await expect(page.locator(".cf-bibliography .csl-left-margin")).toHaveText("[1]");
+  await page.screenshot({ path: testInfo.outputPath("citation-preview.png") });
   await expectDocument(page, referencesDocument);
+});
+
+test("renders an offscreen cross-reference target in a narrow hover and keyboard preview", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 640 });
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  const source = referencesDocument
+    .replace("Main result", "A **strong** result")
+    .replace("Every finite example has a witness.", () => "Every *finite* example has a **witness**.\n\n$$x^2=1$$")
+    .replace("See [@thm:main]", `${Array.from({ length: 80 }, (_, index) => `Paragraph ${index}.`).join("\n\n")}\n\nSee [@thm:main]`);
+  await mount(page, source, { hoverTime: 50 });
+  await expect(page.locator(".cf-fenced-div-header")).toHaveCount(0);
+  const preview = page.locator(".cf-reference-preview");
+  await page.locator(".cf-fenced-div-reference").hover();
+  await expect(preview.locator("em")).toHaveText("finite");
+  await expect(preview.locator("section > strong")).toHaveText("Theorem (A strong result)");
+  await expect(preview.locator("section > strong strong")).toHaveText("strong");
+  await expect(preview.locator("p strong")).toHaveText("witness");
+  await expect(preview.locator(".katex-display")).toBeVisible();
+  await expect(preview).not.toContainText("$$");
+  await page.screenshot({ path: testInfo.outputPath("rendered-reference-preview.png") });
+  const bounds = await preview.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (bounds) {
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(375);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(640);
+  }
+  await page.mouse.move(0, 0);
+  await expect(preview).toHaveCount(0);
+  await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    editor.scrollToPosition(editor.getDoc().indexOf("@thm:main") + 2);
+    editor.focus();
+  });
+  await page.keyboard.press("ControlOrMeta+Shift+Space");
+  await expect(preview.locator(".katex-display")).toBeVisible();
+  await expect(page.locator(".cm-content")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+  await expectDocument(page, source);
 });
 
 test("opens and dismisses reference previews from the keyboard", async ({ page }) => {

@@ -573,6 +573,16 @@ const citationDecorationField = StateField.define<CitationDecorationState>({
   },
 });
 
+/** Reuse sanitized CSL output without changing citation registration or numbering. */
+export function getBibliographyEntryHtml(state: EditorState, id: string): string | undefined {
+  return state.field(citationDecorationField, false)?.entries.find((entry) => entry.id === id)?.html;
+}
+
+export function getCitationHtml(state: EditorState, from: number): string | undefined {
+  return state.field(citationDecorationField, false)?.citations
+    .find((citation) => citation.cluster.from === from)?.html;
+}
+
 function containingCitation(node: SyntaxNode | null): SyntaxNode | null {
   let current = node;
   while (current) {

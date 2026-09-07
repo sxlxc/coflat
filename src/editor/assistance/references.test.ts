@@ -155,7 +155,11 @@ describe("reference assistance", () => {
       preview: "Journal of Examples\nDOI: 10.1234/example",
     });
     activateHover(view, view.state.doc.toString().indexOf("[@uncited]") + 3, 1);
-    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview")?.textContent).toContain("Alice Smith"));
+    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview .csl-entry")?.textContent).toContain("An uncited paper"));
+    expect(view.dom.querySelector(".cf-reference-preview i")?.textContent).toBe("Journal of Examples");
+    expect(view.dom.querySelector(".cf-reference-preview .csl-left-margin")).toBeNull();
+    expect(view.dom.querySelector(".cf-reference-preview")?.textContent).not.toContain("[1]");
+    expect(view.dom.querySelector(".cf-bibliography .csl-left-margin")?.textContent).toBe("[1]");
     expect(cite).not.toHaveBeenCalled();
     expect(register).not.toHaveBeenCalled();
     expect(entries).not.toHaveBeenCalled();
@@ -184,7 +188,8 @@ describe("reference assistance", () => {
     await vi.waitFor(() => expect(view.dom.querySelectorAll(".cf-reference-preview section")).toHaveLength(2));
     const preview = view.dom.querySelector(".cf-reference-preview");
     expect(preview?.textContent).toContain("<img src=x onerror=alert(1)>");
-    expect(preview?.textContent).toContain("Every $x$ is useful.");
+    expect(preview?.querySelector(".katex")).not.toBeNull();
+    expect(preview?.textContent).not.toContain("$x$");
     expect(preview?.textContent).toContain("Unresolved reference");
     expect(preview?.querySelector("img")).toBeNull();
     expect(view.state.selection.main.head).toBe(0);
@@ -197,7 +202,7 @@ describe("reference assistance", () => {
     const from = localSource.indexOf("@eq:main");
     view.dispatch({ selection: { anchor: from + 3 } });
     key(view, " ", { ctrlKey: true, shiftKey: true });
-    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview")?.textContent).toContain("$$x=1$$"));
+    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview .katex-display")).not.toBeNull());
     expect(view.state.selection.main.head).toBe(from + 3);
     key(view, "Escape");
     expect(hasHoverTooltips(view.state)).toBe(false);
@@ -221,5 +226,48 @@ describe("reference assistance", () => {
       await Promise.resolve();
       expect(hasHoverTooltips(view.state)).toBe(false);
     }
+  });
+
+  it("renders target titles, prose, lists, and math from the existing CST and document macros", async () => {
+    const doc = [
+      "---",
+      "math:",
+      '  R: "\\\\mathbb{R}"',
+      "---",
+      "",
+      '::: {.theorem #thm:rich title="A **strong** result over $\\R$"}',
+      "Every *finite* `example` has $x \\in \\R$.",
+      "A second source line with [a link](https://example.org).",
+      "",
+      "- First item",
+      "- See [@thm:rich].",
+      ":::",
+      "",
+      "See [@thm:rich].",
+    ].join("\n");
+    const view = mount(doc, referencePreviewExtension(0));
+    const tree = getPandocTree(view.state);
+    activateHover(view, doc.lastIndexOf("[@thm:rich]"), 1);
+    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview em")?.textContent).toBe("finite"));
+    const preview = view.dom.querySelector(".cf-reference-preview");
+    const heading = preview?.querySelector("section > strong");
+    expect(heading?.textContent).toMatch(/^Theorem \(A strong result over .+\)$/);
+    expect(heading?.querySelector("strong")?.textContent).toBe("strong");
+    expect(heading?.querySelector(".katex")).not.toBeNull();
+    expect(heading?.nextElementSibling?.textContent).toBe("@thm:rich");
+    expect(heading?.nextElementSibling?.nextElementSibling?.querySelector("em")?.textContent).toBe("finite");
+    expect(preview?.querySelector("code")?.textContent).toBe("example");
+    expect(preview?.querySelectorAll(".katex")).toHaveLength(2);
+    expect(preview?.querySelector(".katex-error")).toBeNull();
+    expect(preview?.querySelector("p br")).not.toBeNull();
+    expect(preview?.querySelector(".cf-link-rendered")?.textContent).toBe("a link");
+    expect(preview?.querySelectorAll("li")).toHaveLength(2);
+    expect(preview?.querySelector("li .cf-fenced-div-reference")?.textContent).toBe("Theorem 1");
+    expect(preview?.textContent).not.toContain(":::");
+    expect(preview?.textContent).not.toContain("$\\R$");
+    expect(view.state.doc.toString()).toBe(doc);
+    expect(view.state.selection.main.head).toBe(0);
+    expect(getPandocTree(view.state)).toBe(tree);
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(0);
   });
 });

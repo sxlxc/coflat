@@ -11,11 +11,12 @@ import type { SyntaxNode, SyntaxTree } from "pandocmd-cst";
 import type { CslJsonItem } from "../../core/citations/csl-json";
 import { CSS } from "../../core/constants/css-classes";
 import { collectCitationClusters } from "../citations/citation-model";
-import { getCitationItems } from "../citations/citation-surface";
+import { getBibliographyEntryHtml, getCitationItems } from "../citations/citation-surface";
 import type { CitationClusterPresentation } from "../citations/types";
 import { resolvePandocNode } from "../cst/cursor-context";
-import { getDocumentPresentation } from "../cst/document-presentation";
+import { fencedDivTitleRange, getDocumentPresentation } from "../cst/document-presentation";
 import { getPandocTree } from "../cst/pandoc-cst-field";
+import { appendReferenceContent } from "./reference-content";
 
 export interface ReferenceCandidate {
   readonly id: string;
@@ -34,7 +35,11 @@ function targetNode(tree: SyntaxTree, from: number, kind: SyntaxNode["kind"]): S
   throw new Error(`Missing ${kind} CST target at ${from}`);
 }
 
-function targetExcerpt(state: EditorState, node: SyntaxNode): string {
+function targetExcerptRange(state: EditorState, node: SyntaxNode): {
+  readonly from: number;
+  readonly to: number;
+  readonly truncated: boolean;
+} {
   let from = node.from;
   let to = node.to;
   if (node.kind === "FencedDiv") {
@@ -55,8 +60,13 @@ function targetExcerpt(state: EditorState, node: SyntaxNode): string {
   if (end < to && (state.doc.sliceString(end - 1, end + 1).codePointAt(0) ?? 0) > 0xffff) {
     end -= 1;
   }
-  const excerpt = state.doc.sliceString(from, end).trim();
-  return end < to ? `${excerpt}…` : excerpt;
+  return { from, to: end, truncated: end < to };
+}
+
+function targetExcerpt(state: EditorState, node: SyntaxNode): string {
+  const range = targetExcerptRange(state, node);
+  const excerpt = state.doc.sliceString(range.from, range.to).trim();
+  return range.truncated ? `${excerpt}…` : excerpt;
 }
 
 function textField(value: unknown): string {
@@ -133,7 +143,7 @@ function referenceTooltip(view: EditorView, position: number, side: -1 | 1): Too
   const cluster = citationAt(view.state, position, side);
   if (!cluster) return null;
   const candidates = new Map(getReferenceCandidates(view.state).map((item) => [item.id, item]));
-  const references = cluster.items.map((item) => candidates.get(item.id) ?? {
+  const references: readonly ReferenceCandidate[] = cluster.items.map((item) => candidates.get(item.id) ?? {
     id: item.id,
     label: "Unresolved reference",
     detail: "No matching local label or loaded bibliography entry.",
@@ -151,16 +161,48 @@ function referenceTooltip(view: EditorView, position: number, side: -1 | 1): Too
       dom.setAttribute("aria-live", "polite");
       for (const reference of references) {
         const section = document.createElement("section");
-        const heading = document.createElement("strong");
-        heading.textContent = reference.label;
         const key = document.createElement("small");
         key.textContent = `@${reference.id}`;
-        section.append(heading, key);
-        for (const text of [reference.detail, reference.preview]) {
-          if (!text) continue;
-          const paragraph = document.createElement("p");
-          paragraph.textContent = text;
-          section.appendChild(paragraph);
+        const entryHtml = reference.from === undefined
+          ? getBibliographyEntryHtml(editor.state, reference.id) : undefined;
+        if (entryHtml) {
+          const entry = document.createElement("div");
+          entry.innerHTML = entryHtml;
+          for (const element of entry.querySelectorAll("[id]")) element.removeAttribute("id");
+          for (const label of entry.querySelectorAll(".csl-left-margin")) label.remove();
+          section.append(key, entry);
+        } else {
+          const heading = document.createElement("strong");
+          heading.textContent = reference.label;
+          section.append(heading, key);
+          if (reference.from !== undefined) {
+            const presentation = getDocumentPresentation(editor.state);
+            const isEquation = presentation.equationsByMathFrom.has(reference.from);
+            const node = targetNode(
+              getPandocTree(editor.state), reference.from, isEquation ? "Math" : "FencedDiv",
+            );
+            let wrapper: SyntaxNode | null = node;
+            while (wrapper && wrapper.kind !== "FencedDiv") wrapper = wrapper.parent;
+            if (wrapper) heading.textContent = presentation.fencedDivsByFrom.get(wrapper.from)?.label ?? reference.label;
+            const title = wrapper && fencedDivTitleRange(wrapper);
+            if (title && title.from < title.to) {
+              heading.append(" (");
+              appendReferenceContent(heading, editor.state, title);
+              heading.append(")");
+            }
+            const range = targetExcerptRange(editor.state, node);
+            const body = document.createElement("div");
+            appendReferenceContent(body, editor.state, range);
+            if (range.truncated) body.append("…");
+            section.appendChild(body);
+          } else {
+            for (const text of [reference.detail, reference.preview]) {
+              if (!text) continue;
+              const paragraph = document.createElement("p");
+              paragraph.textContent = text;
+              section.appendChild(paragraph);
+            }
+          }
         }
         dom.appendChild(section);
       }
