@@ -47,6 +47,7 @@ import { changedBlockRanges, selectionSourceRanges } from "./decoration-ranges";
 import {
   cstDocumentPresentationField,
   type FencedDivPresentation,
+  fencedDivTitleRange,
   getDocumentPresentation,
 } from "./document-presentation";
 import { getPandocTree } from "./pandoc-cst-field";
@@ -251,133 +252,25 @@ const cstFencedDivRangeLayer = layer({
 
 class CstFencedDivHeaderWidget extends WidgetType {
   constructor(
-    private readonly presentation: FencedDivPresentation,
-    private readonly source: string,
+    private readonly label: string,
     private readonly sourceFrom: number,
-    private readonly macros: Readonly<Record<string, string>>,
-    private readonly macrosKey: string,
   ) {
     super();
   }
 
   eq(other: CstFencedDivHeaderWidget): boolean {
-    return other.presentation.label === this.presentation.label
-      && other.presentation.number === this.presentation.number
-      && other.presentation.title === this.presentation.title
-      && other.presentation.id === this.presentation.id
-      && other.source === this.source
-      && other.sourceFrom === this.sourceFrom
-      && other.macrosKey === this.macrosKey;
+    return other.label === this.label && other.sourceFrom === this.sourceFrom;
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const ownerDocument = view.dom.ownerDocument;
-    const header = ownerDocument.createElement("span");
-    header.className = CSS.fencedDivHeader;
-    header.dataset.blockClass = this.presentation.className;
-    if (this.presentation.id) {
-      header.dataset.referenceId = this.presentation.id;
-    }
-    header.setAttribute("aria-label", this.source);
-    header.title = "Edit fenced div attributes";
-
-    const numberedLabel = this.presentation.number === undefined
-      ? this.presentation.label
-      : `${this.presentation.label} ${this.presentation.number}`;
-    header.append(numberedLabel);
-    if (this.presentation.title) {
-      header.append(" (");
-      appendFencedDivTitle(header, this.presentation.title, this.macros);
-      header.append(")");
-    }
-    bindSourceReveal(header, view, this.sourceFrom);
-    return header;
+    const label = view.dom.ownerDocument.createElement("span");
+    label.textContent = this.label;
+    bindSourceReveal(label, view, this.sourceFrom);
+    return label;
   }
 
   ignoreEvent(): boolean {
     return true;
-  }
-}
-
-interface FencedDivTitlePart {
-  readonly kind: "math" | "text";
-  readonly value: string;
-}
-
-function isEscapedAt(value: string, index: number): boolean {
-  let backslashes = 0;
-  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
-    backslashes += 1;
-  }
-  return backslashes % 2 === 1;
-}
-
-function titleMathClose(
-  title: string,
-  from: number,
-  delimiter: "$" | "\\)",
-): number {
-  for (let cursor = from; cursor < title.length; cursor += 1) {
-    if (title.startsWith(delimiter, cursor) && !isEscapedAt(title, cursor)) {
-      return cursor;
-    }
-  }
-  return -1;
-}
-
-/** Split only the inline-math syntax allowed inside a fenced-div title. */
-function fencedDivTitleParts(title: string): FencedDivTitlePart[] {
-  const parts: FencedDivTitlePart[] = [];
-  let textFrom = 0;
-  let cursor = 0;
-  while (cursor < title.length) {
-    const dollar = title[cursor] === "$"
-      && title[cursor + 1] !== "$"
-      && title[cursor - 1] !== "$"
-      && !isEscapedAt(title, cursor);
-    const paren = title.startsWith("\\(", cursor)
-      && !isEscapedAt(title, cursor);
-    if (!dollar && !paren) {
-      cursor += 1;
-      continue;
-    }
-
-    const openLength = paren ? 2 : 1;
-    const closeDelimiter: "$" | "\\)" = paren ? "\\)" : "$";
-    const close = titleMathClose(title, cursor + openLength, closeDelimiter);
-    if (close < 0 || close === cursor + openLength) {
-      cursor += openLength;
-      continue;
-    }
-    if (textFrom < cursor) {
-      parts.push({ kind: "text", value: title.slice(textFrom, cursor) });
-    }
-    parts.push({
-      kind: "math",
-      value: title.slice(cursor + openLength, close),
-    });
-    cursor = close + closeDelimiter.length;
-    textFrom = cursor;
-  }
-  if (textFrom < title.length) {
-    parts.push({ kind: "text", value: title.slice(textFrom) });
-  }
-  return parts;
-}
-
-function appendFencedDivTitle(
-  parent: HTMLElement,
-  title: string,
-  macros: Readonly<Record<string, string>>,
-): void {
-  for (const part of fencedDivTitleParts(title)) {
-    if (part.kind === "text") {
-      parent.append(part.value);
-      continue;
-    }
-    const math = createInlineMathSurfaceElement(parent.ownerDocument, part.value);
-    renderMath(math, part.value, false, macros);
-    parent.appendChild(math);
   }
 }
 
@@ -947,12 +840,11 @@ export const cstHeadingNumberDecorationField = StateField.define<DecorationSet>(
 
 function addFencedDivPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
+  outerDecorations: Array<ReturnType<Decoration["range"]>>,
   suppressedSourceRanges: Array<{ readonly from: number; readonly to: number }>,
   view: EditorView,
   node: SyntaxNode,
   presentation: FencedDivPresentation | undefined,
-  macros: Readonly<Record<string, string>>,
-  macrosKey: string,
 ): void {
   const state = view.state;
   const sourceRanges = fencedDivSourceRanges(state, node);
@@ -964,24 +856,40 @@ function addFencedDivPresentation(
     renderedHeader: boolean,
   ): void => {
     if (from >= to) return;
-    suppressedSourceRanges.push({ from, to });
-    if (selectionTouchesSourceRange(state, from, to)) {
-      ranges.push(Decoration.mark({ class: CSS.fencedDivSource }).range(from, to));
+    const active = selectionTouchesSourceRange(state, from, to);
+    if (active || !renderedHeader) {
+      suppressedSourceRanges.push({ from, to });
+      ranges.push(active
+        ? Decoration.mark({ class: CSS.fencedDivSource }).range(from, to)
+        : Decoration.replace({}).range(from, to));
       return;
     }
-    if (renderedHeader) {
+    outerDecorations.push(Decoration.mark({
+      class: CSS.fencedDivHeader,
+      inclusive: true,
+      attributes: {
+        "data-block-class": presentation.className,
+        ...(presentation.id ? { "data-reference-id": presentation.id } : {}),
+        "aria-label": state.sliceDoc(from, to),
+        title: "Edit fenced div attributes",
+      },
+    }).range(from, to));
+    const label = presentation.number === undefined
+      ? presentation.label
+      : `${presentation.label} ${presentation.number}`;
+    const title = presentation.title ? fencedDivTitleRange(node) : null;
+    const prefix = { from, to: title?.from ?? to };
+    suppressedSourceRanges.push(prefix);
+    ranges.push(Decoration.replace({
+      widget: new CstFencedDivHeaderWidget(title ? `${label} (` : label, from),
+    }).range(prefix.from, prefix.to));
+    if (title) {
+      const suffix = { from: title.to, to };
+      suppressedSourceRanges.push(suffix);
       ranges.push(Decoration.replace({
-        widget: new CstFencedDivHeaderWidget(
-          presentation,
-          state.sliceDoc(from, to),
-          from,
-          macros,
-          macrosKey,
-        ),
-      }).range(from, to));
-      return;
+        widget: new CstFencedDivHeaderWidget(")", from),
+      }).range(suffix.from, suffix.to));
     }
-    ranges.push(Decoration.replace({}).range(from, to));
   };
 
   addSourceRange(
@@ -1455,7 +1363,7 @@ function addTrailingPunctuationGroup(
 
 function buildCstEditDecorations(view: EditorView): {
   readonly decorations: DecorationSet;
-  readonly punctuationGroups: DecorationSet;
+  readonly outerDecorations: DecorationSet;
 } {
   const state = view.state;
   const tree = getPandocTree(state);
@@ -1466,7 +1374,7 @@ function buildCstEditDecorations(view: EditorView): {
   const macrosKey = getYamlMathMacrosKey(state);
   const presentation = getDocumentPresentation(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
-  const punctuationGroups: Array<ReturnType<Decoration["range"]>> = [];
+  const outerDecorations: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
   const suppressedFencedDivSourceRanges: Array<{
     readonly from: number;
@@ -1479,6 +1387,11 @@ function buildCstEditDecorations(view: EditorView): {
         node.kind !== "FencedDiv"
         && rangeContainsNode(suppressedFencedDivSourceRanges, node)
       ) return false;
+      // Attribute quotes may contain the title's inline nodes. Descend into
+      // them without presenting syntax that crosses the hidden title boundary.
+      if (node.kind !== "FencedDiv" && suppressedFencedDivSourceRanges.some(
+        (range) => node.from < range.to && range.from < node.to,
+      )) return;
       const key = nodeKey(node);
       const isActive = active.has(key);
       const inlineClass = DELIMITED_INLINE_CLASSES[node.kind];
@@ -1513,7 +1426,7 @@ function buildCstEditDecorations(view: EditorView): {
           if (decorated.has(key)) return false;
           decorated.add(key);
           if (!isActive && !node.prop(mathDisplay)) {
-            addTrailingPunctuationGroup(punctuationGroups, node);
+            addTrailingPunctuationGroup(outerDecorations, node);
           }
           addMathPresentation(
             ranges,
@@ -1546,18 +1459,17 @@ function buildCstEditDecorations(view: EditorView): {
           decorated.add(key);
           addFencedDivPresentation(
             ranges,
+            outerDecorations,
             suppressedFencedDivSourceRanges,
             view,
             node,
             presentation.fencedDivsByFrom.get(node.from),
-            macros,
-            macrosKey,
           );
           return;
         case "Citation":
         case "ExampleReference": {
           if (decorated.has(key)) return false;
-          if (!isActive) addTrailingPunctuationGroup(punctuationGroups, node);
+          if (!isActive) addTrailingPunctuationGroup(outerDecorations, node);
           const referenceKey = simpleFencedDivReferenceKey(node);
           const target = referenceKey
             ? presentation.localTargets.get(referenceKey)
@@ -1625,7 +1537,7 @@ function buildCstEditDecorations(view: EditorView): {
 
   return {
     decorations: Decoration.set(ranges, true),
-    punctuationGroups: Decoration.set(punctuationGroups, true),
+    outerDecorations: Decoration.set(outerDecorations, true),
   };
 }
 
@@ -1643,9 +1555,9 @@ export const cstEditDecorationPlugin = ViewPlugin.fromClass(class {
   }
 }, {
   decorations: (value) => value.presentation.decorations,
-  // Keep the widget and punctuation together even across selection marks.
+  // Keep headers and inline punctuation together across widgets and selection marks.
   provide: (plugin) => EditorView.outerDecorations.of(
-    (view) => view.plugin(plugin)?.presentation.punctuationGroups ?? Decoration.none,
+    (view) => view.plugin(plugin)?.presentation.outerDecorations ?? Decoration.none,
   ),
 });
 

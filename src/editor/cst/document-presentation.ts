@@ -111,6 +111,40 @@ export function parseFencedDivInfo(
     : null;
 }
 
+/** Locate title content in the CST's already-delimited opener attributes. */
+export function fencedDivTitleRange(node: SyntaxNode): SourceRange | null {
+  const info = node.prop(fenceInfo);
+  if (!info?.startsWith("{") || !info.endsWith("}")) return null;
+  let infoFrom = node.from;
+  for (const child of node.children()) {
+    if (child.kind === "LineEnding") break;
+    infoFrom = child.from;
+    if (child.text().startsWith("{")) break;
+  }
+  let range: SourceRange | null = null;
+  for (const match of info.slice(1, -1).matchAll(FENCED_DIV_ATTRIBUTE_TOKEN)) {
+    const token = match[0];
+    if (!token.startsWith("title=")) continue;
+    const value = token.slice("title=".length);
+    const title = attributeValueText(value);
+    const from = infoFrom + 1 + match.index + "title=".length
+      + (title === value ? 0 : 1);
+    range = { from, to: from + title.length };
+  }
+  return range;
+}
+
+export function containingFencedDivOpener(node: SyntaxNode): SyntaxNode | null {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.kind !== "FencedDiv") continue;
+    for (const child of parent.children()) {
+      if (child.kind === "LineEnding") return node.to <= child.from ? parent : null;
+    }
+    return node.to <= parent.to ? parent : null;
+  }
+  return null;
+}
+
 export function canonicalFencedDivClass(className: string): string {
   const normalized = className.toLocaleLowerCase();
   return FENCED_DIV_CLASS_ABBREVIATIONS.get(normalized) ?? normalized;

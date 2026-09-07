@@ -242,10 +242,13 @@ function selectionTouches(
   state: EditorState,
   cluster: CitationClusterPresentation,
 ): boolean {
+  const { from, to } = cluster.opener ?? cluster;
   return state.selection.ranges.some((range) => (
     range.empty
-      ? cluster.from < range.head && range.head < cluster.to
-      : range.from < cluster.to && cluster.from < range.to
+      ? cluster.opener
+        ? from <= range.head && range.head <= to
+        : from < range.head && range.head < to
+      : range.from < to && from < range.to
   ));
 }
 
@@ -415,13 +418,14 @@ function citationSelectionSignature(
     let to = citations.length;
     while (from < to) {
       const middle = (from + to) >>> 1;
-      if (citations[middle].cluster.to <= range.from) from = middle + 1;
+      const cluster = citations[middle].cluster;
+      if ((cluster.opener ? cluster.opener.to + 1 : cluster.to) <= range.from) from = middle + 1;
       else to = middle;
     }
     for (let index = from; index < citations.length; index += 1) {
       const cluster = citations[index].cluster;
-      if (cluster.from >= range.to) break;
-      signature += `${index},`;
+      if ((cluster.opener ? cluster.opener.from - 1 : cluster.from) >= range.to) break;
+      if (selectionTouches(state, cluster)) signature += `${index},`;
     }
     signature += ";";
   }

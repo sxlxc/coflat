@@ -7,6 +7,7 @@ import {
   type SyntaxTree,
 } from "pandocmd-cst";
 import { changedBlockRanges } from "../cst/decoration-ranges";
+import { containingFencedDivOpener, fencedDivTitleRange } from "../cst/document-presentation";
 import { getPandocInvalidations, getPandocTree } from "../cst/pandoc-cst-field";
 import type {
   CitationClusterPresentation,
@@ -76,7 +77,15 @@ export function collectCitationClusters(
       && tree.semantics.example(node).status === "resolved"
     ) return false;
     const cluster = clusterForNode(node);
-    if (cluster) clusters.push(cluster);
+    if (cluster) {
+      const div = containingFencedDivOpener(node);
+      if (div) {
+        const title = fencedDivTitleRange(div);
+        if (!title || node.from < title.from || node.to > title.to) return false;
+        const ending = childOfKind(div, "LineEnding");
+        clusters.push({ ...cluster, opener: { from: div.from, to: ending?.from ?? div.to } });
+      } else clusters.push(cluster);
+    }
     return false;
   }, range);
   return clusters;
@@ -105,7 +114,13 @@ export function updateCitationClusters(
     ))) continue;
     clusters.set(from, from === cluster.from && to === cluster.to
       ? cluster
-      : { ...cluster, from, to });
+      : {
+        ...cluster, from, to,
+        ...(cluster.opener ? { opener: {
+          from: changes.mapPos(cluster.opener.from, 1),
+          to: changes.mapPos(cluster.opener.to, -1),
+        } } : {}),
+      });
   }
   for (const range of newRanges) {
     for (const cluster of collectCitationClusters(tree, range)) {

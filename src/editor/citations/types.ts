@@ -9,6 +9,8 @@ export interface CitationItemPresentation {
 
 export interface CitationClusterPresentation {
   readonly from: number;
+  /** Title citations reveal the entire attribute line together. */
+  readonly opener?: { readonly from: number; readonly to: number };
   readonly items: readonly CitationItemPresentation[];
   readonly narrative: boolean;
   readonly raw: string;

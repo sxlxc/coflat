@@ -1,5 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import fc from "fast-check";
+import type { SyntaxNode } from "pandocmd-cst";
 import { describe, expect, it, vi } from "vitest";
 import {
   getPandocInvalidations,
@@ -9,6 +10,39 @@ import {
 import { collectCitationClusters, updateCitationClusters } from "./citation-model";
 
 describe("incremental citation collection", () => {
+  it("keeps fenced-div child traversal linear when collecting title and body citations", () => {
+    const paragraphCount = 200;
+    const opener = '::: {.theorem title="中文 😀 Result [@title]"}';
+    const doc = `${opener}\n${"Body [@smith2024].\n\n".repeat(paragraphCount)}:::`;
+    const state = EditorState.create({ doc, extensions: [pandocCstField] });
+    const tree = getPandocTree(state);
+    const prototype: Pick<SyntaxNode, "children"> = Object.getPrototypeOf(tree.root);
+    const children = prototype.children;
+    let visited = 0;
+    const spy = vi.spyOn(prototype, "children").mockImplementation(function* (this: SyntaxNode) {
+      for (const child of children.call(this)) {
+        if (this.kind === "FencedDiv") visited += 1;
+        yield child;
+      }
+    });
+    try {
+      const clusters = collectCitationClusters(tree);
+      expect(clusters).toHaveLength(paragraphCount + 1);
+      expect(clusters[0].opener).toEqual({ from: 0, to: opener.length });
+      expect(clusters.slice(1).every((cluster) => cluster.opener === undefined)).toBe(true);
+      expect(visited).toBeLessThan(paragraphCount * 20);
+
+      const transaction = state.update({ changes: { from: doc.indexOf("Body") + 1, insert: "中文 😀" } });
+      visited = 0;
+      const updated = updateCitationClusters(transaction, clusters);
+      expect(visited).toBeLessThan(paragraphCount * 20);
+      expect(updated).toEqual(collectCitationClusters(getPandocTree(transaction.state)));
+      expect(getPandocTree(transaction.state).text).toBe(transaction.newDoc.toString());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("keeps citation collection bounded after a localized prose edit", () => {
     const state = EditorState.create({
       doc: `${"中文 😀 Ordinary *prose*.\n\n".repeat(1_000)}TARGET.\n\nSee [@smith2024].`,

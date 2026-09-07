@@ -33,6 +33,68 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("renders fenced-div title inlines and preserves keyboard editing and undo", async ({ page }, testInfo) => {
+  const opener = '::: {.theorem #thm:main title="中文 😀 *Result* **bold** `code` [link](https://example.org) $x^2$ [@smith2024]"}';
+  const source = `---\nbibliography: references.bib\n---\nBefore.\n\n${opener}\nBody.\n:::\n\nAfter.`;
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.scrollToPosition(doc.indexOf("Before"));
+  }, source);
+  const header = page.locator(".cf-fenced-div-header");
+  await expect(header.locator(".cf-italic")).toHaveText("Result");
+  await expect(header.locator(".cf-bold")).toHaveText("bold");
+  await expect(header.locator(".cf-inline-code")).toHaveText("code");
+  await expect(header.locator(".cf-link-rendered")).toHaveText("link");
+  await expect(header.locator(".katex")).toHaveCount(1);
+  await expect(header.locator(".cf-citation")).toHaveText("[1]");
+  await expect(page.locator(".cf-bibliography-entry")).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("fenced-div-title.png") });
+
+  const openerEnd = source.indexOf(opener) + opener.length;
+  await page.evaluate((position) => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    view.dispatch({ selection: { anchor: position, head: position + 1 } });
+    view.focus();
+  }, openerEnd);
+  await expect(header.locator(".cf-citation")).toHaveText("[1]");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText(opener);
+  await expect(page.locator(".cf-citation")).toHaveCount(0);
+  expect(await page.evaluate(() => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    return { head: view.state.selection.main.head, empty: view.state.selection.main.empty };
+  })).toEqual({ head: openerEnd, empty: true });
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(header.locator(".cf-citation")).toHaveText("[1]");
+
+  await page.evaluate((position) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatEditor.scrollToPosition(position);
+    fixture.__coflatEditor.focus();
+  }, source.indexOf(":::") - 1);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText(opener);
+  await expect(page.locator(".cf-citation")).toHaveCount(0);
+  for (let i = 0; i < [...source.slice(source.indexOf(":::"), source.indexOf("Result"))].length; i += 1) {
+    await page.keyboard.press("ArrowRight");
+  }
+  await page.keyboard.insertText("New ");
+  await page.keyboard.press("ControlOrMeta+End");
+  await expect(header.locator(".cf-italic")).toHaveText("New Result");
+  await expect(header.locator(".cf-citation")).toHaveText("[1]");
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatEditor.scrollToPosition(fixture.__coflatEditor.getDoc().indexOf("After"));
+  });
+  await expect(header.locator(".cf-italic")).toHaveText("Result");
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
+});
+
 test("tracks nested fenced divs across previews while editing from the keyboard", async ({ page }) => {
   const source = [
     "Before", "", ":::: {.theorem}", "Statement.", "",

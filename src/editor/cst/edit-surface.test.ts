@@ -496,7 +496,7 @@ describe("CST edit surface block presentation", () => {
       .toBe("Theorem 1 (Main result)");
 
     const header = parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader}`);
-    header?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    header?.querySelector("span")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
 
     expect(editor.state.selection.main.head).toBe(doc.indexOf(":::"));
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)).toBeNull();
@@ -524,6 +524,58 @@ describe("CST edit surface block presentation", () => {
     expect(header?.querySelectorAll(".katex")).toHaveLength(2);
     expect(header?.querySelector(`.${CSS.mathError}`)).toBeNull();
     expect(editor?.state.doc.toString()).toBe(doc);
+  });
+
+  it.each([
+    ["*italic*", `.${CSS.italic}`, "italic"],
+    ["**bold**", `.${CSS.bold}`, "bold"],
+    ["~~deleted~~", `.${CSS.strikethrough}`, "deleted"],
+    ["`code $x$ [@missing]`", `.${CSS.inlineCode}`, "code $x$ [@missing]"],
+    ["[link](https://example.org)", `.${CSS.linkRendered}`, "link"],
+    ["x^2^", ".cf-cst-superscript", "2"],
+    ["H~2~O", ".cf-cst-subscript", "2"],
+    ["**bold _italic_**", `.${CSS.bold} .${CSS.italic}`, "italic"],
+  ])("renders title inline syntax %s from the CST", (title, selector, text) => {
+    const doc = `Before.\n\n::: {.theorem title="中文 😀 ${title}"}\nBody.\n:::`;
+    const parent = mount(doc);
+    expect(parent.querySelector(`.${CSS.fencedDivHeader} ${selector}`)?.textContent).toBe(text);
+    expect(editor?.state.doc.toString()).toBe(doc);
+    expect(editor && getPandocTree(editor.state).text).toBe(doc);
+  });
+
+  it("renders local references in titles and reveals the entire opener for editing", () => {
+    const opener = '::: {.lemma title="From *[@thm:main]* and @thm:main"}';
+    const doc = `Before.\n\n::: {.theorem #thm:main}\nFirst.\n:::\n\n${opener}\nBody.\n:::`;
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const header = parent.querySelectorAll(`.${CSS.fencedDivHeader}`)[1];
+    expect(header?.textContent).toBe("Lemma 2 (From Theorem 1 and Theorem 1)");
+    expect(header?.querySelectorAll(`.${CSS.fencedDivReference}`)).toHaveLength(2);
+    editor.dispatch({ selection: { anchor: doc.indexOf("From") } });
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)).toBeNull();
+    expect(getPandocTree(editor.state).text).toBe(doc);
+  });
+
+  it.each(['"', "'", ""])("preserves %s title boundaries across edits, selection, and undo", (quote) => {
+    const doc = `Before 中文 😀.\r\n\r\n::: {.remark title=${quote}*résumé*${quote} other="**hidden**"}\r\nBody.\r\n:::`;
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.state.doc.toString();
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent).toBe("Remark (résumé)");
+    const tree = getPandocTree(editor.state);
+    const from = source.indexOf("résumé");
+    editor.dispatch({ selection: { anchor: from, head: from + "résumé".length } });
+    expect(getPandocTree(editor.state)).toBe(tree);
+    expect(editor.state.sliceDoc(editor.state.selection.main.from, editor.state.selection.main.to)).toBe("résumé");
+    editor.dispatch(editor.state.replaceSelection("新标题"));
+    editor.dispatch({ selection: { anchor: 0 } });
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent).toBe("Remark (新标题)");
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    expect(undo(editor)).toBe(true);
+    editor.dispatch({ selection: { anchor: 0 } });
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent).toBe("Remark (résumé)");
+    expect(getPandocTree(editor.state).text).toBe(source);
   });
 
   it("updates headers and references after an attribute edit", () => {

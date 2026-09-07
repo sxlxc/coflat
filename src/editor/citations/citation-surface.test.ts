@@ -97,6 +97,71 @@ describe("CST citation surface", () => {
     expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
   });
 
+  it("renders title citations on load, shares body numbering, and keeps opener source literal", async () => {
+    const opener = '::: {.theorem title="中文 😀 *Result* [@jones2020, p. 7] and @smith2024"}';
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount(`Before.\n\n${opener}\nBody [@smith2024].\n:::`, statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    const header = parent.querySelector(`.${CSS.fencedDivHeader}`);
+    expect(header?.querySelectorAll(`.${CSS.citation}`)).toHaveLength(2);
+    expect(header?.querySelector(`.${CSS.citation}`)?.textContent).toContain("7");
+    expect(header?.querySelector(`.${CSS.citationNarrative}`)?.textContent).toContain("Smith");
+    expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(3);
+    expect(parent.querySelectorAll(`.${CSS.bibliographyEntry}`)).toHaveLength(2);
+    expect(parent.querySelector(`.${CSS.bibliographyEntry}`)?.textContent).toContain("An Uncited Book");
+
+    editor?.scrollToPosition(editor.getDoc().indexOf("Result"));
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
+    expect(parent.querySelectorAll(`.${CSS.citation}`)).toHaveLength(1);
+    editor?.scrollToPosition(editor.getDoc().indexOf("Body"));
+    expect(parent.querySelectorAll(`.${CSS.fencedDivHeader} .${CSS.citation}`)).toHaveLength(2);
+    const original = editor?.getDoc() ?? "";
+    editor?.setDoc(original.replace("Before.", "Before 中文 😀 [@smith2024]."));
+    expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toContain("2");
+    parent.querySelector<HTMLElement>(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+    );
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
+    editor?.insertText("X");
+    expect(editor?.getDoc()).toContain("[X@jones2020, p. 7]");
+    expect(editor?.getCst()?.text).toBe(editor?.getDoc());
+  });
+
+  it.each(["\n", "\r\n"])("updates title citation reveal when selections collapse at opener boundaries (%j)", async (lineEnding) => {
+    const opener = '::: {.theorem title="中文 😀 Result [@smith2024]"}';
+    const parent = mount(["Before.", "", opener, "Body.", ":::"].join(lineEnding));
+    const view = EditorView.findFromDOM(parent.querySelector(".cm-editor") ?? parent);
+    if (!view) throw new Error("Missing mounted editor view");
+    await vi.waitFor(() => expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]"));
+    const source = view.state.doc.toString();
+    const tree = getPandocTree(view.state);
+    const from = source.indexOf(opener);
+    const to = from + opener.length;
+    for (const [anchor, head, boundary] of [[from - 1, from, from], [to, to + 1, to]]) {
+      view.dispatch({ selection: { anchor, head } });
+      expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toBe("[1]");
+      view.dispatch({ selection: { anchor: boundary } });
+      expect(view.state.selection.main.empty).toBe(true);
+      expect(view.state.selection.main.head).toBe(boundary);
+      expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
+      expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+      view.dispatch({ selection: { anchor, head } });
+      expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toBe("[1]");
+      expect(view.state.doc.toString()).toBe(source);
+      expect(getPandocTree(view.state)).toBe(tree);
+      expect(tree.text).toBe(source);
+    }
+  });
+
+  it("keeps unknown title citations literal and excludes other attributes and inline code", async () => {
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount('Before.\n\n::: {.remark title="[@missing] `[@smith2024]`" note="[@jones2020]"}\nBody.\n:::', statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent).toBe("Remark ([@missing] [@smith2024])");
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
+  });
+
   it("renders citations exposed beyond the first block of a split code fence", async () => {
     const statuses: BibliographyStatus[] = [];
     const parent = mount("Prose.\n\n~~~\n\n[@smith2024]\n~~~\n\nTail.", statuses);

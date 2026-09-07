@@ -20,7 +20,7 @@ Ordered by how often agents get them wrong:
 
 1. **One paragraph = one source line.** A single source newline inside a paragraph is preserved visually by the editor, so hard-wrapped prose appears with ragged line breaks. Never wrap prose at a source-column width; a blank line starts a new paragraph. See "Paragraphs and Line Breaks".
 2. **Use standard Pandoc structure.** Blockquotes, definition lists, indented code, and reference-style links are accepted by the fixed dialect. Use fenced divs when the content needs theorem-like semantics or a stable block id.
-3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The `title` attribute is plain text except for inline math delimited by `$...$` or `\(...\)`; other Markdown is not parsed there.
+3. **Theorem-like content goes in fenced divs with stable ids**, such as `::: {.theorem #thm:main title="Main theorem"}` — never bold pseudo-labels (`**Theorem 1.**`), code fences, or raw `\begin{theorem}`. The editor presents the `title` attribute with the same CST-backed inline Markdown as body prose, including emphasis, links, math, citations, and local references.
 4. **Nest divs with more colons outside.** The outer div uses more colons than the inner (`::::` outside, `:::` inside); same-count nesting misparses. Every div needs its matching explicit closer with the same colon count as its opener.
 5. **Math uses `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`**, never backticks or code fences. To label display math, wrap it in `::: {.equation #eq:name}`; do not append pandoc-crossref-style `{#eq:name}` text after the math. Escape a literal dollar in prose as `\$`.
 6. **Cross-reference with `[@id]` or narrative `@id`** using the prefix conventions in "Cross-References"; a bare key without a known prefix is treated as a BibTeX citation.
@@ -377,7 +377,7 @@ Statement of the theorem with $math$.
 :::
 ```
 
-The title is a Pandoc attribute. It is plain text except for inline math delimited by `$...$` or `\(...\)`, which the editor renders with the document's KaTeX macros; other inline Markdown is not parsed. The editor renders the six numbered classes with their shared document-global number and an optional parenthesized title, for example **Theorem 1 (Main Result)**. Other classes render a bold, unnumbered label. For `figure`, `table`, and `algorithm` blocks, the title also becomes the publication caption.
+The title is a Pandoc attribute whose contents the editor presents with the same CST-backed inline Markdown as body prose: emphasis, strong emphasis, strikeout, code, links, superscripts, subscripts, math, citations, and local references. For example, `title="A *useful* result $x^2$ [@smith2024]"` renders the formatting and shares the document's KaTeX macros, citation numbering, and bibliography. Entering any part of the opener reveals its complete literal source for editing. The editor renders the six numbered classes with their shared document-global number and an optional parenthesized title, for example **Theorem 1 (Main Result)**. Other classes render a bold, unnumbered label. For `figure`, `table`, and `algorithm` blocks, the title also becomes the publication caption.
 
 Attributes inside `{...}`:
 - `.classname` -- block type (required, first class is the primary type)
