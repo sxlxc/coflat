@@ -2,6 +2,7 @@
 title: Lorem Ipsum — A Mathematical Notebook
 author: A. Example
 description: A synthetic research-style document with placeholder prose and elementary mathematics.
+bibliography: ref.bib
 math:
   R: '\mathbb{R}'
   N: '\mathbb{N}'
@@ -14,9 +15,9 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
 
 # Lorem ipsum
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna fermentum iaculis. For $a,b\in\R$, the symbols $a+b$, $ab$, and $a^2+b^2$ provide a first collection of inline expressions. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna fermentum iaculis. For $a,b\in\R$, the symbols $a+b$, $ab$, and $a^2+b^2$ provide a first collection of inline expressions. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.[@chestnut_zenklusen_interdicting]
 
-::: {.definition #def:sequence title="Lorem sequence"}
+::: {.definition #def:sequence title="Lorem sequence [@orlin_max_flows_2013]"}
 Lorem ipsum dolor sit amet. For $n\ge 0$, let $u_n=\sum_{j=0}^{n}2^{-j}$ and $v_n=2-u_n$. Suspendisse potenti, praesent elementum facilisis leo vel fringilla.
 :::
 
@@ -34,7 +35,7 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. The sequence in [@def:s
 Sed ut perspiciatis unde omnis iste natus error sit voluptatem. Multiplying the finite sum by $1/2$ and subtracting gives [@eq:geometric]. Since $0<2^{-n}\le1$, the bounds follow. For every $\varepsilon>0$, choose an integer $N>\log_2(1/\varepsilon)$; then $n\ge N$ implies $|u_n-2|=2^{-n}<\varepsilon$. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit.
 :::
 
-Donec pretium vulputate sapien nec sagittis aliquam malesuada bibendum. In [@thm:sequence], the remainder is $v_n=2^{-n}$; more generally, for $|r|<1$,
+Donec pretium vulputate sapien nec sagittis aliquam malesuada bibendum [@orlin_max_flows_2013; @edmonds_edge_disjoint_branchings_1973]. In [@thm:sequence], the remainder is $v_n=2^{-n}$; more generally, for $|r|<1$,
 
 $$
 \sum_{j=0}^{n}r^j=\frac{1-r^{n+1}}{1-r},
@@ -339,3 +340,4 @@ $$
 $$
 
 Donec ac odio tempor orci dapibus ultrices in iaculis nunc. Egestas tellus rutrum tellus pellentesque eu tincidunt tortor aliquam nulla. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
