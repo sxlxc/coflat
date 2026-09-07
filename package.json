@@ -81,6 +81,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@codemirror/legacy-modes": "^6.5.4",
     "@playwright/test": "^1.49.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/katex": "^0.16.8",

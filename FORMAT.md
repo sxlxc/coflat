@@ -667,7 +667,7 @@ fibonacci n = fibonacci (n-1) + fibonacci (n-2)
 ```
 ````
 
-Language tag after opening fence enables syntax highlighting.
+A bare language tag after the opening fence enables syntax highlighting for JavaScript (`javascript`, `js`), TypeScript (`typescript`, `ts`), JSON, Python (`python`, `py`), shell (`bash`, `sh`, `shell`), C, C++ (`cpp`, `c++`), Haskell (`haskell`, `hs`), YAML (`yaml`, `yml`), and TeX (`tex`, `latex`). Language labels are case-insensitive. Unknown labels, attribute-style info strings, unlabeled fences, and indented code retain plain source styling. Highlighting is presentation only and does not change which code blocks the dialect accepts.
 
 ## Tables
 

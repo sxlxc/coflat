@@ -231,9 +231,6 @@ export const coflatTheme = EditorView.theme({
     ...sourceTypography,
     backgroundColor: "var(--cf-subtle)",
   },
-  ".cf-table-source .tok-punctuation, .cf-table-source .tok-meta": {
-    color: "inherit",
-  },
   ".cf-math-source-line .cf-math-source, .cf-math-source-line .cf-source-delimiter": {
     fontSize: "inherit",
   },
@@ -245,6 +242,29 @@ export const coflatTheme = EditorView.theme({
   },
   ".tok-string": {
     fontStyle: "italic",
+  },
+  [`.${CSS.sourceToken}`]: {
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    fontStyle: "normal",
+    fontWeight: "inherit",
+    lineHeight: "inherit",
+    textDecoration: "none",
+  },
+  [`.${CSS.sourceToken}.tok-keyword`]: {
+    color: "var(--cf-syntax-keyword)",
+  },
+  [`.${CSS.sourceToken}.tok-string, .${CSS.sourceToken}.tok-monospace`]: {
+    color: "var(--cf-syntax-string)",
+  },
+  [`.${CSS.sourceToken}.tok-number`]: {
+    color: "var(--cf-syntax-number)",
+  },
+  [`.${CSS.sourceToken}.tok-atom, .${CSS.sourceToken}.tok-strong, .${CSS.sourceToken}.tok-emphasis, .${CSS.sourceToken}.tok-strikethrough`]: {
+    color: "var(--cf-accent)",
+  },
+  [`.${CSS.sourceToken}.tok-comment`]: {
+    color: "var(--cf-muted)",
   },
 });
 

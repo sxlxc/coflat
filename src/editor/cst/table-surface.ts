@@ -95,7 +95,7 @@ function tableNodeKey(node: Pick<SyntaxNode, "kind" | "from" | "to">): string {
   return `${node.kind}:${node.from}:${node.to}`;
 }
 
-function containingPipeTable(node: SyntaxNode | null): SyntaxNode | null {
+export function containingPipeTable(node: SyntaxNode | null): SyntaxNode | null {
   let current = node;
   while (current) {
     if (current.kind === "PipeTable") return current;

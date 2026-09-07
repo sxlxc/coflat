@@ -1233,6 +1233,173 @@ test("renders a table and opens its live editing preview on click", async ({ pag
   await expect(preview.locator("tbody strong")).toHaveText("AlphaX");
 });
 
+test("highlights code after scrolling through a multiline comment and preserves keyboard edits", async ({ page }, testInfo) => {
+  const source = [
+    "```js", "/* comment", ...Array.from({ length: 200 }, (_, index) => `comment ${index}`),
+    "*/", 'const label = "数学 😀";', "return 42;", "```", "", "After.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.focus();
+    fixture.__coflatEditor.scrollToPosition(doc.indexOf("comment 100"));
+  }, source);
+  await expect(page.locator(".cf-source-token.tok-comment", { hasText: /^comment 100$/ })).toBeVisible();
+
+  const position = source.indexOf("42;");
+  await page.evaluate((anchor) => {
+    (window as unknown as EditorFixtureWindow).__coflatEditor.scrollToPosition(anchor);
+  }, position);
+  await expect(page.locator(".cf-cst-code-block .tok-keyword")).toHaveText(["const", "return"]);
+  const number = page.locator(".cf-cst-code-block .tok-number");
+  await expect(number).toHaveText("42");
+  await expect(number).toHaveCSS("color", "rgb(148, 92, 23)");
+  await page.screenshot({ path: testInfo.outputPath("code-highlighting.png") });
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.insertText("7");
+  await expect(number).toHaveText("7");
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source.replace("42;", "7;"), cst: source.replace("42;", "7;") });
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(number).toHaveText("42");
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
+});
+
+test("highlights YAML, math, and table source through keyboard edits and undo", async ({ page }, testInfo) => {
+  const source = [
+    "---", 'title: "数学 😀"', "count: 42", "---", "", "Before.", "",
+    "$$", "\\frac{x}{42} % note", "$$", "",
+    "$$42$$", "", "\\[42\\]", "",
+    "| **Label** | Value |", "| --- | ---: |", "| 中文 😀 `code` | $\\sqrt{42}$ |",
+    "", "After.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.focus();
+  }, source);
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".cf-yaml-source .tok-atom")).toHaveText(["title", "count"]);
+
+  for (const [name, marker, selector] of [
+    ["yaml", "count: 42", ".cf-yaml-source"],
+    ["math", "\\frac{x}{42}", ".cf-math-source-line"],
+    ["math-number", "$$42$$", ".cf-math-source-line .cf-math-source"],
+    ["math-bracket-number", "\\[42\\]", ".cf-math-source-line .cf-math-source"],
+    ["table", "\\sqrt{42}", ".cf-table-source"],
+  ]) {
+    const position = source.indexOf(marker) + marker.indexOf("42");
+    await page.evaluate((anchor) => {
+      (window as unknown as EditorFixtureWindow).__coflatEditor.scrollToPosition(anchor);
+    }, position - 1);
+    await page.keyboard.press("ArrowRight");
+    const number = page.locator(`${selector} .cf-source-token.tok-number`);
+    await expect(number).toHaveText("42");
+    for (const [theme, color] of [["light", "rgb(148, 92, 23)"], ["dark", "rgb(229, 188, 133)"]]) {
+      await page.evaluate((value) => document.documentElement.dataset.theme = value, theme);
+      await page.setViewportSize({ width: theme === "light" ? 1280 : 360, height: 900 });
+      await expect(number).toHaveCSS("color", color);
+      expect(await number.evaluate((element) => {
+        const line = element.closest(".cm-line");
+        if (!line) throw new Error("Missing source line");
+        return getComputedStyle(element).fontSize === getComputedStyle(line).fontSize;
+      })).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`source-${name}-${theme}.png`) });
+    }
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowRight");
+    expect(await page.evaluate(() => {
+      const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+      return view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to);
+    })).toBe("42");
+    await page.keyboard.insertText("7");
+    expect(await page.evaluate(() => (
+      (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+    ))).toBe(position + 1);
+    await expect(number).toHaveText("7");
+    const changed = source.slice(0, position) + "7" + source.slice(position + 2);
+    expect(await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    })).toEqual({ doc: changed, cst: changed });
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(number).toHaveText("42");
+    await page.keyboard.press("ControlOrMeta+End");
+    await expect(page.locator(".cf-source-token")).toHaveCount(0);
+  }
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
+});
+
+test("edits table markup as plain source with literal keyboard navigation", async ({ page }) => {
+  const lines = [
+    "| **Item** | *Value* |",
+    "| --- | --- |",
+    "| 😀 **bold** *italic* | `code` $x^2$ \\(y\\) |",
+    "| [link](https://example.com) | [@thm:main] [@smith2024] |",
+  ];
+  const source = [
+    "---", "bibliography: references.bib", "---", "Before.", "",
+    "::: {.theorem #thm:main}", "Result.", ":::", "", ...lines, "", "After.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    (window as unknown as EditorFixtureWindow).__coflatRemount({ doc });
+  }, source);
+  await expect(page.locator(".cf-bibliography-entry")).toContainText("A Useful Result");
+  await page.locator(".cf-cst-table tbody td").first().click();
+
+  const sourceLines = page.locator(".cm-line.cf-table-source");
+  const preview = page.locator(".cf-cst-table-preview");
+  await expect(sourceLines).toHaveText(lines);
+  await expect(sourceLines.locator("*:not(span.cf-source-token)")).toHaveCount(0);
+  await expect(preview.locator(".katex")).toHaveCount(2);
+  await expect(preview.locator("tbody strong")).toHaveText("bold");
+
+  for (const markup of ["\\(y\\)", "[@thm:main]", "[@smith2024]"]) {
+    const position = source.indexOf(markup);
+    await page.evaluate((anchor) => {
+      (window as unknown as EditorFixtureWindow).__coflatEditor.scrollToPosition(anchor);
+    }, position);
+    await page.keyboard.press("ArrowRight");
+    expect(await page.evaluate(() => (
+      (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+    ))).toBe(position + 1);
+    await page.keyboard.press("ArrowLeft");
+    expect(await page.evaluate(() => (
+      (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+    ))).toBe(position);
+  }
+
+  await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    editor.scrollToPosition(editor.getDoc().indexOf("bold") + "bold".length);
+  });
+  await page.keyboard.insertText("X");
+  await expect(sourceLines).toHaveText(lines.map((line) => line.replace("bold", "boldX")));
+  await expect(sourceLines.locator("*:not(span.cf-source-token)")).toHaveCount(0);
+  await expect(preview.locator("tbody strong")).toHaveText("boldX");
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source.replace("bold", "boldX"), cst: source.replace("bold", "boldX") });
+
+  await page.keyboard.press("ControlOrMeta+End");
+  await expect(sourceLines).toHaveCount(0);
+  for (let step = 0; step < "\n\nAfter.".length; step += 1) {
+    await page.keyboard.press("ArrowLeft");
+  }
+  await expect(sourceLines).toHaveCount(4);
+  await expect(sourceLines.locator("*:not(span.cf-source-token)")).toHaveCount(0);
+});
+
 test("keeps the table in place above its source and navigates by cell", async ({ page }) => {
   const source = "Before\n\n| Item | Value |\n| --- | --- |\n| 😀 中文 | **value** |\n\nAfter";
   await page.evaluate((doc) => {

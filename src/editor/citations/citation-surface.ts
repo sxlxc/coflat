@@ -21,6 +21,7 @@ import { CSS } from "../../core/constants/css-classes";
 import { resolvePandocNode } from "../cst/cursor-context";
 import { getDocumentPresentation } from "../cst/document-presentation";
 import { getPandocTree } from "../cst/pandoc-cst-field";
+import { containingPipeTable } from "../cst/table-surface";
 import {
   getYamlCitationMetadata,
   type YamlCitationMetadata,
@@ -400,6 +401,7 @@ interface CitationDecorationState {
   readonly citations: readonly {
     readonly cluster: CitationClusterPresentation;
     readonly html: string;
+    readonly inTable: boolean;
   }[];
   readonly data: CitationData;
   readonly decorations: DecorationSet;
@@ -439,7 +441,7 @@ function citationDecorationSet(
 ): DecorationSet {
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   for (const citation of citations) {
-    if (selectionTouches(state, citation.cluster)) continue;
+    if (citation.inTable || selectionTouches(state, citation.cluster)) continue;
     ranges.push(Decoration.replace({
       widget: new CitationWidget(citation.cluster, citation.html),
     }).range(citation.cluster.from, citation.cluster.to));
@@ -491,13 +493,15 @@ function buildCitationDecorations(
     const citations = previous.citations.map((citation, index) => ({
       cluster: clusters[index],
       html: citation.html,
+      inTable: containingPipeTable(resolvePandocNode(tree, clusters[index].from, "right")) !== null,
     }));
     const selectionSignature = citationSelectionSignature(state, citations);
     const canMap = changes
       && selectionSignature === previous.selectionSignature
       && !previous.citations.some(({ cluster }) => (
         changes.touchesRange(cluster.from, cluster.to)
-      ));
+      ))
+      && citations.every((citation, index) => citation.inTable === previous.citations[index].inTable);
     return {
       ...previous,
       clusters: candidates,
@@ -505,7 +509,7 @@ function buildCitationDecorations(
       decorations: canMap
         ? previous.decorations.map(changes)
         : citationDecorationSet(state, citations, previous.entries),
-      renderedFrom: new Set(citations.map(({ cluster }) => cluster.from)),
+      renderedFrom: new Set(citations.filter((citation) => !citation.inTable).map(({ cluster }) => cluster.from)),
       selectionSignature,
     };
   }
@@ -515,8 +519,9 @@ function buildCitationDecorations(
     .map((cluster) => ({
       cluster,
       html: sanitizeCslHtml(formatter.cite(cluster)),
+      inTable: containingPipeTable(resolvePandocNode(tree, cluster.from, "right")) !== null,
     }));
-  const renderedFrom = new Set(citations.map(({ cluster }) => cluster.from));
+  const renderedFrom = new Set(citations.filter((citation) => !citation.inTable).map(({ cluster }) => cluster.from));
   const entries = formatter.bibliographyEntries().map((entry) => ({
     ...entry,
     html: sanitizeCslHtml(entry.html),

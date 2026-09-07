@@ -11,6 +11,10 @@
    Completion and reference previews follow the same rule: targets and context
    come from the CST, while bibliography candidates reuse host-loaded data.
    Lexical matching of an unfinished completion prefix does not define grammar.
+   Stream tokenizers may color source within CST-defined metadata, math, and
+   code ranges, using CST fence info to select code languages. Their output is
+   presentation-only spans, never another tree,
+   document boundary, validation result, or source of editor semantics.
 5. Visual widgets never own persisted content. Every source position remains
    reachable and editable from the keyboard.
 6. Rendering may change presentation, such as KaTeX output, but cannot add

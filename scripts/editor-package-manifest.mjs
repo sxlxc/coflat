@@ -15,6 +15,7 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
 ]);
 
 export const EDITOR_BUNDLED_DEPENDENCIES = Object.freeze([
+  "@codemirror/legacy-modes",
   "@lezer/common",
   "pandocmd-cst",
 ]);

@@ -6,6 +6,9 @@
   --cf-border: #d6d9de;
   --cf-subtle: #f5f6f8;
   --cf-accent: #3157a4;
+  --cf-syntax-keyword: #7541a5;
+  --cf-syntax-string: #27683d;
+  --cf-syntax-number: #945c17;
   --cf-selection: rgb(180, 215, 255);
   --cf-content-font: KaTeX_Main, "Times New Roman", serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
@@ -47,6 +50,9 @@
   --cf-border: #3c4043;
   --cf-subtle: #24262a;
   --cf-accent: #9db8ff;
+  --cf-syntax-keyword: #cfabf5;
+  --cf-syntax-string: #9dceaa;
+  --cf-syntax-number: #e5bc85;
   --cf-selection: rgba(157, 184, 255, 0.24);
 }
 

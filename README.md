@@ -77,9 +77,14 @@ Coflat's KaTeX surface when inactive; on entry, its literal Markdown source and
 a live preview are shown.
 Arrow keys can enter rendered inline math from either side. Pipe tables render
 as semantic HTML tables; clicking a cell places the cursor at the start of its
-source content and reveals the Markdown source below the table. The table stays
+source content and reveals plain Markdown source below the table, with all markup
+visible and no inline rendering. The table stays
 in place as a live preview. All content can be edited as Markdown
 without using a mouse.
+
+Revealed YAML, math, and pipe-table source includes syntax highlighting. YAML and TeX tokenizers color only CST-defined source regions; tables use the existing Markdown CST. Highlighting leaves all source characters visible and editable, including inline markup inside tables.
+
+Fenced code also highlights recognized language labels using the same tokenizers: JavaScript/TypeScript, JSON, Python, shell, C/C++, Haskell, YAML, and TeX. Unrecognized or absent labels keep plain source styling. See [code blocks](FORMAT.md#code-blocks) for supported aliases.
 
 YAML metadata remains part of the editable source but is collapsed behind a small `YAML` button. A string `title` is presented as the centered paper title, and `math` entries are passed to every KaTeX surface as document macros. When `bibliography` is present, Coflat asks the host's `readTextResource` callback for the declared bibliography and optional `csl` files, renders citations with CSL (IEEE by default), and appends the cited bibliography entries. Citation-js is loaded lazily only for such documents.
 

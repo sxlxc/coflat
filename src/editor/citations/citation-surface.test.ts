@@ -80,6 +80,31 @@ describe("CST citation surface", () => {
     expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toContain("1");
   });
 
+  it("keeps table citations literal while retaining bibliography entries and handling table edits", async () => {
+    const lines = ["| Item |", "| --- |", "| [@smith2024] |"];
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount(["Before.", "", ...lines, "", "After."].join("\n"), statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.getDoc();
+    editor.scrollToPosition(source.indexOf("Item"));
+
+    const sourceLines = () => [...parent.querySelectorAll(`.cm-line.${CSS.tableSource}`)]
+      .map((line) => line.textContent);
+    expect(sourceLines()).toEqual(lines);
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.bibliographyEntry}`)?.textContent).toContain("A Useful Result");
+
+    editor.setDoc(source.replace("| --- |", "| text |"));
+    expect(sourceLines()).toEqual([]);
+    expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]");
+    editor.setDoc(source);
+    expect(sourceLines()).toEqual(lines);
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelectorAll(`.${CSS.bibliographyEntry}`)).toHaveLength(1);
+    expect(editor.getCst()?.text).toBe(editor.getDoc());
+  });
+
   it("gives a local numbered target precedence over a bibliography key", async () => {
     const parent = mount([
       "::: {.lem #smith2024}",

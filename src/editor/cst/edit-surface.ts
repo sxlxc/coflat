@@ -19,6 +19,7 @@ import {
 } from "@codemirror/view";
 import {
   fenceClosed,
+  fenceInfo,
   headingLevel,
   mathDisplay,
   type NodeKind,
@@ -51,8 +52,10 @@ import {
   getDocumentPresentation,
 } from "./document-presentation";
 import { getPandocTree } from "./pandoc-cst-field";
+import { addOpaqueSourceHighlights, addSourceToken } from "./source-highlighting";
 import {
   activePipeTableKeys,
+  containingPipeTable,
   cstTableDecorationField,
   cstTableSurface,
 } from "./table-surface";
@@ -60,6 +63,7 @@ import {
   cstYamlMetadataField,
   getYamlMathMacros,
   getYamlMathMacrosKey,
+  isYamlMetadataActive,
 } from "./yaml-metadata";
 
 const DELIMITED_INLINE_CLASSES: Partial<Record<NodeKind, string>> = {
@@ -939,6 +943,15 @@ function addCodeBlockPresentation(
   visibleFrom: number,
   visibleTo: number,
 ): void {
+  const language = node.prop(fenceInfo);
+  if (language) {
+    const body = [...node.children()].filter((child) => child.kind === "OpaqueBody");
+    const first = body[0];
+    const last = body.at(-1);
+    if (first && last) addOpaqueSourceHighlights(
+      ranges, state, first.from, Math.min(last.to, visibleTo), language, visibleFrom,
+    );
+  }
   const firstLine = state.doc.lineAt(Math.max(node.from, visibleFrom)).number;
   const lastPosition = Math.max(node.from, Math.min(node.to - 1, visibleTo));
   const lastLine = state.doc.lineAt(lastPosition).number;
@@ -972,6 +985,8 @@ function addLinkPresentation(
 
 function addMathPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
+  outerDecorations: Array<ReturnType<Decoration["range"]>>,
+  state: EditorState,
   node: SyntaxNode,
   active: boolean,
   macros: Readonly<Record<string, string>>,
@@ -991,8 +1006,9 @@ function addMathPresentation(
       const className = child.kind === "MathMark"
         ? CSS.sourceDelimiter
         : CSS.mathSource;
-      ranges.push(Decoration.mark({ class: className }).range(child.from, child.to));
+      outerDecorations.push(Decoration.mark({ class: className }).range(child.from, child.to));
     }
+    addOpaqueSourceHighlights(ranges, state, body.from, body.to, "math");
     return true;
   }
 
@@ -1016,8 +1032,9 @@ function addMathPresentation(
 
   for (const child of node.children()) {
     const className = child.kind === "MathMark" ? CSS.sourceDelimiter : CSS.mathSource;
-    ranges.push(Decoration.mark({ class: className }).range(child.from, child.to));
+    outerDecorations.push(Decoration.mark({ class: className }).range(child.from, child.to));
   }
+  addOpaqueSourceHighlights(ranges, state, body.from, body.to, "math");
   ranges.push(Decoration.widget({
     side: 1,
     widget: new CstMathWidget(
@@ -1386,7 +1403,54 @@ function addTrailingPunctuationGroup(
   }).range(node.from, node.to + punctuation.length));
 }
 
-function buildCstEditDecorations(view: EditorView): {
+function addTableSourceHighlights(
+  ranges: Array<ReturnType<Decoration["range"]>>,
+  state: EditorState,
+  node: SyntaxNode,
+  visible: SourceRange,
+): void {
+  const from = Math.max(node.from, visible.from);
+  const to = Math.min(node.to, visible.to);
+  if (from >= to) return;
+  if (node.kind === "Math") {
+    const body = childOfKind(node, "OpaqueBody");
+    if (body) addOpaqueSourceHighlights(
+      ranges, state, body.from, Math.min(body.to, to), "math", from,
+    );
+  }
+  if (
+    node.kind === "TableRow"
+    && node.parent?.kind === "TableHead"
+    && node.previousSibling()
+  ) {
+    addSourceToken(ranges, from, to, "tok-punctuation");
+    return;
+  }
+  if (node.childCount === 0 || node.kind === "LinkDestination") {
+    const className = sourceHighlightClass(node);
+    if (className) addSourceToken(ranges, from, to, className);
+    return;
+  }
+  // Locate the first visible child without walking every preceding table row.
+  let low = 0;
+  let high = node.childCount;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    const child = node.child(middle);
+    if (child && child.to <= from) low = middle + 1;
+    else high = middle;
+  }
+  for (let index = low; index < node.childCount; index += 1) {
+    const child = node.child(index);
+    if (!child || child.from >= to) break;
+    addTableSourceHighlights(ranges, state, child, visible);
+  }
+}
+
+function buildCstEditDecorations(
+  view: EditorView,
+  codeDecorations: Map<string, Array<ReturnType<Decoration["range"]>>>,
+): {
   readonly decorations: DecorationSet;
   readonly outerDecorations: DecorationSet;
 } {
@@ -1440,13 +1504,17 @@ function buildCstEditDecorations(view: EditorView): {
 
       switch (node.kind) {
         case "PipeTable":
-          if (decorated.has(key)) return false;
-          decorated.add(key);
-          // The state field renders an inactive table as one block widget. An
-          // active table keeps its source and may use the ordinary inline
-          // decorations within its cells.
-          if (!activePipeTables.has(key)) return false;
-          return;
+          // The table surface owns the live preview; its editable source stays literal.
+          if (activePipeTables.has(key)) {
+            addTableSourceHighlights(ranges, state, node, visible);
+          }
+          return false;
+        case "YamlMetadata":
+          if (isYamlMetadataActive(state) && !decorated.has(key)) {
+            decorated.add(key);
+            addOpaqueSourceHighlights(ranges, state, node.from, node.to, "yaml");
+          }
+          return false;
         case "Math":
           if (decorated.has(key)) return false;
           decorated.add(key);
@@ -1455,6 +1523,8 @@ function buildCstEditDecorations(view: EditorView): {
           }
           addMathPresentation(
             ranges,
+            outerDecorations,
+            state,
             node,
             (node.prop(mathDisplay) ?? false)
               ? activeDisplayMath.has(key)
@@ -1515,17 +1585,24 @@ function buildCstEditDecorations(view: EditorView): {
           return;
         }
         case "FencedCodeBlock":
-        case "IndentedCodeBlock":
+        case "IndentedCodeBlock": {
           if (decorated.has(key)) return false;
           decorated.add(key);
-          addCodeBlockPresentation(
-            ranges,
-            state,
-            node,
-            visible.from,
-            visible.to,
-          );
+          let codeRanges = codeDecorations.get(key);
+          if (!codeRanges) {
+            codeRanges = [];
+            addCodeBlockPresentation(
+              codeRanges,
+              state,
+              node,
+              view.viewport.from,
+              view.viewport.to,
+            );
+            codeDecorations.set(key, codeRanges);
+          }
+          for (const range of codeRanges) ranges.push(range);
           return false;
+        }
         default:
           if (node.childCount === 0 && node.from < node.to) {
             const className = sourceHighlightClass(node);
@@ -1568,19 +1645,25 @@ function buildCstEditDecorations(view: EditorView): {
 
 export const cstEditDecorationPlugin = ViewPlugin.fromClass(class {
   presentation: ReturnType<typeof buildCstEditDecorations>;
+  readonly codeDecorations = new Map<string, Array<ReturnType<Decoration["range"]>>>();
 
   constructor(view: EditorView) {
-    this.presentation = buildCstEditDecorations(view);
+    this.presentation = buildCstEditDecorations(view, this.codeDecorations);
   }
 
   update(update: ViewUpdate): void {
-    if (update.docChanged || update.selectionSet || update.viewportChanged) {
-      this.presentation = buildCstEditDecorations(update.view);
+    const resetCode = update.docChanged || update.viewportChanged
+      || update.transactions.some((transaction) => transaction.reconfigured);
+    // Tokenization depends on source, viewport, and configuration, never selection.
+    if (resetCode) this.codeDecorations.clear();
+    if (resetCode || update.selectionSet) {
+      this.presentation = buildCstEditDecorations(update.view, this.codeDecorations);
     }
   }
 }, {
   decorations: (value) => value.presentation.decorations,
-  // Keep headers and inline punctuation together across widgets and selection marks.
+  // Keep source wrappers outside tokens, including equal ranges after edits.
+  // Headers and inline punctuation also stay together across widgets and selections.
   provide: (plugin) => EditorView.outerDecorations.of(
     (view) => view.plugin(plugin)?.presentation.outerDecorations ?? Decoration.none,
   ),
@@ -1617,7 +1700,7 @@ function enterRenderedFencedDivReference(
   const reference = containingFencedDivReference(
     resolvePandocNode(tree, selection.head, direction),
   );
-  if (!reference) return false;
+  if (!reference || containingPipeTable(reference)) return false;
   if (direction === "right" && reference.from !== selection.head) return false;
   if (direction === "left" && reference.to !== selection.head) return false;
   const key = simpleFencedDivReferenceKey(reference);
@@ -1639,7 +1722,7 @@ function enterRenderedMath(view: EditorView, direction: "left" | "right"): boole
   if (!selection.empty) return false;
   const tree = getPandocTree(view.state);
   const math = containingMath(resolvePandocNode(tree, selection.head, direction));
-  if (!math) return false;
+  if (!math || containingPipeTable(math)) return false;
   if (direction === "right" && math.from !== selection.head) return false;
   if (direction === "left" && math.to !== selection.head) return false;
   const body = childOfKind(math, "OpaqueBody");

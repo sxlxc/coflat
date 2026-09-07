@@ -964,6 +964,37 @@ describe("CST edit surface tables", () => {
       .toBe("AlphaX");
   });
 
+  it.each(["\n", "\r\n"])("keeps all table markup literal while editing with %j line endings", (lineEnding) => {
+    const lines = [
+      "| **Item** | *Value* |",
+      "| --- | --- |",
+      "| 😀 **bold** *italic* ~~strike~~ H~2~ x^2^ | `code` $x^2$ \\(y\\) |",
+      "| [link](https://example.com) ![image](image.png) | [@thm:main] <br> &amp; |",
+    ];
+    const doc = ["Before", "", ...lines, "", "::: {.theorem #thm:main}", "Result.", ":::"].join(lineEnding);
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.state.doc.toString();
+    const tree = getPandocTree(editor.state);
+    parent.querySelector<HTMLElement>(".cf-cst-table tbody td")?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+    );
+    expect(editor.state.selection.main.head).toBe(source.indexOf("😀"));
+
+    for (const anchor of [source.indexOf("😀"), source.indexOf("bold"), source.indexOf("$x^2$") + 1]) {
+      editor.dispatch({ selection: { anchor } });
+      const sourceLines = [...parent.querySelectorAll(`.cm-line.${CSS.tableSource}`)];
+      expect(sourceLines.map((line) => line.textContent)).toEqual(lines);
+      expect(sourceLines.every((line) => (
+        line.querySelectorAll(`*:not(span.${CSS.sourceToken})`).length === 0
+      ))).toBe(true);
+      expect(parent.querySelector(".cf-cst-table-preview strong")?.textContent).toBe("Item");
+      expect(parent.querySelectorAll(".cf-cst-table-preview .katex")).toHaveLength(2);
+      expect(editor.state.doc.toString()).toBe(source);
+      expect(getPandocTree(editor.state)).toBe(tree);
+    }
+  });
+
   it("does not split pipes inside escapes, code spans, or math", () => {
     const parent = mount([
       "Before",
