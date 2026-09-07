@@ -55,7 +55,7 @@ describe("CST YAML metadata presentation", () => {
 
     expect(parent.querySelectorAll(`.cm-line.${CSS.yamlHidden}`)).toHaveLength(0);
     expect(parent.querySelectorAll(`.cm-line.${CSS.yamlSource}`)).toHaveLength(3);
-    expect(parent.querySelector(`.${CSS.yamlToggle}`)?.textContent).toBe("hide YAML");
+    expect(parent.querySelector(`.${CSS.yamlToggle}`)?.textContent).toBe("YAML");
     expect(parent.querySelector(`.${CSS.yamlToggle}`)?.getAttribute("aria-expanded"))
       .toBe("true");
     expect(editor.state.selection.main.head).toBe(doc.indexOf("title:"));

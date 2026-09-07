@@ -19,7 +19,9 @@ enters a structured inline node.
 
 Inline emphasis, bold, and monospace text preserve the surrounding prose line height, including while their delimiters are revealed.
 
-The left margin shows right-aligned source line numbers in `--cf-muted` and `--cf-code-font`. The gutter uses the document's base font size and line height; CodeMirror keeps each number aligned with its measured source row through wrapping and block previews. Hidden fenced-div endings retain their line numbers. Collapsed YAML rows take no gutter space.
+The left margin shows right-aligned source line numbers in `--cf-code-font`, with their color mixed from 45% `--cf-muted` and 55% `--cf-bg` to keep the gutter quiet. The gutter uses the document's base font size and line height; CodeMirror keeps each number aligned with its measured source row through wrapping and block previews. Hidden fenced-div endings retain their line numbers. Collapsed YAML rows take no gutter space.
+
+The YAML disclosure control is a small, borderless label with a chevron that indicates its expanded state. Its color mixes 75% `--cf-muted` with 25% `--cf-bg`; hover and keyboard focus use `--cf-fg` on `--cf-subtle`. A visible focus outline and a minimum 24px control height preserve keyboard and pointer access.
 
 Rendered display math leaves no empty closing-delimiter row or gutter number. Authored blank lines and text after the math remain visible; entering the math reveals its complete source and line numbers.
 

@@ -187,7 +187,7 @@ function createToggleButton(
   const button = ownerDocument.createElement("button");
   button.className = CSS.yamlToggle;
   button.type = "button";
-  button.textContent = expanded ? "hide YAML" : "YAML";
+  button.textContent = "YAML";
   button.setAttribute("aria-expanded", String(expanded));
   button.setAttribute(
     "aria-label",

@@ -48,7 +48,7 @@ test("aligns source line numbers through wrapping, hidden fences, and keyboard e
 
   const numbers = page.locator(".cm-lineNumbers .cm-gutterElement:visible");
   await expect(numbers).toHaveText(Array.from({ length: 10 }, (_, i) => String(i + 1)));
-  await expect(numbers.first()).toHaveCSS("color", "rgb(107, 114, 128)");
+  await expect(numbers.first()).toHaveCSS("color", "color(srgb 0.738824 0.751176 0.775882)");
   await expect(numbers.first()).toHaveCSS("text-align", "right");
   expect(await numbers.first().evaluate((element) => getComputedStyle(element).fontFamily))
     .toContain("monospace");
@@ -674,7 +674,7 @@ test("renders unordered list source markers as bullet dots", async ({ page }) =>
   expect(doc).toContain("- Bullet item");
 });
 
-test("renders and keyboard-edits collapsed YAML metadata", async ({ page }) => {
+test("renders and keyboard-edits collapsed YAML metadata", async ({ page }, testInfo) => {
   const source = [
     "---",
     "title: Paper Title",
@@ -725,14 +725,18 @@ test("renders and keyboard-edits collapsed YAML metadata", async ({ page }) => {
   expect(typography.titleAlign).toBe("center");
   expect(typography.titleStyle).toBe("normal");
   expect(typography.titleWeight).toBe("400");
-  expect(typography.toggleColor).toBe("rgb(107, 114, 128)");
+  expect(typography.toggleColor).toBe("color(srgb 0.564706 0.585294 0.626471)");
   expect(typography.toggleFont).toContain("Monaco");
+  await page.screenshot({ path: testInfo.outputPath("yaml-control.png") });
 
   await toggle.focus();
+  await expect(toggle).toHaveCSS("outline-style", "solid");
+  await expect(toggle).toHaveCSS("color", "rgb(32, 33, 36)");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Hide YAML metadata" }))
     .toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".cm-line.cf-yaml-source")).toHaveCount(6);
+  await page.screenshot({ path: testInfo.outputPath("yaml-expanded.png") });
 
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })
@@ -753,6 +757,10 @@ test("renders and keyboard-edits collapsed YAML metadata", async ({ page }) => {
   await expect(title).toHaveText("Revised Paper Title");
   expect(state.doc).toContain("title: Revised Paper Title");
   expect(state.cst).toBe(state.doc);
+  await page.setViewportSize({ width: 375, height: 720 });
+  await page.screenshot({ path: testInfo.outputPath("yaml-narrow.png") });
+  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await page.screenshot({ path: testInfo.outputPath("yaml-narrow-dark.png") });
 });
 
 test("renders blockquote markers and editable numbered fenced-div references", async ({
