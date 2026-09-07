@@ -20,6 +20,59 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("wraps keyboard selections with paired markup while preserving the DOM selection", async ({ page }) => {
+  for (const [open, close] of [
+    ["*", "*"], ["_", "_"], ["$", "$"], ["`", "`"], ["~", "~"], ["^", "^"],
+    ["'", "'"], ['"', '"'], ["(", ")"], ["[", "]"], ["{", "}"], ["<", ">"],
+  ]) {
+    const prefix = "Before ";
+    const selected = "中文😀";
+    await page.evaluate((doc) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      fixture.__coflatEditor.scrollToPosition(doc.length);
+      fixture.__coflatEditor.focus();
+    }, prefix + selected);
+    for (const _character of selected) await page.keyboard.press("Shift+ArrowLeft");
+    await page.keyboard.type(open);
+    const anchor = prefix.length + selected.length + 1;
+    const head = prefix.length + 1;
+    await expect.poll(() => selectionSnapshot(page)).toEqual({
+      anchor, head, domAnchor: anchor, domHead: head,
+    });
+    expect(await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    })).toEqual({ doc: `${prefix}${open}${selected}${close}`, cst: `${prefix}${open}${selected}${close}` });
+    await expect(page.locator(".cm-content")).toBeFocused();
+  }
+});
+
+test("repeated markup typing keeps selected text through undo and redo", async ({ page }) => {
+  await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc: "text" });
+    fixture.__coflatEditor.focus();
+  });
+  await page.keyboard.press("ControlOrMeta+a");
+  const snapshot = () => page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  });
+  await page.keyboard.type("*");
+  await expect.poll(snapshot).toEqual({ doc: "*text*", cst: "*text*" });
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(snapshot).toEqual({ doc: "text", cst: "text" });
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(snapshot).toEqual({ doc: "*text*", cst: "*text*" });
+  await page.keyboard.type("*");
+  await expect.poll(snapshot).toEqual({ doc: "**text**", cst: "**text**" });
+  await expect.poll(() => selectionSnapshot(page)).toEqual({
+    anchor: 2, head: 6, domAnchor: 2, domHead: 6,
+  });
+  await expect(page.locator(".cm-content")).toBeFocused();
+});
+
 for (const inline of [
   "*xxx*", "**xxx**", "`xxx`", "_xxx_", "__xxx__", "~~xxx~~", "^xxx^", "~xxx~",
   "``x`x``", "**_中文😀_**", "*xxx*`yyy`", "[xxx](doc.md)", "<https://example.org>",

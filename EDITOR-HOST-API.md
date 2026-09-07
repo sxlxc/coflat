@@ -48,7 +48,7 @@ retry policy.
 | Option | Behavior |
 | --- | --- |
 | `referenceCompletion` | Suggest local fenced-div/equation IDs and loaded bibliography keys after `@`, including bracketed citation clusters. Local targets take precedence over matching bibliography keys. |
-| `markupCompletion` | Offer canonical Markdown snippets with editable fields. Block snippets are offered at the document level to preserve fenced-div nesting. |
+| `markupCompletion` | Offer canonical Markdown snippets, wrap selections with paired delimiters, and complete brackets. Block snippets are offered at the document level to preserve fenced-div nesting. |
 | `referencePreviews` | Show a text excerpt of a local target, or bibliography title/author/publication details, on hover and through the keyboard. |
 | `activateOnTyping` | Open enabled suggestions at supported markup triggers and `@`. When false, completion is available through Ctrl-Space. |
 | `hoverTime` | Milliseconds before opening a hover preview; defaults to `300`. |
@@ -56,6 +56,8 @@ retry policy.
 Ctrl-Space opens completion; Up/Down select an entry, Enter or Tab accepts it, and Escape dismisses it. Within a snippet, Tab/Shift-Tab move between fields. Mod-Shift-Space opens a reference preview at the caret; Escape closes it. Previews use plain text and never modify citation registration or source. Completion inserts ordinary Markdown through CodeMirror transactions and remains undoable. Code, math bodies, raw content, and YAML do not receive prose suggestions. Bibliography options become available after the host resource loader finishes; no additional resource callback is needed.
 
 Automatic markup triggers are `:::`, `**`, `$$`, and three backticks. Ctrl-Space also offers snippets by name (for example, type `theorem` and press Ctrl-Space on an otherwise empty line). Block templates include their closing fences and insert canonical Pandoc Markdown.
+
+Typing `*`, `_`, `$`, a backtick, `~`, `^`, either quote, or an opening `(`, `[`, `{`, or `<` wraps selected source while preserving the inner selection and its direction. Repeated typing adds another layer, so two `*` keystrokes produce strong emphasis. This works across lines and multiple selections. With an empty selection, the four opening brackets insert matching closers before whitespace, closing brackets, `:`, `;`, or the end of the document. Typing an automatically inserted closer skips it; Backspace between an empty bracket pair removes both characters. Symmetric Markdown delimiters remain literal with an empty selection. Pairing is independent of `activateOnTyping`, which controls suggestion menus, and is disabled by `markupCompletion: false` or `editingAssistance: false`. Pasting and programmatic source changes do not wrap selections.
 
 There are no mode controls, reader APIs, application panels, uploads, or mouse-only
 commands in this contract. Hosts may append normal CM6 extensions, but those

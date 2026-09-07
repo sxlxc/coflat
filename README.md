@@ -51,6 +51,8 @@ const editor = mountEditor({
 
 Editing assistance is enabled by default. Type `@` to choose a local reference label or a loaded bibliography key; suggestions include target labels, titles, and author details. Press Ctrl-Space for Markdown snippets, including emphasis, links, math, and complete fenced divs. Use the arrow keys to choose, Enter or Tab to insert, and Tab/Shift-Tab to move between snippet fields. Escape dismisses suggestions. Hover over a reference for a text preview of its target, or put the caret in its source and press Mod-Shift-Space (Command on macOS, Control elsewhere).
 
+Type a paired delimiter around selected text to wrap it and keep the text selected: `*`, `_`, `$`, backticks, `~`, `^`, quotes, or an opening bracket. For example, pressing `*` twice produces `**selected text**`. With an empty selection, `(`, `[`, `{`, and `<` insert matching closers before whitespace, another closing bracket, or the end of the document. Type the closer to skip over it, or press Backspace between an empty pair to remove both characters. These features follow `markupCompletion`; symmetric Markdown delimiters stay literal at an empty caret so snippet triggers still work.
+
 Both `mountEditor` and `createEditor` accept `editingAssistance: false` to disable these aids, or an options object to configure each feature:
 
 ```ts

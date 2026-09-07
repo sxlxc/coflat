@@ -174,7 +174,11 @@ function markupCompletions(context: CompletionContext, path: readonly SyntaxNode
     .map((item) => item.block && needsBlankLine
       ? snippetCompletion(`\n${item.template}`, item.completion)
       : item.completion);
-  return options.length ? { from, options, ...(trigger ? { filter: false } : {}) } : null;
+  // An opening bracket may already have its paired closer from typing assistance.
+  const to = trigger === "[" && context.state.sliceDoc(context.pos, context.pos + 1) === "]"
+    ? context.pos + 1
+    : context.pos;
+  return options.length ? { from, to, options, ...(trigger ? { filter: false } : {}) } : null;
 }
 
 export function editingCompletionSource(options: CompletionOptions): (context: CompletionContext) => CompletionResult | null {
@@ -233,6 +237,9 @@ export function editingCompletionExtension(options: CompletionOptions): Extensio
           pending.clear();
           return;
         }
+        // CM queries pending requests against the latest state. Restarting one
+        // would promote automatic typing assistance to an explicit Ctrl-Space.
+        if (completionStatus(update.state) !== "active") return;
         // Dispatch after CodeMirror finishes the target or bibliography transaction.
         void Promise.resolve().then(() => {
           if (!this.destroyed && update.view.state.doc === update.state.doc

@@ -70,6 +70,82 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("completes bracket pairs and supports closer skipping and paired deletion", async ({ page }) => {
+  for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"], ["<", ">"]]) {
+    await mount(page, "");
+    await page.keyboard.type(open);
+    await expectDocument(page, open + close);
+    expect(await page.evaluate(() => (
+      (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+    ))).toBe(1);
+    await page.keyboard.press("Backspace");
+    await expectDocument(page, "");
+    await page.keyboard.type(`${open}text${close}!`);
+    await expectDocument(page, `${open}text${close}!`);
+    await expect(page.locator(".cm-content")).toBeFocused();
+  }
+});
+
+test("inserts a link snippet into an automatically completed bracket pair", async ({ page }) => {
+  await mount(page, "");
+  await page.keyboard.type("[");
+  await page.keyboard.press("Control+Space");
+  await acceptOption(page, "link");
+  await expectDocument(page, "[text](https://example.com)");
+  expect(await selectedSource(page)).toBe("text");
+  await page.keyboard.type("*");
+  await expectDocument(page, "[*text*](https://example.com)");
+  expect(await selectedSource(page)).toBe("text");
+  await page.keyboard.press("Tab");
+  expect(await selectedSource(page)).toBe("https://example.com");
+});
+
+test("pairs braces after a fenced-div opener without opening the snippet menu", async ({ page }) => {
+  const opener = theorem.split("\n")[0];
+  const suffix = theorem.slice(opener.length);
+  await mount(page, theorem);
+  await page.evaluate((position) => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    editor.scrollToPosition(position);
+    editor.focus();
+  }, opener.length);
+  await page.keyboard.type("{");
+  await expectDocument(page, `${opener}{}${suffix}`);
+  await page.waitForTimeout(250);
+  await expect(page.locator(".cm-tooltip-autocomplete")).toHaveCount(0);
+  expect(await page.evaluate(() => (
+    (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+  ))).toBe(opener.length + 1);
+  await page.keyboard.press("Control+Space");
+  await acceptOption(page, "strong");
+  await expectDocument(page, `${opener}{**text**}${suffix}`);
+  expect(await selectedSource(page)).toBe("text");
+});
+
+test("keeps automatic Markdown snippet triggers available", async ({ page }) => {
+  for (const [trigger, label] of [["**", "strong"], ["$$", "display math"], ["```", "code fence"]]) {
+    await mount(page, "");
+    await page.keyboard.type(trigger);
+    await expectDocument(page, trigger);
+    await acceptOption(page, label);
+    expect(await selectedSource(page)).not.toBe("");
+  }
+});
+
+test("respects markup switches independently of suggestion menu activation", async ({ page }) => {
+  for (const options of [false, { markupCompletion: false }] as const) {
+    await mount(page, "text", options);
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("*");
+    await expectDocument(page, "*");
+    await page.keyboard.type("[");
+    await expectDocument(page, "*[");
+  }
+  await mount(page, "", { activateOnTyping: false });
+  await page.keyboard.type("[");
+  await expectDocument(page, "[]");
+});
+
 test("completes local labels from typing and preserves source, cursor, and undo", async ({ page }, testInfo) => {
   const source = `中文 😀 introduction.\n\n${theorem}\n\nSee `;
   await mount(page, source);

@@ -46,7 +46,7 @@ import { coflatTheme } from "./theme";
 export interface SimpleEditorConfig {
   readonly parent: HTMLElement;
   readonly doc?: string;
-  /** Configure completion and reference previews, or disable all with false. */
+  /** Configure markup typing, completion, and reference previews, or disable all with false. */
   readonly editingAssistance?: EditingAssistanceOptions | false;
   readonly extensions?: readonly Extension[];
 }

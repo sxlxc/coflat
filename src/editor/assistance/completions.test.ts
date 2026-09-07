@@ -20,6 +20,7 @@ import { cstDocumentPresentationField } from "../cst/document-presentation";
 import { getPandocCstUpdateCountForTesting, getPandocTree, pandocCstField } from "../cst/pandoc-cst-field";
 import { cstYamlMetadataField } from "../cst/yaml-metadata";
 import { type CompletionOptions, editingCompletionExtension, editingCompletionSource } from "./completions";
+import { pairedMarkupExtension } from "./paired-markup";
 
 const OPTIONS: CompletionOptions = { references: true, snippets: true, activateOnTyping: true };
 const TARGET = "::: {.theorem #thm:main title=\"Central result\"}\nEvery finite set has a size.\n:::\n\n";
@@ -245,6 +246,15 @@ describe("CST editing completions", () => {
     expect(view.state.doc.toString()).toBe("::: {.equation #eq:name}\n$$\nx = y\n$$\n:::\n");
   });
 
+  it("replaces an empty bracket pair when inserting a link snippet", async () => {
+    const view = mount("中文 😀 [¦]");
+    await select(view, "link");
+    expect(view.state.doc.toString()).toBe("中文 😀 [text](https://example.com)");
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe("text");
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
+  });
+
   it("separates a new block template from preceding prose", async () => {
     const view = mount("Paragraph.\n¦");
     await select(view, "heading");
@@ -278,6 +288,37 @@ describe("CST editing completions", () => {
     expect(completionStatus(view.state)).toBeNull();
     await select(view, "thm:main");
     expect(view.state.doc.toString().endsWith("@thm:main")).toBe(true);
+  });
+
+  it("does not open snippets when paired braces invalidate a fenced-div opener", async () => {
+    const prefix = '::: {.theorem #thm:main title="Central result"}';
+    const suffix = "\nEvery finite set has a size.\n:::\n";
+    const view = mount(`${prefix}¦${suffix}`, OPTIONS, pairedMarkupExtension());
+    const position = view.state.selection.main.head;
+    const fallback = () => view.state.update(view.state.replaceSelection("{"), { userEvent: "input.type" });
+    expect(view.state.facet(EditorView.inputHandler).some((handler) => (
+      handler(view, position, position, "{", fallback)
+    ))).toBe(true);
+    expect(completionStatus(view.state)).toBe("pending");
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBeNull());
+    expect(currentCompletions(view.state)).toEqual([]);
+    expect(view.state.doc.toString()).toBe(`${prefix}{}${suffix}`);
+    expect(view.state.selection.main.head).toBe(prefix.length + 1);
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
+    // An explicit request at this same position still offers inline snippets.
+    await select(view, "strong");
+    expect(view.state.doc.toString()).toBe(`${prefix}{**text**}${suffix}`);
+  });
+
+  it("keeps explicit completion pending when a target changes before its query runs", async () => {
+    const view = mount(TARGET + "¦");
+    expect(startCompletion(view)).toBe(true);
+    const from = TARGET.indexOf("thm:main");
+    view.dispatch({ changes: { from, to: from + "thm:main".length, insert: "thm:renamed" } });
+    await vi.waitFor(() => expect(currentCompletions(view.state).map((item) => item.label)).toContain("strong"));
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
   });
 
   it.each(["renamed", "removed", "retitled"])("refreshes open references when a target is %s elsewhere", async (change) => {
