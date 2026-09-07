@@ -33,6 +33,172 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("aligns source line numbers through wrapping, hidden fences, and keyboard edits", async ({ page }) => {
+  const source = [
+    "Before 中文 😀.", "", "::: {.theorem #thm:main}",
+    "A long statement with enough words to wrap in a narrow editor. ".repeat(4),
+    ":::", "", "After.", "", "Line nine.", "Line ten.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.focus();
+  }, source);
+  await page.evaluate(() => document.fonts.ready);
+
+  const numbers = page.locator(".cm-lineNumbers .cm-gutterElement:visible");
+  await expect(numbers).toHaveText(Array.from({ length: 10 }, (_, i) => String(i + 1)));
+  await expect(numbers.first()).toHaveCSS("color", "rgb(107, 114, 128)");
+  await expect(numbers.first()).toHaveCSS("text-align", "right");
+  expect(await numbers.first().evaluate((element) => getComputedStyle(element).fontFamily))
+    .toContain("monospace");
+  await expect(page.locator(".cf-fenced-div-source")).toHaveCount(0);
+
+  const layout = async () => page.evaluate(() => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    const elements = [...view.dom.querySelectorAll<HTMLElement>(".cm-lineNumbers .cm-gutterElement")]
+      .filter((element) => element.getBoundingClientRect().height > 0);
+    const lineHeight = getComputedStyle(view.contentDOM).lineHeight;
+    const rightEdges = elements.map((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect().right;
+    });
+    return {
+      aligned: elements.every((element) => {
+        const line = view.state.doc.line(Number(element.textContent));
+        const block = view.lineBlockAt(line.from);
+        const rect = element.getBoundingClientRect();
+        return Math.abs(rect.top - view.documentTop - block.top) < 1
+          && Math.abs(rect.height - block.height) < 1;
+      }),
+      rightAligned: Math.max(...rightEdges) - Math.min(...rightEdges) < 1,
+      matchingLineHeight: elements.every((element) => getComputedStyle(element).lineHeight === lineHeight),
+      fits: view.scrollDOM.scrollWidth <= view.scrollDOM.clientWidth + 1,
+    };
+  });
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(layout).toEqual({ aligned: true, rightAligned: true, matchingLineHeight: true, fits: true });
+  }
+  const closer = page.locator(".cm-content > .cm-line").nth(4);
+  const heightBefore = await closer.evaluate((element) => element.getBoundingClientRect().height);
+  await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatEditor.scrollToPosition(fixture.__coflatEditorView.state.doc.line(4).to);
+  });
+  await page.keyboard.press("ArrowDown");
+  expect(await cursorLineNumber(page)).toBe(5);
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText(":::");
+  expect(await closer.evaluate((element) => element.getBoundingClientRect().height))
+    .toBeCloseTo(heightBefore, 1);
+  await expect.poll(layout).toEqual({ aligned: true, rightAligned: true, matchingLineHeight: true, fits: true });
+
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Enter");
+  await expect(numbers).toHaveText(Array.from({ length: 11 }, (_, i) => String(i + 1)));
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(numbers).toHaveText(Array.from({ length: 10 }, (_, i) => String(i + 1)));
+  const state = await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  });
+  expect(state).toEqual({ doc: source, cst: source });
+});
+
+test("keeps line numbers clear of collapsed YAML and block previews", async ({ page }, testInfo) => {
+  const source = [
+    "---", "title: Numbered document", "---", "Before.", "",
+    "$$", "x = 1", "$$", "", "| A | B |", "| --- | --- |", "| 1 | 2 |", "", "After.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    (window as unknown as EditorFixtureWindow).__coflatRemount({ doc });
+  }, source);
+  await page.evaluate(() => document.fonts.ready);
+  const numbers = page.locator(".cm-lineNumbers .cm-gutterElement:visible");
+  await expect(numbers.first()).toHaveText("4");
+  await expect(numbers.last()).toHaveText("14");
+  await expect(numbers.filter({ hasText: /^8$/ })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("line-numbers.png") });
+  const misalignedRows = async () => page.evaluate(() => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    return [...view.dom.querySelectorAll<HTMLElement>(".cm-lineNumbers .cm-gutterElement")]
+      .filter((element) => element.getBoundingClientRect().height > 0)
+      .map((element) => {
+        const block = view.lineBlockAt(view.state.doc.line(Number(element.textContent)).from);
+        // A block preview and its trailing text row can share one CM6 line block.
+        const row = typeof block.type === "number" ? block : block.type.find((part) => !part.widget);
+        if (!row) throw new Error(`Missing source row for line ${element.textContent}`);
+        return {
+          number: element.textContent,
+          top: element.getBoundingClientRect().top,
+          expected: view.documentTop + row.top,
+        };
+      })
+      .filter(({ top, expected }) => Math.abs(top - expected) >= 1);
+  });
+  await expect.poll(misalignedRows).toEqual([]);
+  await page.locator(".cf-math-display:not(.cf-cst-math-preview)").click();
+  await expect(numbers.filter({ hasText: /^6$/ })).toBeVisible();
+  await expect(numbers.filter({ hasText: /^7$/ })).toBeVisible();
+  await expect(numbers.filter({ hasText: /^8$/ })).toBeVisible();
+  await expect.poll(misalignedRows).toEqual([]);
+  await page.getByRole("button", { name: "Edit YAML metadata" }).click();
+  await expect(numbers.first()).toHaveText("1");
+  await expect.poll(misalignedRows).toEqual([]);
+});
+
+for (const [name, math, after, visibleLines] of [
+  ["multiline math", "$$\nx = 1\n$$", "\n\nAfter.", [1, 2, 6, 7]],
+  ["single-line math", "$$x = 1$$", "\nAfter.", [1, 2, 4]],
+  ["trailing delimiter whitespace", "$$\nx = 1\n$$  ", "\nAfter.", [1, 2, 6]],
+  ["math at document end", "$$\nx = 1\n$$", "", [1, 2]],
+] as const) {
+  test(`hides the entire closing source row for ${name}`, async ({ page }) => {
+    const source = `Before 中文 😀.\n\n${math}${after}`;
+    await page.evaluate((doc) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      fixture.__coflatEditor.focus();
+    }, source);
+    const numbers = page.locator(".cm-lineNumbers .cm-gutterElement:visible");
+    await expect(numbers).toHaveText(visibleLines.map(String));
+    const rendered = page.locator(".cf-math-display:not(.cf-cst-math-preview)");
+    await expect(rendered).toBeVisible();
+    const remainingRows = page.locator(".cm-content > .cm-line");
+    await expect(remainingRows).toHaveCount(visibleLines.length);
+    if (after) {
+      // The first real source row follows the preview without a phantom math row.
+      await expect.poll(async () => rendered.evaluate((element) => {
+        const next = element.nextElementSibling;
+        if (!next) throw new Error("Missing row after display math");
+        return Math.abs(next.getBoundingClientRect().top - element.getBoundingClientRect().bottom);
+      })).toBeLessThan(1);
+    }
+
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator(".cf-math-source-line")).toHaveCount(math.split("\n").length);
+    await expect(numbers).toHaveText(source.split("\n").map((_, i) => String(i + 1)));
+    await page.keyboard.press("ControlOrMeta+Home");
+    await expect(numbers).toHaveText(visibleLines.map(String));
+    if (name === "trailing delimiter whitespace") {
+      await page.evaluate((position) => {
+        (window as unknown as EditorFixtureWindow).__coflatEditor.scrollToPosition(position);
+      }, source.indexOf("After."));
+      await page.keyboard.press("ArrowLeft");
+      await expect(page.locator(".cf-math-source-line")).toHaveCount(3);
+      await page.keyboard.press("ControlOrMeta+Home");
+      await expect(numbers).toHaveText(visibleLines.map(String));
+    }
+    const state = await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text, position: editor.getCursorContext()?.position };
+    });
+    expect(state).toEqual({ doc: source, cst: source, position: 0 });
+  });
+}
+
 test("renders fenced-div title inlines and preserves keyboard editing and undo", async ({ page }, testInfo) => {
   const opener = '::: {.theorem #thm:main title="中文 😀 *Result* **bold** `code` [link](https://example.org) $x^2$ [@smith2024]"}';
   const source = `---\nbibliography: references.bib\n---\nBefore.\n\n${opener}\nBody.\n:::\n\nAfter.`;
@@ -199,7 +365,8 @@ for (const [name, body, previewSelector, sourceSelector] of [
     }, closer);
     await expect(page.locator(".cf-fenced-div-source")).toHaveText(":::");
     await expect(qed).toBeVisible();
-    await page.keyboard.press("ArrowUp");
+    // Fully replaced math rows are entered through their source boundary.
+    await page.keyboard.press(name === "display math" ? "ArrowLeft" : "ArrowUp");
     await expect(page.locator(sourceSelector).first()).toBeVisible();
     await expect(qed).toHaveCount(1);
     await expect(qed).toBeVisible();

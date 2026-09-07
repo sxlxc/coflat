@@ -19,6 +19,7 @@ import {
   EditorView,
   highlightSpecialChars,
   keymap,
+  lineNumbers,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -106,6 +107,7 @@ export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
       editingAssistanceExtension(config.editingAssistance),
       ...documentSurfaceExtensions,
       history(),
+      lineNumbers(),
       drawSelection(),
       textSelectionHighlighter,
       dropCursor(),

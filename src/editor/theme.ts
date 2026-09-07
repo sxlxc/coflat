@@ -26,16 +26,19 @@ export const coflatTheme = EditorView.theme({
   },
   ".cm-scroller": {
     fontFamily: "inherit",
+    justifyContent: "center",
     lineHeight: "var(--cf-line-height)",
     overflow: "auto",
   },
   ".cm-content": {
     boxSizing: "border-box",
     caretColor: "var(--cf-fg)",
-    marginInline: "auto",
+    flexShrink: "1",
+    marginInline: "0",
     maxWidth:
       "calc(var(--cf-content-max-width) + 2 * var(--cf-doc-content-padding-inline))",
     minHeight: "100%",
+    minWidth: "0",
     padding: "var(--cf-content-padding)",
     width: "100%",
   },
@@ -43,7 +46,18 @@ export const coflatTheme = EditorView.theme({
     padding: "0",
   },
   ".cm-gutters": {
-    display: "none",
+    backgroundColor: "var(--cf-bg)",
+    border: "0",
+    color: "var(--cf-muted)",
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "var(--cf-base-font-size)",
+    lineHeight: "var(--cf-line-height)",
+  },
+  ".cm-lineNumbers .cm-gutterElement": {
+    // CM6 supplies each row's measured height, including wrapped and hidden lines.
+    overflow: "hidden",
+    padding: "0 12px",
+    textAlign: "right",
   },
   ".cm-tooltip": {
     backgroundColor: "var(--cf-bg)",

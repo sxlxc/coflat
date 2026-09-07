@@ -117,6 +117,23 @@ describe("CST block selection decorations", () => {
     )).toBe(true);
   });
 
+  it("updates the math replacement boundary when trailing whitespace becomes text", () => {
+    const extensions = [pandocCstField, cstDisplayMathDecorationField];
+    let state = EditorState.create({ doc: "Before 😀.\r\n\r\n$$x$$  \r\n\r\nAfter.", extensions });
+    const end = state.doc.line(3).to;
+    expect(state.field(cstDisplayMathDecorationField).decorations.iter().to).toBe(end);
+    state = state.update({ changes: { from: end, insert: "中文" } }).state;
+    expect(state.field(cstDisplayMathDecorationField).decorations.iter().to).toBe(end - 2);
+    state = state.update({ changes: { from: end, to: end + 2, insert: " " } }).state;
+    expect(state.field(cstDisplayMathDecorationField).decorations.iter().to).toBe(end + 1);
+    const rebuilt = EditorState.create({ doc: state.doc, selection: state.selection, extensions });
+    expect(RangeSet.eq(
+      [state.field(cstDisplayMathDecorationField).decorations],
+      [rebuilt.field(cstDisplayMathDecorationField).decorations],
+    )).toBe(true);
+    expect(getPandocTree(state).text).toBe(state.doc.toString());
+  });
+
   it("preserves math starting on another display's closing source line", () => {
     const extensions = [pandocCstField, cstDisplayMathDecorationField];
     const doc = "q:$$\n$$x$$\n:::\n$$\n\nAfter.\n";

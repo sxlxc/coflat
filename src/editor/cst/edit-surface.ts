@@ -915,7 +915,12 @@ function addFencedDivPresentation(
           state.field(cstTableDecorationField).decorations,
         ]) {
           decorations.between(contentEnd, contentEnd, (from, to, decoration) => {
-            if (decoration.spec.block && from < to) position = Math.max(position, to);
+            if (decoration.spec.block && from < to) {
+              // Inclusive replacements hide inline widgets at their end. The
+              // following source row remains available before the proof closes.
+              const after = decoration.spec.inclusiveEnd === false ? to : to + 1;
+              position = Math.max(position, after);
+            }
           });
         }
         ranges.push(Decoration.widget({
@@ -1048,7 +1053,19 @@ function activeDisplayMathKeys(
       ? [range.head]
       : [range.anchor, range.head]) {
       const math = mathNodeAtPosition(tree, position, true);
-      if (math) keys.add(nodeKey(math));
+      if (math) {
+        keys.add(nodeKey(math));
+      } else {
+        // Replacement rows can include whitespace outside the Math CST node.
+        // A caret there must reveal the source rather than remain hidden.
+        const line = state.doc.lineAt(position);
+        tree.iterate((node) => {
+          if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
+          if (displayMathReplacementFrom(state, node) <= position
+            && position <= displayMathReplacementTo(state, node)) keys.add(nodeKey(node));
+          return false;
+        }, { from: line.from, to: line.to });
+      }
     }
   }
   return keys;
@@ -1067,6 +1084,11 @@ function displayMathReplacementFrom(
   return /^\s*$/.test(state.sliceDoc(line.from, node.from))
     ? line.from
     : node.from;
+}
+
+function displayMathReplacementTo(state: EditorState, node: SyntaxNode): number {
+  const line = state.doc.lineAt(node.to);
+  return state.sliceDoc(node.to, line.to).trim() === "" ? line.to : node.to;
 }
 
 function selectedDisplayMathKeys(
@@ -1156,10 +1178,9 @@ function buildDisplayMathDecorationState(
         ? Decoration.widget({ widget, block: true, side: -1 }).range(
             displayMathReplacementFrom(state, node),
           )
-        // Allow trailing inline widgets, such as a proof tombstone, at the end.
-        : Decoration.replace({ widget, block: true, inclusiveEnd: false }).range(
+        : Decoration.replace({ widget, block: true }).range(
             displayMathReplacementFrom(state, node),
-            node.to,
+            displayMathReplacementTo(state, node),
           ),
     );
     if (isActive) {
