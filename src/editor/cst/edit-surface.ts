@@ -376,10 +376,14 @@ function addAncestors(target: Set<string>, node: SyntaxNode | null): void {
 
 function activeNodeKeys(state: EditorState, tree: SyntaxTree): ReadonlySet<string> {
   const active = new Set<string>();
+  // Keep source visible at both boundaries. Hiding a closing delimiter under
+  // the caret makes Firefox move its DOM selection back before that delimiter.
   for (const range of state.selection.ranges) {
     addAncestors(active, resolvePandocNode(tree, range.head, "right"));
+    addAncestors(active, resolvePandocNode(tree, range.head, "left"));
     if (range.anchor !== range.head) {
       addAncestors(active, resolvePandocNode(tree, range.anchor, "right"));
+      addAncestors(active, resolvePandocNode(tree, range.anchor, "left"));
     }
   }
   return active;

@@ -18,6 +18,11 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "firefox",
+      testMatch: "**/inline-markup.spec.ts",
+      use: { ...devices["Desktop Firefox"] },
+    },
   ],
   webServer: {
     command: `node_modules/.bin/vite --config vite.e2e.config.ts --port ${PORT} --strictPort`,

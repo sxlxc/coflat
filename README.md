@@ -70,8 +70,9 @@ const editor = mountEditor({
 These are the defaults. With `activateOnTyping: false`, Ctrl-Space still opens enabled suggestions. Bibliography suggestions and previews use the same host-provided `readTextResource` data as citation rendering, including uncited entries. See [the host API](EDITOR-HOST-API.md) for details.
 
 Inline delimiters are hidden when inactive and revealed when the cursor enters
-their CST node. Inline math is rendered with Coflat's KaTeX surface when
-inactive; on entry, its literal Markdown source and a live preview are shown.
+or touches either boundary of their CST node. Inline math is rendered with
+Coflat's KaTeX surface when inactive; on entry, its literal Markdown source and
+a live preview are shown.
 Arrow keys can enter rendered inline math from either side. Pipe tables render
 as semantic HTML tables; clicking a cell places the cursor at the start of its
 source content and reveals the Markdown source below the table. The table stays

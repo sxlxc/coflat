@@ -183,6 +183,10 @@ export const coflatTheme = EditorView.theme({
   ".cf-italic, .tok-emphasis": {
     fontStyle: "italic",
   },
+  ".cf-bold, .tok-strong, .cf-italic, .tok-emphasis, .cf-inline-code, .tok-monospace": {
+    // Let the prose line set the leading despite different inline font metrics.
+    lineHeight: "1",
+  },
   ".cf-strikethrough, .tok-strikethrough": {
     textDecoration: "line-through",
   },

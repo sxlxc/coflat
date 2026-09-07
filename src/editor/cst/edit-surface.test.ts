@@ -245,6 +245,48 @@ describe("selected fenced div traversal", () => {
   });
 });
 
+describe("CST inline source boundaries", () => {
+  it.each(["*", "**", "`", "_", "__", "~~", "^", "~"])(
+    "keeps %s delimiters visible at either selection endpoint without reparsing",
+    (markup) => {
+      const body = "résumé中文😀";
+      const parent = document.createElement("div");
+      document.body.appendChild(parent);
+      const editor = createSimpleEditor({
+        parent,
+        doc: `Before 中文😀.\r\n\r\n${markup}${body}${markup}\r\n\r\nAfter.`,
+      });
+      try {
+        const source = editor.state.doc.toString();
+        const tree = getPandocTree(editor.state);
+        const from = source.indexOf(markup);
+        const to = from + body.length + markup.length * 2;
+        for (const selection of [
+          { anchor: from },
+          { anchor: to },
+          { anchor: 0, head: to },
+          { anchor: to, head: 0 },
+        ]) {
+          editor.dispatch({ selection });
+          expect([...parent.querySelectorAll(`.${CSS.sourceDelimiter}`)].map(
+            (element) => element.textContent,
+          )).toEqual([markup, markup]);
+          expect(editor.state.selection.main.anchor).toBe(selection.anchor);
+          expect(editor.state.selection.main.head).toBe(selection.head ?? selection.anchor);
+          expect(editor.state.doc.toString()).toBe(source);
+          expect(getPandocTree(editor.state)).toBe(tree);
+          expect(tree.text).toBe(source);
+        }
+        editor.dispatch({ selection: { anchor: source.length } });
+        expect(parent.querySelectorAll(`.${CSS.sourceDelimiter}`)).toHaveLength(0);
+      } finally {
+        editor.destroy();
+        parent.remove();
+      }
+    },
+  );
+});
+
 describe("CST edit surface list markers", () => {
   let editor: ReturnType<typeof createSimpleEditor> | null = null;
 
