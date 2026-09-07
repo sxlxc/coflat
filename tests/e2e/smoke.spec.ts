@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { EditorFixtureWindow } from "./fixtures/entry";
 
 interface EditorHarness {
   focus(): void;
@@ -47,12 +48,14 @@ test("tracks nested fenced divs across previews while editing from the keyboard"
   }, source);
   const bars = page.locator(".cf-fenced-div-range");
   await expect(bars).toHaveCount(0);
+  await expect(page.locator(".cf-fenced-div-source")).toHaveCount(0);
   await expect(page.locator(".cf-block-qed")).toHaveText("∎");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await expect(bars).toHaveCount(1);
   for (let i = 0; i < 4; i += 1) await page.keyboard.press("ArrowDown");
   await expect(bars).toHaveCount(2);
+  await expect(bars.first()).toHaveCSS("background-color", "rgb(214, 217, 222)");
 
   const measure = async () => page.evaluate(() => {
     const markers = [...document.querySelectorAll(".cf-fenced-div-range")]
@@ -95,8 +98,10 @@ test("tracks nested fenced divs across previews while editing from the keyboard"
   await expect(page.locator(".cf-block-qed")).toHaveCount(1);
   await page.keyboard.press("ArrowDown");
   await expect(bars).toHaveCount(1);
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText("::::");
   await page.keyboard.press("ArrowDown");
   await expect(bars).toHaveCount(0);
+  await expect(page.locator(".cf-fenced-div-source")).toHaveCount(0);
   const result = await page.evaluate(() => {
     const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
     return { doc: editor.getDoc(), cst: editor.getCst()?.text };
@@ -168,6 +173,193 @@ test("gives display math source full gray rows and dark monospace text", async (
   await page.keyboard.insertText("y + ");
   await expect(lines).toHaveCount(4);
 });
+
+test("keeps inline markup and revealed div fences on the document background", async ({ page }) => {
+  const source = "Before\n\nText *emphasis*, [link](https://example.com), `code` and $x^2$.\n\n::: {.theorem}\nBody.\n:::";
+  await page.evaluate((doc) => {
+    (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.setDoc(doc);
+  }, source);
+  for (const token of ["emphasis", "link", "code", "x^2", ".theorem"]) {
+    await page.evaluate((position) => {
+      (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.scrollToPosition(position);
+    }, source.indexOf(token) + 1);
+    const marks = page.locator(".cf-source-delimiter, .cf-inline-source, .cf-math-source, .cf-fenced-div-source");
+    expect(await marks.count()).toBeGreaterThan(0);
+    for (const mark of await marks.all()) {
+      await expect(mark).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await expect(mark).toHaveCSS("font-family", /Monaco/);
+    }
+  }
+  await page.evaluate((position) => {
+    (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.scrollToPosition(position);
+  }, source.lastIndexOf(":::") + 1);
+  const closer = page.locator(".cf-fenced-div-source");
+  await expect(closer).toHaveText(":::");
+  await expect(closer).toHaveCSS("color", "rgb(107, 114, 128)");
+  await expect(closer).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(closer).toHaveCSS("font-family", /Monaco/);
+  await expect(closer.locator("..")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+});
+
+for (const [name, block, sourceSelector, firstText] of [
+  ["display math", "$$\nx = 1\n+ 2\n$$", ".cf-math-source-line", "x = 1"],
+  ["table", "| A | B |\n| --- | --- |\n| 中文 😀 | 2 |", ".cf-table-source", "A | B"],
+  ["YAML", "---\ntitle: 中文 😀\nauthor: Author\n---", ".cf-yaml-source", "title:"],
+  ["code", "```ts\nconst selected = true;\nreturn selected;\n```", ".cf-cst-code-block", "const selected"],
+]) {
+  test(`shows blue keyboard selection over gray ${name} source`, async ({ page }) => {
+    const source = `${name === "YAML" ? "" : "Before\n\n"}${block}\n\nAfter`;
+    const anchor = source.indexOf(firstText) + 1;
+    await page.evaluate(({ doc, position }) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      const editor = fixture.__coflatEditor;
+      editor.scrollToPosition(position);
+      editor.focus();
+    }, { doc: source, position: anchor });
+    await page.keyboard.press("Shift+ArrowDown");
+    const selected = page.locator(`${sourceSelector} .cf-selection-range`);
+    await expect(selected).not.toHaveCount(0);
+    for (const mark of await selected.all()) {
+      await expect(mark).toHaveCSS("background-color", "rgb(180, 215, 255)");
+      // A nested opaque source span used to cover the selection highlight.
+      for (const child of await mark.locator("*").all()) {
+        await expect(child).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      }
+    }
+    for (const line of await page.locator(sourceSelector).all()) {
+      await expect(line).toHaveCSS("background-color", "rgb(245, 246, 248)");
+    }
+    const selection = await page.evaluate(() => {
+      const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+      const { from, to } = view.state.selection.main;
+      return view.state.sliceDoc(from, to);
+    });
+    expect(selection).toContain("\n");
+    await page.keyboard.insertText("replacement");
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.getDoc()
+    ))).toBe(`${source.slice(0, anchor)}replacement${source.slice(anchor + selection.length)}`);
+    await page.keyboard.press("ControlOrMeta+z");
+    const result = await page.evaluate(() => {
+      const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    });
+    expect(result).toEqual({ doc: source, cst: source });
+  });
+}
+
+test("keeps punctuation with wrapped inline math and references through keyboard edits", async ({ page }) => {
+  const source = "Before $x^2$，then [@thm:a]).\n\n::: {.theorem #thm:a}\nBody.\n:::\n\nAfter";
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    const editor = fixture.__coflatEditor;
+    editor.scrollToPosition(doc.length);
+    editor.focus();
+  }, source);
+  await page.evaluate(() => document.fonts.ready);
+  const groups = page.locator(".cf-inline-no-break");
+  await expect(groups).toHaveCount(2);
+  const orphanedWidths = await page.locator(".cm-line").first().evaluate((line) => {
+    const failures: number[] = [];
+    // Sweep past both widgets' wrap thresholds instead of relying on one font metric.
+    for (let width = 90; width <= 240; width += 1) {
+      line.style.width = `${width}px`;
+      for (const group of line.querySelectorAll(".cf-inline-no-break")) {
+        const widget = group.querySelector(".cf-math-inline, .cf-fenced-div-reference");
+        const text = group.lastChild;
+        if (!widget || !text || text.nodeType !== Node.TEXT_NODE) throw new Error("Missing punctuation group");
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        if (range.getBoundingClientRect().top >= widget.getBoundingClientRect().bottom) {
+          failures.push(width);
+        }
+      }
+    }
+    line.style.width = "120px";
+    return failures;
+  });
+  expect(orphanedWidths).toEqual([]);
+
+  const comma = source.indexOf("，");
+  await page.evaluate((position) => {
+    (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.scrollToPosition(position);
+  }, comma);
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator(".cf-selection-range")).toHaveText("，");
+  await page.keyboard.insertText(";");
+  await expect.poll(() => page.evaluate(() => (
+    (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor.getDoc()
+  ))).toBe(source.replace("，", ";"));
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".cf-math-source")).toHaveText("x^2");
+  const result = await page.evaluate(() => {
+    const editor = (window as unknown as { __coflatEditor: EditorHarness }).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  });
+  expect(result).toEqual({ doc: source, cst: source });
+});
+
+const longInlineSum = `$${Array.from({ length: 16 }, (_, i) => `x_{${i}}`).join(" + ")}$`;
+for (const [name, inline, selector, punctuation] of [
+  ["math", longInlineSum, ".cf-math-inline", ")."],
+  ["math", longInlineSum, ".cf-math-inline", "，"],
+  ["CSL citation", "[@smith2024]", ".cf-citation", ")."],
+  ["CSL citation", "[@smith2024]", ".cf-citation", "，"],
+]) {
+  test(`wraps long inline ${name} while keeping ${punctuation} attached`, async ({ page }) => {
+    const source = `---\nbibliography: references.bib\ncsl: long-citation.csl\n---\n\nBefore ${inline}${punctuation}\n\nAfter`;
+    await page.evaluate((doc) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      fixture.__coflatEditor.scrollToPosition(doc.length);
+    }, source);
+    const widget = page.locator(`.cf-inline-no-break ${selector}`);
+    await expect(widget).toHaveCount(1);
+    if (name === "CSL citation") await expect(widget).toContainText("collected research notes");
+    await page.evaluate(() => document.fonts.ready);
+    const failures = await widget.evaluate((element) => {
+      const group = element.closest(".cf-inline-no-break");
+      const line = element.closest<HTMLElement>(".cm-line");
+      const punctuation = group?.lastChild;
+      if (!line || !punctuation || punctuation.nodeType !== Node.TEXT_NODE) {
+        throw new Error("Missing punctuation group");
+      }
+      const range = document.createRange();
+      const unwrapped: number[] = [];
+      const orphaned: number[] = [];
+      const overflowing: number[] = [];
+      for (let width = 120; width <= 320; width += 1) {
+        line.style.width = `${width}px`;
+        const bases = [...element.querySelectorAll(".katex-html > .base")];
+        range.selectNodeContents(element);
+        const rects = bases.length > 0
+          ? bases.map((base) => base.getBoundingClientRect())
+          : [...range.getClientRects()];
+        const last = rects.at(-1);
+        if (!last) throw new Error("Missing inline content geometry");
+        if (new Set(rects.map((rect) => Math.round(rect.top))).size < 2) unwrapped.push(width);
+        range.selectNodeContents(punctuation);
+        const mark = range.getBoundingClientRect();
+        if (mark.top >= last.bottom || mark.bottom <= last.top || mark.left < last.right - 1) {
+          orphaned.push(width);
+        }
+        if (line.scrollWidth > line.clientWidth + 1) overflowing.push(width);
+      }
+      line.style.removeProperty("width");
+      return { unwrapped, orphaned, overflowing };
+    });
+    expect(failures).toEqual({ unwrapped: [], orphaned: [], overflowing: [] });
+    const result = await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    });
+    expect(result).toEqual({ doc: source, cst: source });
+  });
+}
 
 test("mounts one editable CST-backed surface", async ({ page }) => {
   await expect(page.locator("#editor-root .cm-content"))

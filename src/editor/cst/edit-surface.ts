@@ -1437,7 +1437,26 @@ export const cstDisplayMathDecorationField =
     },
   });
 
-function buildCstEditDecorations(view: EditorView): DecorationSet {
+function addTrailingPunctuationGroup(
+  ranges: Array<ReturnType<Decoration["range"]>>,
+  node: SyntaxNode,
+): void {
+  const next = node.nextSibling();
+  if (next?.kind !== "InlineText" || next.from !== node.to) return;
+  // Classify only the adjacent CST text; punctuation stays editable source.
+  const punctuation = /^[,.;:!?%‰…、。，．：；！？％\p{Pe}\p{Pf}]+/u.exec(next.text())?.[0];
+  if (!punctuation) return;
+  ranges.push(Decoration.mark({
+    class: CSS.inlineNoBreak,
+    // Include the widget and CM's caret buffers at the starting boundary.
+    inclusiveStart: true,
+  }).range(node.from, node.to + punctuation.length));
+}
+
+function buildCstEditDecorations(view: EditorView): {
+  readonly decorations: DecorationSet;
+  readonly punctuationGroups: DecorationSet;
+} {
   const state = view.state;
   const tree = getPandocTree(state);
   const active = activeNodeKeys(state, tree);
@@ -1447,6 +1466,7 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
   const macrosKey = getYamlMathMacrosKey(state);
   const presentation = getDocumentPresentation(state);
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
+  const punctuationGroups: Array<ReturnType<Decoration["range"]>> = [];
   const decorated = new Set<string>();
   const suppressedFencedDivSourceRanges: Array<{
     readonly from: number;
@@ -1492,6 +1512,9 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
         case "Math":
           if (decorated.has(key)) return false;
           decorated.add(key);
+          if (!isActive && !node.prop(mathDisplay)) {
+            addTrailingPunctuationGroup(punctuationGroups, node);
+          }
           addMathPresentation(
             ranges,
             node,
@@ -1534,6 +1557,7 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
         case "Citation":
         case "ExampleReference": {
           if (decorated.has(key)) return false;
+          if (!isActive) addTrailingPunctuationGroup(punctuationGroups, node);
           const referenceKey = simpleFencedDivReferenceKey(node);
           const target = referenceKey
             ? presentation.localTargets.get(referenceKey)
@@ -1599,22 +1623,31 @@ function buildCstEditDecorations(view: EditorView): DecorationSet {
     }).range(activeLine.from));
   }
 
-  return Decoration.set(ranges, true);
+  return {
+    decorations: Decoration.set(ranges, true),
+    punctuationGroups: Decoration.set(punctuationGroups, true),
+  };
 }
 
 export const cstEditDecorationPlugin = ViewPlugin.fromClass(class {
-  decorations: DecorationSet;
+  presentation: ReturnType<typeof buildCstEditDecorations>;
 
   constructor(view: EditorView) {
-    this.decorations = buildCstEditDecorations(view);
+    this.presentation = buildCstEditDecorations(view);
   }
 
   update(update: ViewUpdate): void {
     if (update.docChanged || update.selectionSet || update.viewportChanged) {
-      this.decorations = buildCstEditDecorations(update.view);
+      this.presentation = buildCstEditDecorations(update.view);
     }
   }
-}, { decorations: (value) => value.decorations });
+}, {
+  decorations: (value) => value.presentation.decorations,
+  // Keep the widget and punctuation together even across selection marks.
+  provide: (plugin) => EditorView.outerDecorations.of(
+    (view) => view.plugin(plugin)?.presentation.punctuationGroups ?? Decoration.none,
+  ),
+});
 
 function containingMath(node: SyntaxNode | null): SyntaxNode | null {
   let current = node;
@@ -1775,15 +1808,14 @@ export const cstEditTheme: Extension = EditorView.theme({
     verticalAlign: "baseline",
   },
   [`.${CSS.fencedDivSource}`]: {
-    backgroundColor: "var(--cf-subtle)",
-    color: "var(--cf-fg)",
+    color: "var(--cf-muted)",
     fontFamily: "var(--cf-code-font)",
     fontSize: "0.86em",
     fontStyle: "normal",
     fontWeight: "400",
   },
   [`.${CSS.fencedDivRange}`]: {
-    backgroundColor: "var(--cf-muted)",
+    backgroundColor: "var(--cf-border)",
     pointerEvents: "none",
   },
   [`.${CSS.blockQed}`]: {

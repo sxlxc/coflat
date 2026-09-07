@@ -6,7 +6,7 @@
   --cf-border: #d6d9de;
   --cf-subtle: #f5f6f8;
   --cf-accent: #3157a4;
-  --cf-selection: rgba(49, 87, 164, 0.18);
+  --cf-selection: rgb(180, 215, 255);
   --cf-content-font: KaTeX_Main, "Times New Roman", serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
   --cf-base-font-size: 18px;

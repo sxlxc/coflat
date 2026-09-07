@@ -20,6 +20,21 @@ const bibliography = `
 }
 `;
 
+const longCitationStyle = `
+<style xmlns="http://purl.org/net/xbiblio/csl" version="1.0" class="in-text">
+  <info>
+    <title>Long citation fixture</title>
+    <id>https://example.com/long-citation</id>
+    <updated>2026-01-01T00:00:00+00:00</updated>
+  </info>
+  <citation>
+    <layout prefix="(" suffix=")">
+      <text variable="title" prefix="See the detailed discussion in the collected research notes on "/>
+    </layout>
+  </citation>
+</style>
+`;
+
 const initialDoc = [
   "Before *emphasis* and $x^2$ after.",
   "",
@@ -46,6 +61,7 @@ fixtureWindow.__coflatRemount = (options): void => {
     parent: root,
     readTextResource: async (path) => {
       if (path === "references.bib") return bibliography;
+      if (path === "long-citation.csl") return longCitationStyle;
       throw new Error(`Unexpected fixture resource: ${path}`);
     },
     ...options,

@@ -559,7 +559,65 @@ describe("CST edit surface block presentation", () => {
 
     expect(parent.querySelector(`.${CSS.fencedDivHeader}`)?.textContent)
       .toBe("Proof (details)");
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)).toBeNull();
     expect(editor?.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
+  });
+
+  it("reveals only the nested closing fences touched by the selection", () => {
+    const doc = "Before\n\n:::: {.theorem}\n中文 😀.\n::: {.proof}\nProof.\n:::\n::::\n\nAfter";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const tree = getPandocTree(editor.state);
+    for (const anchor of [doc.indexOf("中文"), doc.indexOf("Proof."), doc.length]) {
+      editor.dispatch({ selection: { anchor } });
+      expect(parent.querySelector(`.${CSS.fencedDivSource}`)).toBeNull();
+      expect(getPandocTree(editor.state)).toBe(tree);
+      expect(editor.state.selection.main.head).toBe(anchor);
+    }
+    const innerCloser = doc.indexOf("\n:::\n") + 1;
+    const closer = doc.lastIndexOf("::::");
+    for (const [anchor, text] of [[innerCloser, ":::"], [closer, "::::"]] as const) {
+      editor.dispatch({ selection: { anchor } });
+      expect([...parent.querySelectorAll(`.${CSS.fencedDivSource}`)].map((fence) => fence.textContent))
+        .toEqual([text]);
+      expect(getPandocTree(editor.state)).toBe(tree);
+      expect(editor.state.selection.main.head).toBe(anchor);
+    }
+    editor.dispatch({ selection: { anchor: innerCloser, head: closer + 4 } });
+    expect([...parent.querySelectorAll(`.${CSS.fencedDivSource}`)].map((fence) => fence.textContent))
+      .toEqual([":::", "::::"]);
+    expect(getPandocTree(editor.state)).toBe(tree);
+    editor.dispatch({ selection: { anchor: doc.length } });
+    editor.dispatch({ changes: { from: closer, to: closer + 4 } });
+    expect(parent.querySelector(`.${CSS.fencedDivSource}`)).toBeNull();
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    expect(undo(editor)).toBe(true);
+    expect(getPandocTree(editor.state).text).toBe(doc);
+  });
+
+  it("keeps punctuation editable beside rendered inline math and references", () => {
+    const doc = "Before\n\n中文 😀 $x^2$，and [@thm:a]).\n\n::: {.theorem #thm:a}\nBody.\n:::";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const groups = (): Element[] => [...parent.querySelectorAll(`.${CSS.inlineNoBreak}`)];
+    expect(groups()).toHaveLength(2);
+    expect(groups()[0].querySelector(".cf-math-inline")).not.toBeNull();
+    expect(groups()[0].textContent?.endsWith("，")).toBe(true);
+    expect(groups()[1].textContent).toBe("Theorem 1).");
+    const tree = getPandocTree(editor.state);
+    const position = doc.indexOf("x^2");
+    editor.dispatch({ selection: { anchor: position } });
+    expect(groups()).toHaveLength(1);
+    expect(parent.querySelector(`.${CSS.mathSource}`)?.textContent).toBe("x^2");
+    expect(editor.state.selection.main.head).toBe(position);
+    expect(getPandocTree(editor.state)).toBe(tree);
+    const comma = doc.indexOf("，");
+    editor.dispatch({ changes: { from: comma, to: comma + 1, insert: ";" } });
+    editor.dispatch({ selection: { anchor: 0 } });
+    expect(groups()[0].textContent?.endsWith(";")).toBe(true);
+    expect(getPandocTree(editor.state).text).toBe(doc.replace("，", ";"));
+    expect(undo(editor)).toBe(true);
+    expect(getPandocTree(editor.state).text).toBe(doc);
   });
 
   it.each(["proof", "pf", "prf"])("keeps the %s tombstone while editing its closing fence", (className) => {

@@ -2,7 +2,6 @@ import { EditorView } from "@codemirror/view";
 import { CSS } from "../core/constants/css-classes";
 
 const sourceTypography = {
-  backgroundColor: "var(--cf-subtle)",
   color: "var(--cf-fg)",
   fontFamily: "var(--cf-code-font)",
   fontSize: "0.86em",
@@ -198,7 +197,21 @@ export const coflatTheme = EditorView.theme({
     textUnderlineOffset: "0.16em",
   },
   ".cf-source-delimiter, .cf-inline-source, .cf-math-source": sourceText,
-  ".cm-line.cf-table-source, .cm-line.cf-math-source-line": sourceTypography,
+  [`.${CSS.inlineNoBreak}`]: {
+    display: "inline-flex",
+    alignItems: "last baseline",
+    maxWidth: "100%",
+    whiteSpace: "nowrap",
+  },
+  [`.${CSS.inlineNoBreak} .cf-math-inline, .${CSS.inlineNoBreak} .${CSS.citation}, .${CSS.inlineNoBreak} .${CSS.fencedDivReference}`]: {
+    // Let content shrink and wrap while reserving space for the source punctuation.
+    minWidth: "0",
+    whiteSpace: "normal",
+  },
+  ".cm-line.cf-table-source, .cm-line.cf-math-source-line": {
+    ...sourceTypography,
+    backgroundColor: "var(--cf-subtle)",
+  },
   ".cf-table-source .tok-punctuation, .cf-table-source .tok-meta": {
     color: "inherit",
   },

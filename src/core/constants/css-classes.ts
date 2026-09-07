@@ -45,6 +45,7 @@ export const CSS = {
   bibliographyEntry: "cf-bibliography-entry",
   sourceDelimiter: "cf-source-delimiter",
   inlineSource: "cf-inline-source",
+  inlineNoBreak: "cf-inline-no-break",
   mathSource: "cf-math-source",
   mathSourceLine: "cf-math-source-line",
   tableSource: "cf-table-source",
