@@ -56,6 +56,8 @@ export const coflatTheme = EditorView.theme({
   ".cm-lineNumbers .cm-gutterElement": {
     // CM6 supplies each row's measured height, including wrapped and hidden lines.
     color: "color-mix(in srgb, var(--cf-muted) 45%, var(--cf-bg))",
+    fontSize: "0.9em",
+    lineHeight: "calc(var(--cf-base-font-size) * var(--cf-line-height))",
     overflow: "hidden",
     padding: "0 12px",
     textAlign: "right",
