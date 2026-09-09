@@ -106,6 +106,73 @@ test("aligns source line numbers through wrapping, hidden fences, and keyboard e
   expect(state).toEqual({ doc: source, cst: source });
 });
 
+test("aligns expanded YAML text with its line numbers through wrapping and keyboard edits", async ({ page }) => {
+  const source = [
+    "---", "title: 中文 😀", "author: Author",
+    `description: ${"Long metadata text that wraps in a narrow editor. ".repeat(3)}`,
+    "---", "Body.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    (window as unknown as EditorFixtureWindow).__coflatRemount({ doc });
+  }, source);
+  await page.evaluate(() => document.fonts.ready);
+
+  const numbers = page.locator(".cm-lineNumbers .cm-gutterElement:visible");
+  const yamlRows = page.locator(".cm-line.cf-yaml-source");
+  const misalignedText = async () => page.evaluate(() => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    const gutter = [...view.dom.querySelectorAll(".cm-lineNumbers .cm-gutterElement")];
+    return [...view.dom.querySelectorAll(".cm-line.cf-yaml-source")].flatMap((row) => {
+      const lineNumber = view.state.doc.lineAt(view.posAtDOM(row)).number;
+      const number = gutter.find((element) => element.textContent === String(lineNumber));
+      if (!number) throw new Error(`Missing line number ${lineNumber}`);
+      const textCenter = (element: Element): number => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const rect = range.getClientRects()[0];
+        if (!rect) throw new Error(`Missing text bounds for line ${lineNumber}`);
+        return (rect.top + rect.bottom) / 2;
+      };
+      const offset = textCenter(number) - textCenter(row);
+      return Math.abs(offset) < 1 ? [] : [{ lineNumber, offset }];
+    });
+  });
+
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(numbers).toHaveText(["6"]);
+    await page.getByRole("button", { name: "Edit YAML metadata" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(yamlRows).toHaveCount(5);
+    await expect(numbers).toHaveText(["1", "2", "3", "4", "5", "6"]);
+    await expect.poll(misalignedText).toEqual([]);
+    if (width === 360) {
+      expect(await yamlRows.nth(3).evaluate((row) => (
+        row.getBoundingClientRect().height > Number.parseFloat(getComputedStyle(row).lineHeight) * 2
+      ))).toBe(true);
+    }
+
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.insertText("subtitle: Edited 中文 😀");
+    await expect(yamlRows).toHaveCount(6);
+    await expect.poll(misalignedText).toEqual([]);
+    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(yamlRows).toHaveCount(5);
+    await expect.poll(misalignedText).toEqual([]);
+
+    await page.getByRole("button", { name: "Hide YAML metadata" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(yamlRows).toHaveCount(0);
+    await expect(numbers).toHaveText(["6"]);
+    expect(await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    })).toEqual({ doc: source, cst: source });
+  }
+});
+
 test("keeps line numbers clear of collapsed YAML and block previews", async ({ page }, testInfo) => {
   const source = [
     "---", "title: Numbered document", "---", "Before.", "",

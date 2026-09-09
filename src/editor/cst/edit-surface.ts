@@ -1826,6 +1826,8 @@ export const cstEditTheme: Extension = EditorView.theme({
     color: "var(--cf-fg)",
     fontFamily: "var(--cf-code-font)",
     fontSize: "0.82em",
+    // Keep the smaller source text on the same leading as the line-number gutter.
+    lineHeight: "calc(var(--cf-base-font-size) * var(--cf-line-height))",
   },
   [`.cm-line.${CSS.yamlHidden}`]: {
     fontSize: "0",
