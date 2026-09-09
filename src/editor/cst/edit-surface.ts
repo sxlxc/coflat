@@ -43,6 +43,7 @@ import {
 } from "../../core/semantics/heading-numbering";
 import { cstCitationSurface } from "../citations/citation-surface";
 import { renderKatexToHtml } from "../render/katex-render";
+import { mathSourceOffsetFromPointer } from "../render/math-source-position";
 import { getPandocCursorContext, resolvePandocNode } from "./cursor-context";
 import { changedBlockRanges, selectionSourceRanges } from "./decoration-ranges";
 import {
@@ -556,7 +557,7 @@ class CstMathWidget extends WidgetType {
       );
       const body = math ? childOfKind(math, "OpaqueBody") : null;
       const anchor = body
-        ? mathSourcePositionFromPointer(surface, event, body)
+        ? body.from + mathSourceOffsetFromPointer(surface, event, body.text())
         : Math.max(
             0,
             Math.min(view.state.doc.length, Math.min(this.bodyFrom, this.bodyTo)),
@@ -657,62 +658,6 @@ function resolveWidgetMathNode(
   }
 
   return null;
-}
-
-function mathLocationOffset(
-  surface: HTMLElement,
-  event: MouseEvent,
-): number | null {
-  const target = event.target instanceof Element
-    ? event.target.closest<HTMLElement>("[data-loc-start]")
-    : null;
-  if (target && surface.contains(target)) {
-    const location = Number.parseInt(target.dataset.locStart ?? "", 10);
-    if (Number.isFinite(location)) return location;
-  }
-
-  let bestLocation: number | null = null;
-  let bestArea = Number.POSITIVE_INFINITY;
-  for (const candidate of surface.querySelectorAll<HTMLElement>("[data-loc-start]")) {
-    const rect = candidate.getBoundingClientRect();
-    if (
-      rect.width <= 0
-      || rect.height <= 0
-      || event.clientX < rect.left
-      || event.clientX > rect.right
-      || event.clientY < rect.top
-      || event.clientY > rect.bottom
-    ) {
-      continue;
-    }
-    const location = Number.parseInt(candidate.dataset.locStart ?? "", 10);
-    const area = rect.width * rect.height;
-    if (Number.isFinite(location) && area < bestArea) {
-      bestLocation = location;
-      bestArea = area;
-    }
-  }
-  return bestLocation;
-}
-
-function mathSourcePositionFromPointer(
-  surface: HTMLElement,
-  event: MouseEvent,
-  body: SyntaxNode,
-): number {
-  const location = mathLocationOffset(surface, event);
-  if (location !== null) {
-    return Math.max(body.from, Math.min(body.to, body.from + location));
-  }
-
-  const rect = surface.getBoundingClientRect();
-  const fraction = rect.width > 0
-    ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-    : 0;
-  return Math.max(
-    body.from,
-    Math.min(body.to, body.from + Math.round((body.to - body.from) * fraction)),
-  );
 }
 
 function addDelimiterPresentation(

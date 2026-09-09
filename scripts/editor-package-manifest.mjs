@@ -10,13 +10,13 @@ export const EDITOR_EXTERNAL_DEPENDENCIES = Object.freeze([
   "@codemirror/view",
   "citeproc",
   "dompurify",
-  "katex",
   "yaml",
 ]);
 
 export const EDITOR_BUNDLED_DEPENDENCIES = Object.freeze([
   "@codemirror/legacy-modes",
   "@lezer/common",
+  "katex",
   "pandocmd-cst",
 ]);
 

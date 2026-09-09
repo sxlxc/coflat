@@ -20,7 +20,7 @@ export default defineConfig({
     },
     {
       name: "firefox",
-      testMatch: "**/inline-markup.spec.ts",
+      testMatch: ["**/inline-markup.spec.ts", "**/math-source.spec.ts"],
       use: { ...devices["Desktop Firefox"] },
     },
   ],

@@ -50,6 +50,33 @@ const packageExports = [
 for (const entry of packageExports) {
   await import(entry);
 }
+
+// Exercise the bundled renderer without asking a consuming app to patch KaTeX.
+const { JSDOM } = await import("jsdom");
+const dom = new JSDOM("<!doctype html><div id='editor'></div>", { pretendToBeVisual: true });
+const globals = ["window", "document", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame"];
+const originals = globals.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+let mounted;
+try {
+  for (const name of globals) {
+    Object.defineProperty(globalThis, name, { configurable: true, value: dom.window[name] });
+  }
+  const { mountEditor } = await import("@chaoxu/coflat");
+  const parent = dom.window.document.getElementById("editor");
+  mounted = mountEditor({ parent, doc: "Before.\n\n$x+1234$" });
+  const digits = [...parent.querySelectorAll("[data-loc-start]")].find((element) => element.textContent === "1234");
+  if (digits?.getAttribute("data-loc-start") !== "2" || digits.getAttribute("data-loc-end") !== "6") {
+    throw new Error("Packaged math renderer lost its character source mappings");
+  }
+} finally {
+  mounted?.unmount();
+  dom.window.close();
+  for (const [index, name] of globals.entries()) {
+    if (originals[index]) Object.defineProperty(globalThis, name, originals[index]);
+    else delete globalThis[name];
+  }
+}
+
 for (const removed of [
   "reader.mjs",
   "reader-worker.mjs",

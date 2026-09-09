@@ -82,6 +82,8 @@ visible and no inline rendering. The table stays
 in place as a live preview. All content can be edited as Markdown
 without using a mouse.
 
+Clicking rendered math places the caret at the nearest symbol or character boundary in its TeX source. Fractions, scripts, matrices, and wrapped inline math use both click coordinates. Generated macro symbols target the macro invocation; macro arguments retain their own source positions. Fraction bars and radical signs target their enclosing commands. The editor bundles its patched KaTeX renderer so this mapping also works in consuming applications.
+
 Revealed YAML, math, and pipe-table source includes syntax highlighting. YAML and TeX tokenizers color only CST-defined source regions; tables use the existing Markdown CST. Highlighting leaves all source characters visible and editable, including inline markup inside tables.
 
 Fenced code also highlights recognized language labels using the same tokenizers: JavaScript/TypeScript, JSON, Python, shell, C/C++, Haskell, YAML, and TeX. Unrecognized or absent labels keep plain source styling. See [code blocks](FORMAT.md#code-blocks) for supported aliases.

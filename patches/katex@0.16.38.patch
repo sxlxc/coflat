@@ -1,5 +1,5 @@
 diff --git a/dist/katex.js b/dist/katex.js
-index 69a5eac63dba04361390b46275880332c983cc9f..69d9b21b9610ac31c6a95b0db582509649ecbf85 100644
+index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167951bf3d0 100644
 --- a/dist/katex.js
 +++ b/dist/katex.js
 @@ -1265,6 +1265,7 @@ class SymbolNode {
@@ -42,7 +42,35 @@ index 69a5eac63dba04361390b46275880332c983cc9f..69d9b21b9610ac31c6a95b0db5825096
      const escaped = utils_escape(this.text);
      if (needsSpan) {
        markup += ">";
-@@ -5819,6 +5831,40 @@ const makeNullDelimiter = function (options, classes) {
+@@ -4987,6 +4999,17 @@ const makeOrd = function (group, options, type) {
+  * correction so we don't lose spacing between combined glyphs.
+  */
+ const canCombine = (prev, next) => {
++  // Only combine mapped text when its original character boundaries survive.
++  const start = prev.attributes["data-loc-start"];
++  const end = prev.attributes["data-loc-end"];
++  const nextStart = next.attributes["data-loc-start"];
++  const nextEnd = next.attributes["data-loc-end"];
++  if (start != null || nextStart != null) {
++      if (end !== nextStart || +end - +start !== prev.text.length
++          || +nextEnd - +nextStart !== next.text.length) {
++          return false;
++      }
++  }
+   if (createClass(prev.classes) !== createClass(next.classes) || prev.skew !== next.skew || prev.maxFontSize !== next.maxFontSize || prev.italic !== 0 && prev.hasClass("mathnormal")) {
+     return false;
+   }
+@@ -5021,6 +5044,9 @@ const tryCombineChars = chars => {
+     const prev = chars[i];
+     const next = chars[i + 1];
+     if (prev instanceof SymbolNode && next instanceof SymbolNode && canCombine(prev, next)) {
++      if (next.attributes["data-loc-end"] != null) {
++        prev.setAttribute("data-loc-end", next.attributes["data-loc-end"]);
++      }
+       prev.text += next.text;
+       prev.height = Math.max(prev.height, next.height);
+       prev.depth = Math.max(prev.depth, next.depth);
+@@ -5819,6 +5845,40 @@ const makeNullDelimiter = function (options, classes) {
    return makeSpan(classes.concat(moreClasses));
  };
  
@@ -83,12 +111,13 @@ index 69a5eac63dba04361390b46275880332c983cc9f..69d9b21b9610ac31c6a95b0db5825096
  /**
   * buildGroup is the function that takes a group and calls the correct groupType
   * function for it. It also handles the interaction of size and style changes
-@@ -5841,6 +5887,19 @@ const buildGroup = function (group, options, baseOptions) {
+@@ -5841,6 +5901,20 @@ const buildGroup = function (group, options, baseOptions) {
        groupNode.height *= multiplier;
        groupNode.depth *= multiplier;
      }
-+    if ("setAttribute" in groupNode && typeof groupNode.setAttribute === "function") {
-+      const loc = group.loc;
++    if ("setAttribute" in groupNode && typeof groupNode.setAttribute === "function" &&
++        (!groupNode.attributes || groupNode.attributes["data-loc-start"] == null)) {
++      const loc = group.loc && (group.loc.source || group.loc);
 +      if (loc != null) {
 +        groupNode.setAttribute("data-loc-start", String(loc.start));
 +        groupNode.setAttribute("data-loc-end", String(loc.end));
@@ -103,8 +132,81 @@ index 69a5eac63dba04361390b46275880332c983cc9f..69d9b21b9610ac31c6a95b0db5825096
      return groupNode;
    } else {
      throw new src_ParseError("Got group of unknown type: '" + group.type + "'");
+@@ -9929,10 +10003,11 @@ class SourceLocation {
+   // Start offset, zero-based inclusive.
+   // End offset, zero-based exclusive.
+ 
+-  constructor(lexer, start, end) {
++  constructor(lexer, start, end, source) {
+     this.lexer = lexer;
+     this.start = start;
+     this.end = end;
++    this.source = source;
+   }
+ 
+   /**
+@@ -9949,7 +10024,12 @@ class SourceLocation {
+     } else if (!first || !first.loc || !second.loc || first.loc.lexer !== second.loc.lexer) {
+       return null;
+     } else {
+-      return new SourceLocation(first.loc.lexer, first.loc.start, second.loc.end);
++      const start = first.loc.source || first.loc;
++      const end = second.loc.source || second.loc;
++      const source = (first.loc.source || second.loc.source) && start.lexer === end.lexer
++          ? new SourceLocation(start.lexer, Math.min(start.start, end.start), Math.max(start.end, end.end))
++          : undefined;
++      return new SourceLocation(first.loc.lexer, first.loc.start, second.loc.end, source);
+     }
+   }
+ }
+@@ -14459,7 +14539,10 @@ class Lexer {
+       }
+       return this.lex();
+     }
+-    return new Token(text, new SourceLocation(this, pos, this.tokenRegex.lastIndex));
++    // A control word consumes following whitespace, which is not part of its glyph.
++    const source = text.startsWith("\\") && input.slice(pos, pos + text.length) === text
++      ? new SourceLocation(this, pos, pos + text.length) : undefined;
++    return new Token(text, new SourceLocation(this, pos, this.tokenRegex.lastIndex, source));
+   }
+ }
+ ;// ./src/Namespace.ts
+@@ -15850,7 +15933,21 @@ class MacroExpander {
+       return false;
+     }
+     this.countExpansion(1);
+-    let tokens = expansion.tokens;
++    // Keep parser locations intact; rendered expansion symbols point to the call.
++    const source = topToken.loc && (topToken.loc.source || topToken.loc);
++    let tokens = expansion.tokens.map(token => {
++        const loc = token.loc;
++        // Function macros can return arguments already located in the caller's input.
++        if (!source || (loc && loc.lexer === source.lexer && loc.start >= source.end)) {
++            return token;
++        }
++        const mapped = new Token(token.text, loc
++            ? new SourceLocation(loc.lexer, loc.start, loc.end, source)
++            : new SourceLocation(source.lexer, source.start, source.end, source));
++        mapped.noexpand = token.noexpand;
++        mapped.treatAsRelax = token.treatAsRelax;
++        return mapped;
++    });
+     const args = this.consumeArgs(expansion.numArgs, expansion.delimiters);
+     if (expansion.numArgs) {
+       // paste arguments in place of the placeholders
+@@ -16994,7 +17091,9 @@ class Parser {
+       args,
+       optArgs
+     } = this.parseArguments(func, funcData);
+-    return this.callFunction(func, args, optArgs, token, breakOnTokenText);
++    const result = this.callFunction(func, args, optArgs, token, breakOnTokenText);
++    if (result.loc == null) result.loc = token.loc;
++    return result;
+   }
+ 
+   /**
 diff --git a/dist/katex.mjs b/dist/katex.mjs
-index 250484b791d3954163ae2320972ca011d2494df9..2d2d1a45276b1277d32e7fc7d2a3fad389a1754f 100644
+index 250484b791d3954163ae2320972ca011d2494df9..9ee9543576c748588eff6697997c34c4a0cc6c44 100644
 --- a/dist/katex.mjs
 +++ b/dist/katex.mjs
 @@ -1123,6 +1123,7 @@ class SymbolNode {
@@ -147,7 +249,35 @@ index 250484b791d3954163ae2320972ca011d2494df9..2d2d1a45276b1277d32e7fc7d2a3fad3
      var escaped = escape(this.text);
      if (needsSpan) {
        markup += ">";
-@@ -5510,6 +5522,39 @@ var makeNullDelimiter = function makeNullDelimiter(options, classes) {
+@@ -4755,6 +4767,17 @@ var makeOrd = function makeOrd(group, options, type) {
+  * correction so we don't lose spacing between combined glyphs.
+  */
+ var canCombine = (prev, next) => {
++  // Only combine mapped text when its original character boundaries survive.
++  const start = prev.attributes["data-loc-start"];
++  const end = prev.attributes["data-loc-end"];
++  const nextStart = next.attributes["data-loc-start"];
++  const nextEnd = next.attributes["data-loc-end"];
++  if (start != null || nextStart != null) {
++      if (end !== nextStart || +end - +start !== prev.text.length
++          || +nextEnd - +nextStart !== next.text.length) {
++          return false;
++      }
++  }
+   if (createClass(prev.classes) !== createClass(next.classes) || prev.skew !== next.skew || prev.maxFontSize !== next.maxFontSize || prev.italic !== 0 && prev.hasClass("mathnormal")) {
+     return false;
+   }
+@@ -4787,6 +4810,9 @@ var tryCombineChars = chars => {
+     var prev = chars[i];
+     var next = chars[i + 1];
+     if (prev instanceof SymbolNode && next instanceof SymbolNode && canCombine(prev, next)) {
++      if (next.attributes["data-loc-end"] != null) {
++        prev.setAttribute("data-loc-end", next.attributes["data-loc-end"]);
++      }
+       prev.text += next.text;
+       prev.height = Math.max(prev.height, next.height);
+       prev.depth = Math.max(prev.depth, next.depth);
+@@ -5510,6 +5536,39 @@ var makeNullDelimiter = function makeNullDelimiter(options, classes) {
    var moreClasses = ["nulldelimiter"].concat(options.baseSizingClasses());
    return makeSpan(classes.concat(moreClasses));
  };
@@ -187,12 +317,13 @@ index 250484b791d3954163ae2320972ca011d2494df9..2d2d1a45276b1277d32e7fc7d2a3fad3
  /**
   * buildGroup is the function that takes a group and calls the correct groupType
   * function for it. It also handles the interaction of size and style changes
-@@ -5531,6 +5576,19 @@ var buildGroup$1 = function buildGroup(group, options, baseOptions) {
+@@ -5531,6 +5590,20 @@ var buildGroup$1 = function buildGroup(group, options, baseOptions) {
        groupNode.height *= multiplier;
        groupNode.depth *= multiplier;
      }
-+    if ("setAttribute" in groupNode && typeof groupNode.setAttribute === "function") {
-+      var loc = group.loc;
++    if ("setAttribute" in groupNode && typeof groupNode.setAttribute === "function" &&
++        (!groupNode.attributes || groupNode.attributes["data-loc-start"] == null)) {
++      const loc = group.loc && (group.loc.source || group.loc);
 +      if (loc != null) {
 +        groupNode.setAttribute("data-loc-start", String(loc.start));
 +        groupNode.setAttribute("data-loc-end", String(loc.end));
@@ -207,8 +338,205 @@ index 250484b791d3954163ae2320972ca011d2494df9..2d2d1a45276b1277d32e7fc7d2a3fad3
      return groupNode;
    } else {
      throw new ParseError("Got group of unknown type: '" + group.type + "'");
+@@ -9256,10 +9329,11 @@ class SourceLocation {
+   // Lexer holding the input string.
+   // Start offset, zero-based inclusive.
+   // End offset, zero-based exclusive.
+-  constructor(lexer, start, end) {
++  constructor(lexer, start, end, source) {
+     this.lexer = lexer;
+     this.start = start;
+     this.end = end;
++    this.source = source;
+   }
+   /**
+    * Merges two `SourceLocation`s from location providers, given they are
+@@ -9275,7 +9349,12 @@ class SourceLocation {
+     } else if (!first || !first.loc || !second.loc || first.loc.lexer !== second.loc.lexer) {
+       return null;
+     } else {
+-      return new SourceLocation(first.loc.lexer, first.loc.start, second.loc.end);
++      const start = first.loc.source || first.loc;
++      const end = second.loc.source || second.loc;
++      const source = (first.loc.source || second.loc.source) && start.lexer === end.lexer
++          ? new SourceLocation(start.lexer, Math.min(start.start, end.start), Math.max(start.end, end.end))
++          : undefined;
++      return new SourceLocation(first.loc.lexer, first.loc.start, second.loc.end, source);
+     }
+   }
+ }
+@@ -13376,7 +13455,10 @@ class Lexer {
+       }
+       return this.lex();
+     }
+-    return new Token(text, new SourceLocation(this, pos, this.tokenRegex.lastIndex));
++    // A control word consumes following whitespace, which is not part of its glyph.
++    const source = text.startsWith("\\") && input.slice(pos, pos + text.length) === text
++      ? new SourceLocation(this, pos, pos + text.length) : undefined;
++    return new Token(text, new SourceLocation(this, pos, this.tokenRegex.lastIndex, source));
+   }
+ }
+ 
+@@ -14656,7 +14738,21 @@ class MacroExpander {
+       return false;
+     }
+     this.countExpansion(1);
+-    var tokens = expansion.tokens;
++    // Keep parser locations intact; rendered expansion symbols point to the call.
++    const source = topToken.loc && (topToken.loc.source || topToken.loc);
++    let tokens = expansion.tokens.map(token => {
++        const loc = token.loc;
++        // Function macros can return arguments already located in the caller's input.
++        if (!source || (loc && loc.lexer === source.lexer && loc.start >= source.end)) {
++            return token;
++        }
++        const mapped = new Token(token.text, loc
++            ? new SourceLocation(loc.lexer, loc.start, loc.end, source)
++            : new SourceLocation(source.lexer, source.start, source.end, source));
++        mapped.noexpand = token.noexpand;
++        mapped.treatAsRelax = token.treatAsRelax;
++        return mapped;
++    });
+     var args = this.consumeArgs(expansion.numArgs, expansion.delimiters);
+     if (expansion.numArgs) {
+       // paste arguments in place of the placeholders
+@@ -15751,7 +15847,9 @@ class Parser {
+       args,
+       optArgs
+     } = this.parseArguments(func, funcData);
+-    return this.callFunction(func, args, optArgs, token, breakOnTokenText);
++    const result = this.callFunction(func, args, optArgs, token, breakOnTokenText);
++    if (result.loc == null) result.loc = token.loc;
++    return result;
+   }
+   /**
+    * Call a function handler with a suitable context and arguments.
+diff --git a/src/Lexer.ts b/src/Lexer.ts
+index ad3ac38a442656c7b5d6dfed80b0da97c77da8dc..2bc58b454eb38210014d3d7345dcf45b9727ef4d 100644
+--- a/src/Lexer.ts
++++ b/src/Lexer.ts
+@@ -115,7 +115,10 @@ export default class Lexer implements LexerInterface {
+             return this.lex();
+         }
+ 
++        // A control word consumes following whitespace, which is not part of its glyph.
++        const source = text.startsWith("\\") && input.slice(pos, pos + text.length) === text
++            ? new SourceLocation(this, pos, pos + text.length) : undefined;
+         return new Token(text, new SourceLocation(this, pos,
+-            this.tokenRegex.lastIndex));
++            this.tokenRegex.lastIndex, source));
+     }
+ }
+diff --git a/src/MacroExpander.ts b/src/MacroExpander.ts
+index 548724adae035e2192dc92ca96c2fdbffdef5f49..9d51ecf55248fb87449d9583df0cf13540c3362a 100644
+--- a/src/MacroExpander.ts
++++ b/src/MacroExpander.ts
+@@ -289,7 +289,21 @@ export default class MacroExpander implements MacroContextInterface {
+             return false;
+         }
+         this.countExpansion(1);
+-        let tokens = expansion.tokens;
++        // Keep parser locations intact; rendered expansion symbols point to the call.
++        const source = topToken.loc && (topToken.loc.source || topToken.loc);
++        let tokens = expansion.tokens.map(token => {
++            const loc = token.loc;
++            // Function macros can return arguments already located in the caller's input.
++            if (!source || (loc && loc.lexer === source.lexer && loc.start >= source.end)) {
++                return token;
++            }
++            const mapped = new Token(token.text, loc
++                ? new SourceLocation(loc.lexer, loc.start, loc.end, source)
++                : new SourceLocation(source.lexer, source.start, source.end, source));
++            mapped.noexpand = token.noexpand;
++            mapped.treatAsRelax = token.treatAsRelax;
++            return mapped;
++        });
+         const args = this.consumeArgs(expansion.numArgs, expansion.delimiters);
+         if (expansion.numArgs) {
+             // paste arguments in place of the placeholders
+diff --git a/src/Parser.ts b/src/Parser.ts
+index 169b2c2ae13a3f15d77cbfce69e64081e3c32174..0577583cfdf17d2ea1add7bb77520493efb656b4 100644
+--- a/src/Parser.ts
++++ b/src/Parser.ts
+@@ -489,7 +489,9 @@ export default class Parser {
+         }
+ 
+         const {args, optArgs} = this.parseArguments(func, funcData);
+-        return this.callFunction(func, args, optArgs, token, breakOnTokenText);
++        const result = this.callFunction(func, args, optArgs, token, breakOnTokenText);
++        if (result.loc == null) result.loc = token.loc;
++        return result;
+     }
+ 
+     /**
+diff --git a/src/SourceLocation.ts b/src/SourceLocation.ts
+index 709748457824acdf8f257c4f86d18f96400b5f60..ce8ae0649d9494fa67686f60122c6372a2215084 100644
+--- a/src/SourceLocation.ts
++++ b/src/SourceLocation.ts
+@@ -10,10 +10,13 @@ export default class SourceLocation {
+     readonly start: number;         // Start offset, zero-based inclusive.
+     readonly end: number;           // End offset, zero-based exclusive.
+ 
+-    constructor(lexer: LexerInterface, start: number, end: number) {
++    readonly source?: SourceLocation;
++
++    constructor(lexer: LexerInterface, start: number, end: number, source?: SourceLocation) {
+         this.lexer = lexer;
+         this.start = start;
+         this.end = end;
++        this.source = source;
+     }
+ 
+     /**
+@@ -34,8 +37,13 @@ export default class SourceLocation {
+                    first.loc.lexer !== second.loc.lexer) {
+             return null;
+         } else {
++            const start = first.loc.source || first.loc;
++            const end = second.loc.source || second.loc;
++            const source = (first.loc.source || second.loc.source) && start.lexer === end.lexer
++                ? new SourceLocation(start.lexer, Math.min(start.start, end.start), Math.max(start.end, end.end))
++                : undefined;
+             return new SourceLocation(
+-                    first.loc.lexer, first.loc.start, second.loc.end);
++                    first.loc.lexer, first.loc.start, second.loc.end, source);
+         }
+     }
+ }
+diff --git a/src/buildCommon.ts b/src/buildCommon.ts
+index 80250df1837fb5c52306f98e2b6191b36f74130a..c28a140975ea5114d4e0fb994c49fab368af573d 100644
+--- a/src/buildCommon.ts
++++ b/src/buildCommon.ts
+@@ -251,6 +251,17 @@ export const makeOrd = function<NODETYPE extends "spacing" | "mathord" | "textor
+  * correction so we don't lose spacing between combined glyphs.
+  */
+ const canCombine = (prev: SymbolNode, next: SymbolNode) => {
++    // Only combine mapped text when its original character boundaries survive.
++    const start = prev.attributes["data-loc-start"];
++    const end = prev.attributes["data-loc-end"];
++    const nextStart = next.attributes["data-loc-start"];
++    const nextEnd = next.attributes["data-loc-end"];
++    if (start != null || nextStart != null) {
++        if (end !== nextStart || +end - +start !== prev.text.length
++            || +nextEnd - +nextStart !== next.text.length) {
++            return false;
++        }
++    }
+     if (createClass(prev.classes) !== createClass(next.classes)
+         || prev.skew !== next.skew
+         || prev.maxFontSize !== next.maxFontSize
+@@ -294,6 +305,9 @@ export const tryCombineChars = (chars: HtmlDomNode[]): HtmlDomNode[] => {
+             && next instanceof SymbolNode
+             && canCombine(prev, next)) {
+ 
++            if (next.attributes["data-loc-end"] != null) {
++                prev.setAttribute("data-loc-end", next.attributes["data-loc-end"]);
++            }
+             prev.text += next.text;
+             prev.height = Math.max(prev.height, next.height);
+             prev.depth = Math.max(prev.depth, next.depth);
 diff --git a/src/buildHTML.ts b/src/buildHTML.ts
-index 24ef95b02bf9506aebfa339b7f305d1794589f23..22121794c93d3d7ab3baea67ad36268380ebb092 100644
+index 24ef95b02bf9506aebfa339b7f305d1794589f23..f3d55674daf3b1e9c834cfaf07b72b583dad419b 100644
 --- a/src/buildHTML.ts
 +++ b/src/buildHTML.ts
 @@ -251,6 +251,42 @@ export const makeNullDelimiter = function(
@@ -254,15 +582,16 @@ index 24ef95b02bf9506aebfa339b7f305d1794589f23..22121794c93d3d7ab3baea67ad362683
  /**
   * buildGroup is the function that takes a group and calls the correct groupType
   * function for it. It also handles the interaction of size and style changes
-@@ -283,6 +319,25 @@ export const buildGroup = function(
+@@ -283,6 +319,26 @@ export const buildGroup = function(
              groupNode.depth *= multiplier;
          }
  
 +        if (
 +            "setAttribute" in groupNode &&
-+            typeof groupNode.setAttribute === "function"
++            typeof groupNode.setAttribute === "function" &&
++            (!("attributes" in groupNode) || groupNode.attributes["data-loc-start"] == null)
 +        ) {
-+            const loc = group.loc;
++            const loc = group.loc && (group.loc.source || group.loc);
 +            if (loc != null) {
 +                groupNode.setAttribute("data-loc-start", String(loc.start));
 +                groupNode.setAttribute("data-loc-end", String(loc.end));
