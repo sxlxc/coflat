@@ -1448,6 +1448,18 @@ function buildCstEditDecorations(
       }
 
       switch (node.kind) {
+        case "AttributeList": {
+          const heading = node.parent;
+          if (heading?.kind !== "AtxHeading" && heading?.kind !== "SetextHeading") return;
+          if (decorated.has(key)) return false;
+          decorated.add(key);
+          ranges.push(
+            active.has(nodeKey(heading))
+              ? Decoration.mark({ class: CSS.inlineSource }).range(node.from, node.to)
+              : Decoration.replace({}).range(node.from, node.to),
+          );
+          return false;
+        }
         case "PipeTable":
           // The table surface owns the live preview; its editable source stays literal.
           if (activePipeTables.has(key)) {

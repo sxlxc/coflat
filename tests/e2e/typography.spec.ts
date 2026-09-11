@@ -244,6 +244,40 @@ test("keeps the same measure and scale in the blueprint theme", async ({ page })
     ]);
 });
 
+test("reveals heading labels in monospace through keyboard navigation", async ({ page }) => {
+  const doc = "# Introduction {#sec:introduction}\n\nBody";
+  await page.evaluate((source) => {
+    const editor = (window as unknown as {
+      __coflatTypographyEditor: TypographyEditorHarness;
+    }).__coflatTypographyEditor;
+    editor.setDoc(source);
+    editor.scrollToPosition(source.length);
+  }, doc);
+  const heading = page.locator(".cf-doc-heading");
+  await expect(heading).not.toContainText("{#sec:introduction}");
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  const label = heading.locator(".cf-inline-source");
+  await expect(label).toHaveText("{#sec:introduction}");
+  const fonts = await label.evaluate((element) => ({
+    label: getComputedStyle(element).fontFamily,
+    heading: getComputedStyle(element.closest(".cf-doc-heading") as HTMLElement).fontFamily,
+  }));
+  expect(fonts.label).toContain("monospace");
+  expect(fonts.label).not.toBe(fonts.heading);
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.insertText("-edited");
+  await expect(label).toHaveText("{#sec:introduction-edited}");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(heading).not.toContainText("{#sec:");
+  expect(await page.evaluate(() => (window as unknown as {
+    __coflatTypographyEditor: TypographyEditorHarness;
+  }).__coflatTypographyEditor.getDoc())).toBe(doc.replace("introduction}", "introduction-edited}"));
+});
+
 test("keeps every heading row stable while revealing its source marker", async ({ page }) => {
   for (let level = 1; level <= 6; level += 1) {
     const heading = page.locator(`.cf-heading-line-${level}`);

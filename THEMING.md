@@ -19,6 +19,8 @@ enters a structured inline node.
 
 Inline emphasis, bold, and monospace text preserve the surrounding prose line height, including while their delimiters are revealed.
 
+Heading attributes such as `{#sec:introduction}` are hidden while the selection is outside the heading and revealed in `--cf-code-font` with `--cf-fg` text while editing it.
+
 YAML, math, pipe-table source, and supported fenced code use color-only `.cf-source-token` marks. Commands and keywords use `--cf-syntax-keyword`, strings and inline code use `--cf-syntax-string`, and numbers use `--cf-syntax-number`; each has light and dark defaults. Keys and table emphasis use `--cf-accent`, while comments and punctuation use `--cf-muted`. Highlighting preserves literal source, font metrics, and selection visibility.
 
 The left margin shows right-aligned source line numbers in `--cf-code-font`, with their color mixed from 45% `--cf-muted` and 55% `--cf-bg` to keep the gutter quiet. Line numbers use 90% of the document's base font size while retaining the document's line height; CodeMirror keeps each number aligned with its measured source row through wrapping and block previews. Expanded YAML source uses the same line height so its smaller text aligns with the numbers. Hidden fenced-div endings retain their line numbers. Collapsed YAML rows take no gutter space.

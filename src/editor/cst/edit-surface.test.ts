@@ -366,6 +366,34 @@ describe("CST edit surface block presentation", () => {
     );
   }
 
+  it.each([
+    "# Introduction 中文 😀 {#sec:introduction}",
+    "Introduction 中文 😀 {#sec:introduction}\n==========",
+  ])("reveals heading attributes only while editing: %s", (heading) => {
+    const doc = `Before.\n\n${heading}\n\nAfter.`;
+    const parent = mount(doc);
+    const view = editor;
+    if (!view) throw new Error("Missing editor");
+    const tree = getPandocTree(view.state);
+    expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
+
+    for (const anchor of [doc.indexOf("Introduction"), doc.indexOf("sec:introduction")]) {
+      view.dispatch({ selection: { anchor } });
+      expect(parent.querySelector(`.${CSS.inlineSource}`)?.textContent).toBe("{#sec:introduction}");
+      expect(view.state.selection.main.head).toBe(anchor);
+      expect(getPandocTree(view.state)).toBe(tree);
+    }
+
+    const from = doc.indexOf("sec:introduction");
+    view.dispatch({ changes: { from, to: from + "sec:introduction".length, insert: "sec:修改" } });
+    expect(parent.querySelector(`.${CSS.inlineSource}`)?.textContent).toBe("{#sec:修改}");
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(view.state.doc.toString()).toBe(doc.replace("sec:introduction", "sec:修改"));
+
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
+  });
+
   it("renders hierarchical section numbers without changing source", () => {
     const doc = [
       "# One",
