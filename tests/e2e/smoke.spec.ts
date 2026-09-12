@@ -106,6 +106,67 @@ test("aligns source line numbers through wrapping, hidden fences, and keyboard e
   expect(state).toEqual({ doc: source, cst: source });
 });
 
+test("vertically centers heading line numbers on the first visual line", async ({ page }, testInfo) => {
+  const source = [
+    "Body before.", "",
+    ...[1, 2, 3, 4, 5, 6].flatMap((level) => [
+      `${"#".repeat(level)} Heading with enough words to wrap across several lines 中文 😀`, "",
+    ]),
+    "Setext heading", "===", "", "Body after.",
+  ].join("\n");
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.focus();
+  }, source);
+  await page.evaluate(() => document.fonts.ready);
+
+  const alignment = async () => page.evaluate(() => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    const numbers = [...view.dom.querySelectorAll(".cm-lineNumbers .cm-gutterElement")];
+    return [...view.contentDOM.querySelectorAll(".cf-doc-heading")].map((heading) => {
+      const line = view.state.doc.lineAt(view.posAtDOM(heading));
+      const number = numbers.find((element) => element.textContent === String(line.number));
+      if (!number) throw new Error(`Missing heading line number ${line.number}`);
+      const digits = number.querySelector("span");
+      if (!digits) throw new Error("Missing heading number text");
+      const headingHeight = Number.parseFloat(getComputedStyle(heading).lineHeight);
+      const numberHeight = Number.parseFloat(getComputedStyle(number).lineHeight);
+      const range = document.createRange();
+      range.selectNodeContents(digits);
+      const text = range.getBoundingClientRect();
+      const firstLineCenter = heading.getBoundingClientRect().top + headingHeight / 2;
+      return Math.abs((text.top + text.bottom) / 2 - firstLineCenter) < 1
+        && Math.abs(headingHeight - numberHeight) < 0.1
+        && Math.abs(heading.getBoundingClientRect().top - number.getBoundingClientRect().top) < 1;
+    });
+  });
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 1800 });
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    expect(await cursorLineNumber(page)).toBe(3);
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+    await page.keyboard.press("Home");
+    await page.keyboard.insertText("#");
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+    await page.screenshot({ path: testInfo.outputPath(`heading-numbers-${width}.png`) });
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("Enter");
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(alignment).toEqual(Array(7).fill(true));
+  }
+  expect(await page.evaluate(() => {
+    const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+    return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
+});
+
 test("aligns expanded YAML text with its line numbers through wrapping and keyboard edits", async ({ page }) => {
   const source = [
     "---", "title: 中文 😀", "author: Author",

@@ -62,6 +62,24 @@ export const coflatTheme = EditorView.theme({
     padding: "0 12px",
     textAlign: "right",
   },
+  // Center heading numbers in the first visual line, even when the source
+  // row wraps. The grid track uses the heading's line height, not its row height.
+  ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((level) => [
+    `.cm-lineNumbers .cm-gutterElement.${CSS.headingLine(level)}`,
+    {
+      display: "grid",
+      gridTemplateRows: "1lh",
+      alignItems: "center",
+      fontSize: `var(--cf-h${level}-size, ${level === 1 ? "1.44em" : level === 2 ? "1.2em" : "1em"})`,
+      lineHeight: level === 1 ? "1.2" : level === 2 ? "1.25" : "var(--cf-line-height)",
+    },
+  ])),
+  ".cm-lineNumbers .cm-gutterElement > span": {
+    fontFamily: "var(--cf-code-font)",
+    fontSize: "calc(var(--cf-base-font-size) * 0.9)",
+    fontWeight: "400",
+    lineHeight: "1",
+  },
   ".cm-tooltip": {
     backgroundColor: "var(--cf-bg)",
     border: "1px solid var(--cf-border)",

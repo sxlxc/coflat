@@ -10,6 +10,7 @@ import {
   EditorSelection,
   EditorState,
   type Extension,
+  RangeSet,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -18,11 +19,14 @@ import {
   dropCursor,
   EditorView,
   highlightSpecialChars,
+  GutterMarker,
   keymap,
   lineNumbers,
+  lineNumberMarkers,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view";
+import { headingLevel } from "pandocmd-cst";
 import {
   DOCUMENT_SURFACE_CLASS,
   documentSurfaceClassNames,
@@ -39,7 +43,7 @@ import {
 import {
   cstEditSurface,
 } from "./cst/edit-surface";
-import { pandocCstField } from "./cst/pandoc-cst-field";
+import { getPandocTree, pandocCstField } from "./cst/pandoc-cst-field";
 import { getYamlMetadataEnd } from "./cst/yaml-metadata";
 import { coflatTheme } from "./theme";
 
@@ -68,6 +72,37 @@ const documentSurfaceExtensions: readonly Extension[] = [
     },
   ),
 ];
+
+class HeadingLineNumberMarker extends GutterMarker {
+  readonly elementClass: string;
+
+  constructor(readonly level: number, readonly lineNumber: number) {
+    super();
+    this.elementClass = CSS.headingLine(level);
+  }
+
+  toDOM(): HTMLElement {
+    const number = document.createElement("span");
+    number.textContent = String(this.lineNumber);
+    return number;
+  }
+
+  eq(other: HeadingLineNumberMarker): boolean {
+    return this.level === other.level && this.lineNumber === other.lineNumber;
+  }
+}
+
+const headingLineNumbers = lineNumberMarkers.compute([pandocCstField], (state) => {
+  const markers: Array<ReturnType<GutterMarker["range"]>> = [];
+  getPandocTree(state).iterate((node) => {
+    if (node.kind !== "AtxHeading" && node.kind !== "SetextHeading") return;
+    const line = state.doc.lineAt(node.from);
+    markers.push(new HeadingLineNumberMarker(node.prop(headingLevel) ?? 1, line.number)
+      .range(line.from));
+    return false;
+  });
+  return RangeSet.of(markers, true);
+});
 
 const selectionMark = Decoration.mark({ class: CSS.selectionRange });
 
@@ -108,6 +143,7 @@ export function createSimpleEditor(config: SimpleEditorConfig): EditorView {
       ...documentSurfaceExtensions,
       history(),
       lineNumbers(),
+      headingLineNumbers,
       drawSelection(),
       textSelectionHighlighter,
       dropCursor(),
