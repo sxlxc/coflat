@@ -106,19 +106,19 @@ helper entries are intentionally not exported.
 ## Development
 
 ```sh
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm check:m6-authority
-pnpm check:package-smoke
+bun install
+bun run typecheck
+bun run test
+bun run build
+bun run check:m6-authority
+bun run check:package-smoke
 ```
 
 The authority check walks the shipped editor's import graph and rejects the
 legacy Markdown projection, CodeMirror's Markdown parser, reader/mode modules,
 and other retired semantic caches.
 
-Run the local showcase with `pnpm dev:pages`.
+Run the local showcase with `bun run dev:pages`.
 
 See [editing performance](docs/editing-performance.md) for opt-in typing, preview, and long-session measurements.
 

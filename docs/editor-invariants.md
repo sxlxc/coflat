@@ -22,4 +22,4 @@
 7. Coflat has one editable mode. Reader and read-only behavior belong outside
    the editor.
 
-Run `pnpm check:m6-authority` after changing the editor import graph.
+Run `bun run check:m6-authority` after changing the editor import graph.

@@ -5,9 +5,9 @@ The transaction remains synchronous: CodeMirror publishes the complete source to
 ## Reproduce the measurements
 
 ```sh
-pnpm bench:cst-transactions
-COFLAT_CST_BENCHMARK=1 pnpm exec playwright test tests/e2e/performance.spec.ts --workers=1
-pnpm check:cst-long-session
+bun run bench:cst-transactions
+COFLAT_CST_BENCHMARK=1 bunx playwright test tests/e2e/performance.spec.ts --workers=1
+bun run check:cst-long-session
 ```
 
 Run timing checks without concurrent tests or source edits. The browser benchmark uses a 700 KiB document with repeated prose, emphasis, links, and inline math, followed by the active prose, display-math, or table block. Each operation has 20 warmup samples and 50 measured samples. It checks source/CST agreement, restoration of the source after paired edits, and the current live preview. It reports synchronous dispatch time separately from time until the next animation frame; the latter includes browser scheduling and is not an input-to-paint measurement.

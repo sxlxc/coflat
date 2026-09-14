@@ -171,9 +171,9 @@ for (const retiredPath of [
   }
 }
 
-const lockfile = await readFile(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
-if (/@lezer\/markdown[^\n]*patch_hash/.test(lockfile)) {
-  failures.push("pnpm-lock.yaml: the retired private @lezer/markdown patch is still active");
+const lockfile = await readFile(new URL("../bun.lock", import.meta.url), "utf8");
+if (/"@lezer\/markdown[^"]*"\s*:\s*"patches\//.test(lockfile)) {
+  failures.push("bun.lock: the retired private @lezer/markdown patch is still active");
 }
 
 const patchFiles = await readdir(new URL("../patches/", import.meta.url));

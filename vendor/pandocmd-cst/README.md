@@ -6,7 +6,7 @@ checkouts. Its source is copied without modification from the sibling
 
 The sibling `pandocmd-cst` repository remains authoritative. Do not implement
 CST behavior here. Refresh this snapshot from a tested CST commit, update the
-package version, and then regenerate `pnpm-lock.yaml`.
+package version, and then regenerate `bun.lock`.
 
 Vite bundles this package into Coflat's editor output. It is not exposed as a
 runtime dependency of the published Coflat package.

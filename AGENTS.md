@@ -28,7 +28,7 @@ If documentation and implementation disagree, investigate the history and tests 
 - `vendor/pandocmd-cst/`: development-only snapshot copied from the authoritative sibling `pandocmd-cst` repository. Do not implement CST behavior directly here; make and test parser changes upstream, then refresh the snapshot, version, and lockfile.
 - `scripts/`: package checks, architectural guardrails, export tooling, and maintenance utilities.
 - `tests/e2e/`: Playwright browser behavior and typography coverage.
-- `examples/simple/`: local showcase used by `pnpm dev:pages`.
+- `examples/simple/`: local showcase used by `bun run dev:pages`.
 - `dist/`, `dist-pages/`, `test-results/`, and Playwright reports: generated output; do not edit or commit them as source.
 
 ## Non-negotiable architecture
@@ -42,7 +42,7 @@ If documentation and implementation disagree, investigate the history and tests 
 7. Publication-only behavior belongs in the Pandoc/Lua/HTML export pipeline, not in editor grammar.
 8. There is one editable mode. Do not restore reader, rich-readonly, mode-switching, or retired semantic-cache modules.
 
-Run `pnpm check:m6-authority` whenever the editor import graph or structural parsing path changes.
+Run `bun run check:m6-authority` whenever the editor import graph or structural parsing path changes.
 
 ## Layer boundary
 
@@ -76,24 +76,24 @@ Optimize only where measurements or a known hot path justify it. Preserve synchr
 
 ## Tests and verification
 
-Use pnpm as declared in `package.json` (`pnpm@10.33.0`). Do not switch package managers or hand-edit `pnpm-lock.yaml`.
+Use bun as declared in `package.json` (`bun@1.4.2`). Do not switch package managers or hand-edit `bun.lock`.
 
 Choose checks proportional to the change:
 
-- Focused unit test: `pnpm exec vitest run path/to/file.test.ts`
-- Full unit suite: `pnpm test`
-- Type and architectural lint checks: `pnpm check:static`
-- Layer boundary only: `pnpm lint:layers`
-- CST authority only: `pnpm check:m6-authority`
-- Production package build: `pnpm build`
-- Published-package smoke test: `pnpm check:package-smoke`
-- Package metadata/export validation: `pnpm check:package`
-- Chromium interaction smoke suite: `pnpm test:e2e`
-- Local showcase: `pnpm dev:pages`
+- Focused unit test: `bunx vitest run path/to/file.test.ts`
+- Full unit suite: `bun run test`
+- Type and architectural lint checks: `bun run check:static`
+- Layer boundary only: `bun run lint:layers`
+- CST authority only: `bun run check:m6-authority`
+- Production package build: `bun run build`
+- Published-package smoke test: `bun run check:package-smoke`
+- Package metadata/export validation: `bun run check:package`
+- Chromium interaction smoke suite: `bun run test:e2e`
+- Local showcase: `bun run dev:pages`
 
 Tests use Vitest with jsdom and are normally colocated as `*.test.ts` or `*.test.mjs`. Browser tests live under `tests/e2e`. Add focused regression coverage for behavior changes; assert source text, CST synchronization, cursor/selection state, and rendered DOM where applicable. Include keyboard paths for interactive surfaces, not only click paths.
 
-For an editor behavior change, normally run the focused tests, `pnpm check:static`, and `pnpm test`. Add `pnpm build` and package checks for entry-point, dependency, export, asset, or packaging changes. Add Playwright coverage for real layout, focus, selection, keyboard navigation, or cross-browser behavior. Documentation-only changes do not require the full suite.
+For an editor behavior change, normally run the focused tests, `bun run check:static`, and `bun run test`. Add `bun run build` and package checks for entry-point, dependency, export, asset, or packaging changes. Add Playwright coverage for real layout, focus, selection, keyboard navigation, or cross-browser behavior. Documentation-only changes do not require the full suite.
 
 Benchmarks and long-session checks are specialized tools, not routine gates. Use them when changing transaction performance, incremental parsing, or CST invalidation behavior.
 
@@ -101,7 +101,7 @@ Benchmarks and long-session checks are specialized tools, not routine gates. Use
 
 - Inspect `git status` before editing. The worktree may contain user changes; preserve them and never overwrite or clean unrelated files.
 - Keep diffs narrow. Do not include generated artifacts, local stores, test output, drive-by formatting, or unrelated cleanup.
-- Update `pnpm-lock.yaml` only through pnpm when dependencies or the vendored package version genuinely change.
+- Update `bun.lock` only through bun when dependencies or the vendored package version genuinely change.
 - Do not commit, amend, rebase, merge, tag, or push unless the user explicitly asks.
 - When asked to commit, prefer the repository's concise imperative style, usually `type(scope): summary` for changes such as `feat(editor): ...`, `fix(editor): ...`, or `test(cst): ...`. Keep a commit focused on one coherent change.
 - Before handing off, review `git diff` and `git status`, remove accidental changes, and confirm that no user-owned modification was included.

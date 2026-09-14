@@ -1,5 +1,0 @@
-allowBuilds:
-  esbuild: true
-
-patchedDependencies:
-  katex@0.16.38: patches/katex@0.16.38.patch
