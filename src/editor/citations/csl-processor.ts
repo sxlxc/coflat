@@ -18,18 +18,42 @@ const defaultNarrativeStyle = defaultCslStyle.replace(
   '<intext><layout><text macro="author"/></layout></intext></style>',
 );
 
+// Citation locator parsing is a port of pandoc's Text.Pandoc.Citeproc.Locator
+// (https://github.com/jgm/pandoc/blob/main/src/Text/Pandoc/Citeproc/Locator.hs).
+// The editor preview must split citation suffixes into label, locator, and
+// suffix exactly the way the publication pipeline does, so the algorithm and
+// the label spellings below mirror that module as run with the en-US locale
+// (plus the "ch." chapter override embedded in the IEEE style). Each suffix
+// becomes a locator only when it starts with a recognized label term or a
+// digit-bearing word; prose like "Lemma 2.3" stays a plain suffix.
 const LOCATOR_LABELS: ReadonlyMap<string, string> = new Map([
+  ["book", "book"],
+  ["books", "book"],
+  ["bk.", "book"],
+  ["bks.", "book"],
   ["chapter", "chapter"],
   ["chapters", "chapter"],
   ["chap.", "chapter"],
+  ["chaps.", "chapter"],
   ["ch.", "chapter"],
-  ["equation", "equation"],
-  ["equations", "equation"],
-  ["eq.", "equation"],
-  ["eqq.", "equation"],
+  ["c.", "chapter"],
+  ["cc.", "chapter"],
+  ["column", "column"],
+  ["columns", "column"],
+  ["col.", "column"],
+  ["cols.", "column"],
   ["figure", "figure"],
   ["figures", "figure"],
   ["fig.", "figure"],
+  ["figs.", "figure"],
+  ["folio", "folio"],
+  ["folios", "folio"],
+  ["fol.", "folio"],
+  ["fols.", "folio"],
+  ["issue", "issue"],
+  ["issues", "issue"],
+  ["no.", "issue"],
+  ["nos.", "issue"],
   ["line", "line"],
   ["lines", "line"],
   ["l.", "line"],
@@ -38,6 +62,10 @@ const LOCATOR_LABELS: ReadonlyMap<string, string> = new Map([
   ["notes", "note"],
   ["n.", "note"],
   ["nn.", "note"],
+  ["opus", "opus"],
+  ["opera", "opus"],
+  ["op.", "opus"],
+  ["opp.", "opus"],
   ["page", "page"],
   ["pages", "page"],
   ["p.", "page"],
@@ -45,22 +73,32 @@ const LOCATOR_LABELS: ReadonlyMap<string, string> = new Map([
   ["paragraph", "paragraph"],
   ["paragraphs", "paragraph"],
   ["para.", "paragraph"],
+  ["paras.", "paragraph"],
+  ["¶", "paragraph"],
+  ["¶¶", "paragraph"],
+  ["part", "part"],
+  ["parts", "part"],
+  ["pt.", "part"],
+  ["pts.", "part"],
   ["section", "section"],
   ["sections", "section"],
   ["sec.", "section"],
   ["secs.", "section"],
-  ["table", "table"],
-  ["tables", "table"],
-  ["tbl.", "table"],
+  ["§", "section"],
+  ["§§", "section"],
+  ["sub verbo", "sub-verbo"],
+  ["sub verbis", "sub-verbo"],
+  ["s.v.", "sub-verbo"],
+  ["s.vv.", "sub-verbo"],
+  ["verse", "verse"],
+  ["verses", "verse"],
+  ["v.", "verse"],
+  ["vv.", "verse"],
   ["volume", "volume"],
   ["volumes", "volume"],
   ["vol.", "volume"],
   ["vols.", "volume"],
 ]);
-
-const SORTED_LOCATOR_LABELS = [...LOCATOR_LABELS.keys()]
-  .sort((left, right) => right.length - left.length);
-const LOCATOR_VALUE = /^(?:\d+[a-z]{0,2}|[ivxlcdm]+)(?:\s*[-–—:.]\s*(?:\d+[a-z]{0,2}|[ivxlcdm]+))*/i;
 
 interface ParsedLocator {
   readonly label?: string;
@@ -68,31 +106,228 @@ interface ParsedLocator {
   readonly suffix?: string;
 }
 
-function parseLocator(raw: string | undefined): ParsedLocator {
-  const text = raw?.trim().replace(/^,\s*/, "") ?? "";
-  if (!text) return {};
-  const lower = text.toLocaleLowerCase();
-  for (const term of SORTED_LOCATOR_LABELS) {
-    if (!lower.startsWith(term)) continue;
-    const afterTerm = text[term.length];
-    if (afterTerm && /[a-z]/i.test(afterTerm)) continue;
-    const rest = text.slice(term.length).trimStart();
-    const match = LOCATOR_VALUE.exec(rest);
-    if (!match) return { suffix: `, ${text}` };
-    const suffix = rest.slice(match[0].length);
+interface LocatorWord {
+  readonly text: string;
+  readonly digitLike: boolean;
+  readonly next: number;
+}
+
+// pandoc's splitInp: the suffix is tokenized at whitespace and punctuation
+// except ':', so tokens are runs of ordinary characters plus single split
+// characters.
+function locatorTokens(text: string): string[] {
+  return text.match(/(?:[^\s\p{P}]|:)+|\s|\p{P}/gu) ?? [];
+}
+
+function isSpaceToken(token: string): boolean {
+  return /^\s$/u.test(token);
+}
+
+// pandoc's isLocatorPunct: punctuation that ends a page unit, except page
+// range dashes and the volume:page colon.
+function isLocatorPunct(token: string): boolean {
+  return token.length === 1 && /\p{P}/u.test(token) && !"-–:".includes(token);
+}
+
+// pandoc's pPageUnit: a token consisting solely of roman-numeral letters is
+// digit-like on its own; any other run is digit-like only when it contains a
+// digit.
+function locatorUnit(tokens: string[], start: number): LocatorWord | null {
+  const token = tokens[start];
+  if (token === undefined) return null;
+  if (/^[ivxlcdm]+$/i.test(token)) {
+    return { text: token, digitLike: true, next: start + 1 };
+  }
+  let next = start;
+  let text = "";
+  while (next < tokens.length) {
+    const current = tokens[next];
+    if (isSpaceToken(current) || isLocatorPunct(current)) break;
+    text += current;
+    next += 1;
+  }
+  if (next === start) return null;
+  return { text, digitLike: /\d/.test(text), next };
+}
+
+// pandoc's pPageSeq: units joined by single periods; a trailing period is
+// left for the suffix.
+function locatorSequence(tokens: string[], start: number): LocatorWord | null {
+  const first = locatorUnit(tokens, start);
+  if (!first) return null;
+  let { text, digitLike, next } = first;
+  while (tokens[next] === ".") {
+    const unit = locatorUnit(tokens, next + 1);
+    if (!unit) break;
+    text += `.${unit.text}`;
+    digitLike = digitLike || unit.digitLike;
+    next = unit.next;
+  }
+  return { text, digitLike, next };
+}
+
+const LOCATOR_BRACKETS: ReadonlyMap<string, string> = new Map([
+  ["(", ")"],
+  ["[", "]"],
+  ["{", "}"],
+]);
+
+// One part of a locator word: a balanced bracketed sequence or a plain one.
+function locatorWordPart(tokens: string[], start: number): LocatorWord | null {
+  const open = tokens[start];
+  const close = open === undefined ? undefined : LOCATOR_BRACKETS.get(open);
+  if (close === undefined) return locatorSequence(tokens, start);
+  if (tokens[start + 1] === close) {
+    return { text: `${open}${close}`, digitLike: false, next: start + 2 };
+  }
+  const inner = locatorSequence(tokens, start + 1);
+  if (!inner || tokens[inner.next] !== close) return null;
+  return {
+    text: `${open}${inner.text}${close}`,
+    digitLike: inner.digitLike,
+    next: inner.next + 1,
+  };
+}
+
+// pandoc's pLocatorWordIntegrated: an optional "," or ";" separator, at most
+// one space, then one or more bracketed or plain sequences.
+function locatorWord(tokens: string[], start: number, isFirst: boolean): LocatorWord | null {
+  let next = start;
+  let text = "";
+  if (!isFirst && (tokens[next] === "," || tokens[next] === ";")) {
+    text = tokens[next];
+    next += 1;
+  }
+  if (isSpaceToken(tokens[next] ?? "")) {
+    text += " ";
+    next += 1;
+  }
+  const first = locatorWordPart(tokens, next);
+  if (!first) return null;
+  text += first.text;
+  let digitLike = first.digitLike;
+  next = first.next;
+  for (;;) {
+    const part = locatorWordPart(tokens, next);
+    if (!part) break;
+    text += part.text;
+    digitLike = digitLike || part.digitLike;
+    next = part.next;
+  }
+  return { text, digitLike, next };
+}
+
+// pandoc's pLocatorLabel': grow the candidate over tokens, case-folded and
+// trimmed, and keep the longest term match.
+function locatorLabel(tokens: string[]): { label: string | undefined; next: number } {
+  let label: string | undefined;
+  let next = 0;
+  let candidate = "";
+  for (let index = 0; index < tokens.length; index += 1) {
+    candidate += tokens[index];
+    const term = LOCATOR_LABELS.get(candidate.trim().toLowerCase());
+    if (term !== undefined) {
+      label = term;
+      next = index + 1;
+    }
+  }
+  return { label, next };
+}
+
+// pandoc's pLocatorDelimited: an explicit {…} locator. Its content is any
+// tokens, with at most single-token […] groups, up to the closing "}".
+function delimitedLocator(tokens: string[]): ParsedLocator | null {
+  if (tokens[0] !== "{") return null;
+  let index = 1;
+  let inside = "";
+  let close = -1;
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token === "}") {
+      close = index;
+      break;
+    }
+    if (token === "{") return null;
+    if (token === "[") {
+      const after = tokens[index + 1];
+      if (after === "]") {
+        inside += "[]";
+        index += 2;
+        continue;
+      }
+      if (after === undefined || LOCATOR_BRACKETS.has(after) || after === "]") return null;
+      if (tokens[index + 2] !== "]") return null;
+      inside += `[${after}]`;
+      index += 3;
+      continue;
+    }
+    inside += token;
+    index += 1;
+  }
+  if (close < 0) return null;
+  const suffix = tokens.slice(close + 1).join("");
+  const inner = tokens.slice(1, close);
+  let start = 0;
+  while (start < inner.length && isSpaceToken(inner[start])) start += 1;
+  const { label, next } = locatorLabel(inner.slice(start));
+  const locator = inner.slice(start + next).join("").trim();
+  if (label !== undefined) {
     return {
-      label: LOCATOR_LABELS.get(term),
-      locator: match[0],
-      ...(suffix.trim() ? { suffix } : {}),
+      label,
+      ...(locator ? { locator } : {}),
+      ...(suffix ? { suffix } : {}),
     };
   }
-  const match = LOCATOR_VALUE.exec(text);
-  if (!match) return { suffix: `, ${text}` };
-  const suffix = text.slice(match[0].length);
+  // pandoc's digit lookahead: a single digit token implies "page". Otherwise
+  // pandoc keeps an unlabeled locator, which citeproc-js would force back to
+  // the page label, so the suffix preserves the same visible result instead.
+  if (/^\d$/.test(inner[start] ?? "")) {
+    return {
+      label: "page",
+      locator: inside.trim(),
+      ...(suffix ? { suffix } : {}),
+    };
+  }
+  if (!inside.trim()) return suffix ? { suffix } : {};
+  return { suffix: ` ${inside.trim()}${suffix}` };
+}
+
+// pandoc's pLocatorIntegrated: an optional label, then one or more locator
+// words. With an implicit "page" label every word must contain a digit; with
+// an explicit label roman numerals and digit-bearing runs also qualify.
+function integratedLocator(tokens: string[]): ParsedLocator | null {
+  const { label, next } = locatorLabel(tokens);
+  const implicit = label === undefined;
+  const accepts = (word: LocatorWord): boolean =>
+    implicit ? /\d/.test(word.text) : word.digitLike;
+  const first = locatorWord(tokens, next, !implicit);
+  if (!first || !accepts(first)) return null;
+  let text = first.text;
+  let end = first.next;
+  for (;;) {
+    const word = locatorWord(tokens, end, false);
+    if (!word || !accepts(word)) break;
+    text += word.text;
+    end = word.next;
+  }
+  const suffix = tokens.slice(end).join("");
   return {
-    locator: match[0],
-    ...(suffix.trim() ? { suffix } : {}),
+    label: label ?? "page",
+    locator: text.trim(),
+    ...(suffix ? { suffix } : {}),
   };
+}
+
+export function parseLocator(raw: string | undefined): ParsedLocator {
+  // pandoc's reader collapses whitespace runs in citation suffixes before
+  // Text.Pandoc.Citeproc.Locator sees them, and its parser first skips an
+  // optional comma and space.
+  const text = (raw ?? "").replace(/\s+/g, " ").trim().replace(/^,\s*/, "").trim();
+  if (!text) return {};
+  const tokens = locatorTokens(text);
+  const parsed = delimitedLocator(tokens) ?? integratedLocator(tokens);
+  if (parsed) return parsed;
+  return { suffix: `, ${text}` };
 }
 
 function citeprocItem(item: CitationItemPresentation): CiteprocCitationItem {
