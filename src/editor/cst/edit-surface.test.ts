@@ -394,6 +394,29 @@ describe("CST edit surface block presentation", () => {
     expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
   });
 
+  it.each([
+    "# Introduction {#sec:introduction}",
+    "Introduction {#sec:introduction}\n==========",
+  ])("resolves heading IDs in narrative and bracketed references: %s", (heading) => {
+    const doc = `${heading}\nSee @sec:introduction and [@sec:introduction].`;
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const references = () => [...parent.querySelectorAll<HTMLElement>(`.${CSS.fencedDivReference}`)];
+
+    expect(references().map((reference) => reference.textContent)).toEqual(["Section 1", "Section 1"]);
+    expect(references().map((reference) => reference.dataset.referenceId))
+      .toEqual(["sec:introduction", "sec:introduction"]);
+    const tree = getPandocTree(editor.state);
+    const anchor = doc.lastIndexOf("sec:introduction") + 4;
+    editor.dispatch({ selection: { anchor } });
+    expect(references()).toHaveLength(1);
+    expect(parent.querySelector(".cm-content")?.textContent).toContain("[@sec:introduction]");
+    expect(editor.state.selection.main.head).toBe(anchor);
+    expect(getPandocTree(editor.state)).toBe(tree);
+    expect(editor.state.doc.toString()).toBe(doc);
+    expect(tree.text).toBe(doc);
+  });
+
   it("renders hierarchical section numbers without changing source", () => {
     const doc = [
       "# One",
@@ -462,6 +485,32 @@ describe("CST edit surface block presentation", () => {
     expect(editor.state.doc.toString()).toBe(
       "# One\n\n## First {-}\n\n## Second",
     );
+  });
+
+  it("keeps heading references and section decorations consistent through renumbering and undo", () => {
+    const doc = "# Introduction {#sec:intro}\n\n## Detail {#sec:detail}\n\nSee [@sec:detail].";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const label = () => parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent;
+    expect(label()).toBe("Section 1.1");
+
+    editor.dispatch({ changes: { from: doc.indexOf("#sec:intro"), insert: ".appendix " } });
+    expect(sectionNumbers(parent)).toEqual([null, "A.1"]);
+    expect(label()).toBe("Section A.1");
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    expect(undo(editor)).toBe(true);
+    expect(sectionNumbers(parent)).toEqual(["1", "1.1"]);
+    expect(label()).toBe("Section 1.1");
+    expect(editor.state.doc.toString()).toBe(doc);
+    expect(getPandocTree(editor.state).text).toBe(doc);
+    expect(redo(editor)).toBe(true);
+    expect(label()).toBe("Section A.1");
+
+    const from = editor.state.doc.toString().indexOf("sec:detail");
+    editor.dispatch({ changes: { from, to: from + "sec:detail".length, insert: "sec:renamed" } });
+    expect(label()).toBeUndefined();
+    expect(parent.querySelector(".cm-content")?.textContent).toContain("[@sec:detail]");
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
   });
 
   it("numbers a heading created in the remainder of a split paragraph", () => {

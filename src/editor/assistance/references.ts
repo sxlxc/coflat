@@ -96,30 +96,35 @@ function bibliographyCandidate(item: CslJsonItem): ReferenceCandidate {
 export function getReferenceCandidates(state: EditorState): readonly ReferenceCandidate[] {
   const tree = getPandocTree(state);
   const presentation = getDocumentPresentation(state);
-  const candidates = new Map<string, ReferenceCandidate>();
+  const locals: Array<{
+    readonly id: string;
+    readonly from: number;
+    readonly kind: SyntaxNode["kind"];
+    readonly detail: string;
+  }> = [];
+  for (const [from, heading] of presentation.headingsByFrom) {
+    if (heading.id) locals.push({ from, id: heading.id, kind: heading.kind, detail: heading.title });
+  }
   for (const [from, div] of presentation.fencedDivsByFrom) {
-    if (!div.id || div.canonicalClassName === "equation" || candidates.has(div.id)) continue;
-    const target = presentation.localTargets.get(div.id);
-    if (!target) continue;
-    candidates.set(div.id, {
-      ...target,
-      detail: div.title ?? "Local reference",
-      preview: targetExcerpt(state, targetNode(tree, from, "FencedDiv")),
-      from,
-    });
+    if (!div.id || div.canonicalClassName === "equation") continue;
+    locals.push({ from, id: div.id, kind: "FencedDiv", detail: div.title ?? "Local reference" });
   }
   for (const [from, equation] of presentation.equationsByMathFrom) {
-    if (!equation.id || candidates.has(equation.id)) continue;
-    const target = presentation.localTargets.get(equation.id);
-    if (!target) continue;
+    if (!equation.id) continue;
     const node = targetNode(tree, from, "Math");
     let wrapper = node.parent;
     while (wrapper && wrapper.kind !== "FencedDiv") wrapper = wrapper.parent;
     const title = wrapper ? presentation.fencedDivsByFrom.get(wrapper.from)?.title : undefined;
-    candidates.set(equation.id, {
+    locals.push({ from, id: equation.id, kind: "Math", detail: title ?? "Equation" });
+  }
+  const candidates = new Map<string, ReferenceCandidate>();
+  for (const { id, from, kind, detail } of locals.sort((left, right) => left.from - right.from)) {
+    const target = presentation.localTargets.get(id);
+    if (!target || candidates.has(id)) continue;
+    candidates.set(id, {
       ...target,
-      detail: title ?? "Equation",
-      preview: targetExcerpt(state, node),
+      detail,
+      preview: targetExcerpt(state, targetNode(tree, from, kind)),
       from,
     });
   }
@@ -178,10 +183,10 @@ function referenceTooltip(view: EditorView, position: number, side: -1 | 1): Too
           if (reference.from !== undefined) {
             const presentation = getDocumentPresentation(editor.state);
             const isEquation = presentation.equationsByMathFrom.has(reference.from);
-            const node = targetNode(
-              getPandocTree(editor.state), reference.from, isEquation ? "Math" : "FencedDiv",
-            );
-            let wrapper: SyntaxNode | null = node;
+            const kind = presentation.headingsByFrom.get(reference.from)?.kind
+              ?? (isEquation ? "Math" : "FencedDiv");
+            const node = targetNode(getPandocTree(editor.state), reference.from, kind);
+            let wrapper: SyntaxNode | null = kind === "Math" || kind === "FencedDiv" ? node : null;
             while (wrapper && wrapper.kind !== "FencedDiv") wrapper = wrapper.parent;
             if (wrapper) heading.textContent = presentation.fencedDivsByFrom.get(wrapper.from)?.label ?? reference.label;
             const title = wrapper && fencedDivTitleRange(wrapper);

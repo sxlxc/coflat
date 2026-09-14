@@ -100,6 +100,48 @@ describe("reference assistance", () => {
     expect(getPandocTree(state).text).toBe(state.doc.toString());
   });
 
+  it.each([
+    "# Introduction 中文 😀 {#sec:introduction}",
+    "Introduction 中文 😀 {#sec:introduction}\n==========",
+  ])("includes explicit heading IDs and titles without heading markers or attributes: %s", (heading) => {
+    const doc = `Before 中文 😀.\n\n${heading}\n\n# No explicit ID\n\nSee [@sec:introduction].`;
+    const state = EditorState.create({ doc: doc.replaceAll("\n", "\r\n"), extensions: baseExtensions });
+    const candidates = getReferenceCandidates(state);
+    expect(candidates).toEqual([{
+      id: "sec:introduction",
+      label: "Section 1",
+      detail: "Introduction 中文 😀",
+      preview: heading,
+      from: doc.indexOf(heading),
+    }]);
+    const after = state.update({ changes: [
+      { from: 0, insert: "😀 " },
+      { from: doc.indexOf("Introduction"), to: doc.indexOf("Introduction") + 12, insert: "Background" },
+    ] }).state;
+    expect(getReferenceCandidates(after)[0]).toMatchObject({
+      ...candidates[0],
+      detail: "Background 中文 😀",
+      preview: heading.replace("Introduction", "Background"),
+      from: doc.indexOf(heading) + 3,
+    });
+    expect(getPandocTree(after).text).toBe(after.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(after)).toBe(1);
+  });
+
+  it.each([
+    ["# First {#same}", "Section 1"],
+    ["::: {.theorem #same}\nFirst.\n:::", "Theorem 1"],
+    ["::: {.equation #same}\n$$x=1$$\n:::", "(1)"],
+  ])("uses the first target for labels and previews across target kinds: %s", (first, label) => {
+    const doc = `${first}\n\n# Later {#same}\n\n::: {.lemma #same}\nLater.\n:::\n\n::: {.equation #same}\n$$y=2$$\n:::`;
+    const state = EditorState.create({ doc, extensions: baseExtensions });
+    const candidates = getReferenceCandidates(state);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ id: "same", label });
+    expect(candidates[0].preview).not.toContain("Later");
+    expect(candidates[0].preview).not.toContain("y=2");
+  });
+
   it("respects first-target resolution and excludes ambiguous equation wrappers", () => {
     const state = EditorState.create({
       doc: `${localSource}\n\n::: {.lemma #thm:main}\nDuplicate.\n:::\n\n::: {.equation #eq:ambiguous}\n$$x$$\n\n$$y$$\n:::`,
@@ -195,6 +237,31 @@ describe("reference assistance", () => {
     expect(view.state.selection.main.head).toBe(0);
     expect(view.state.doc.toString()).toBe(doc);
     expect(getPandocTree(view.state).text).toBe(doc);
+  });
+
+  it.each([
+    "## A *useful* result $x$ {#sec:result}",
+    "A *useful* result $x$ {#sec:result}\n----------",
+  ])("previews heading targets from the keyboard with rendered inline content: %s", async (heading) => {
+    const doc = `# Introduction\n\n${heading}\n\nSee [@sec:result].`;
+    const view = mount(doc, referencePreviewExtension(0));
+    const tree = getPandocTree(view.state);
+    const anchor = doc.lastIndexOf("sec:result") + 4;
+    view.dispatch({ selection: { anchor } });
+    key(view, " ", { ctrlKey: true, shiftKey: true });
+    await vi.waitFor(() => expect(view.dom.querySelector(".cf-reference-preview h2 em")?.textContent).toBe("useful"));
+    const preview = view.dom.querySelector(".cf-reference-preview");
+    expect(preview?.querySelector("section > strong")?.textContent).toBe("Section 1.1");
+    expect(preview?.querySelector("small")?.textContent).toBe("@sec:result");
+    expect(preview?.querySelector("h2 .katex")).not.toBeNull();
+    expect(preview?.textContent).not.toContain("{#sec:result}");
+    expect(preview?.textContent).not.toContain("*useful*");
+    expect(view.state.selection.main.head).toBe(anchor);
+    expect(view.state.doc.toString()).toBe(doc);
+    expect(getPandocTree(view.state)).toBe(tree);
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(0);
+    key(view, "Escape");
+    expect(hasHoverTooltips(view.state)).toBe(false);
   });
 
   it("opens previews from the keyboard and dismisses them on Escape, movement, and editing", async () => {

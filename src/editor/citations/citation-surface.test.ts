@@ -122,6 +122,26 @@ describe("CST citation surface", () => {
     expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
   });
 
+  it("prefers heading labels over bibliography keys and refreshes after removing the label", async () => {
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount("# Introduction {#smith2024}\n\nSee [@smith2024].", statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent).toBe("Section 1");
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.getDoc();
+    editor.setDoc(source.replace("{#smith2024}", ""));
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]");
+    expect(parent.querySelector(`.${CSS.bibliographyEntry}`)?.textContent).toContain("A Useful Result");
+    editor.setDoc(source);
+    expect(parent.querySelector(`.${CSS.fencedDivReference}`)?.textContent).toBe("Section 1");
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelector(`.${CSS.bibliography}`)).toBeNull();
+    expect(editor.getCst()?.text).toBe(source);
+  });
+
   it("renders title citations on load, shares body numbering, and keeps opener source literal", async () => {
     const opener = '::: {.theorem title="中文 😀 *Result* [@jones2020, p. 7] and @smith2024"}';
     const statuses: BibliographyStatus[] = [];

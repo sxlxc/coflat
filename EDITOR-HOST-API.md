@@ -47,7 +47,7 @@ retry policy.
 
 | Option | Behavior |
 | --- | --- |
-| `referenceCompletion` | Suggest local fenced-div/equation IDs and loaded bibliography keys after `@`, including bracketed citation clusters. Local targets take precedence over matching bibliography keys. |
+| `referenceCompletion` | Suggest explicit heading IDs, fenced-div/equation IDs, and loaded bibliography keys after `@`, including bracketed citation clusters. Local targets take precedence over matching bibliography keys. |
 | `markupCompletion` | Offer canonical Markdown snippets, wrap selections with paired delimiters, and complete brackets. Block snippets are offered at the document level to preserve fenced-div nesting. |
 | `referencePreviews` | Show a rendered CST excerpt of a local target, or its formatted CSL bibliography entry, on hover and through the keyboard. Bibliography metadata is shown when no formatted entry is available. |
 | `activateOnTyping` | Open enabled suggestions at supported markup triggers and `@`. When false, completion is available through Ctrl-Space. |

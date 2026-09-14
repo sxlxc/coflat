@@ -37,10 +37,6 @@ import {
   createInlineMathSurfaceElement,
   renderInlineMathErrorFallback,
 } from "../../core/math-inline-surface";
-import {
-  initialHeadingNumberCounters,
-  nextHeadingNumber,
-} from "../../core/semantics/heading-numbering";
 import { cstCitationSurface } from "../citations/citation-surface";
 import { renderKatexToHtml } from "../render/katex-render";
 import { mathSourceOffsetFromPointer } from "../render/math-source-position";
@@ -721,54 +717,15 @@ function addSetextHeadingPresentation(
   }).range(firstLine.from));
 }
 
-interface HeadingAttributeFlags {
-  readonly appendixBoundary: boolean;
-  readonly unnumbered: boolean;
-}
-
-function headingAttributeFlags(node: SyntaxNode): HeadingAttributeFlags {
-  const level = node.prop(headingLevel) ?? 1;
-  const attributes = childOfKind(node, "AttributeList");
-  let appendixBoundary = false;
-  let unnumbered = false;
-
-  for (const attribute of attributes?.children() ?? []) {
-    if (attribute.kind !== "Attribute") continue;
-    if (attribute.text() === "-") unnumbered = true;
-    for (const token of attribute.children()) {
-      if (token.kind !== "ClassName") continue;
-      if (token.text() === "unnumbered") unnumbered = true;
-      if (level === 1 && token.text() === "appendix") {
-        appendixBoundary = true;
-        unnumbered = true;
-      }
+function buildHeadingNumberDecorations(state: EditorState): DecorationSet {
+  const ranges: Array<ReturnType<Decoration["range"]>> = [];
+  for (const [from, heading] of getDocumentPresentation(state).headingsByFrom) {
+    if (heading.number) {
+      ranges.push(Decoration.line({
+        attributes: { "data-section-number": heading.number },
+      }).range(state.doc.lineAt(from).from));
     }
   }
-
-  return { appendixBoundary, unnumbered };
-}
-
-function buildHeadingNumberDecorations(state: EditorState): DecorationSet {
-  const tree = getPandocTree(state);
-  const ranges: Array<ReturnType<Decoration["range"]>> = [];
-  let counters = initialHeadingNumberCounters();
-
-  tree.iterate((node) => {
-    if (node.kind !== "AtxHeading" && node.kind !== "SetextHeading") return;
-    const attributes = headingAttributeFlags(node);
-    const result = nextHeadingNumber({
-      level: node.prop(headingLevel) ?? 1,
-      ...attributes,
-    }, counters);
-    counters = result.counters;
-    if (result.number) {
-      ranges.push(Decoration.line({
-        attributes: { "data-section-number": result.number },
-      }).range(state.doc.lineAt(node.from).from));
-    }
-    return false;
-  });
-
   return Decoration.set(ranges, true);
 }
 

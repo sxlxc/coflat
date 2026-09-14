@@ -11,6 +11,8 @@ import { getPandocTree, pandocCstField } from "./pandoc-cst-field";
 const source = [
   "Before 中文 😀.",
   "",
+  "# Introduction {#sec:introduction}",
+  "",
   ":::: {.theorem #thm:first}",
   "Statement with $x$.",
   "",
@@ -27,7 +29,9 @@ const source = [
   "$$y=2$$",
   ":::",
   "",
-  "After [@thm:first] and [@eq:first].",
+  "## Detail {#sec:detail}",
+  "",
+  "After [@thm:first], [@eq:first], and [@sec:detail].",
 ].join("\n");
 
 function stateFor(doc: string): EditorState {
@@ -38,6 +42,53 @@ function stateFor(doc: string): EditorState {
 }
 
 describe("incremental document presentation", () => {
+  it("registers explicit heading IDs with the displayed section numbers", () => {
+    const doc = [
+      "# Introduction {#sec:introduction}", "",
+      "## Background {#sec:background}", "",
+      "## Aside {#aside -}", "",
+      "### Detail {#sec:detail}", "",
+      "# Appendix {.appendix #appendix}", "",
+      "## Proofs {#sec:proofs}", "",
+      "# Data", "",
+      "Hidden {.unnumbered #hidden}", "------", "",
+      "Tables {#sec:tables}", "------",
+    ].join("\n");
+    const state = stateFor(doc);
+    const presentation = getDocumentPresentation(state);
+    expect([...presentation.localTargets.values()]).toEqual([
+      { id: "sec:introduction", label: "Section 1" },
+      { id: "sec:background", label: "Section 1.1" },
+      { id: "aside", label: "Section" },
+      { id: "sec:detail", label: "Section 1.1.1" },
+      { id: "appendix", label: "Section" },
+      { id: "sec:proofs", label: "Section A.1" },
+      { id: "hidden", label: "Section" },
+      { id: "sec:tables", label: "Section B.1" },
+    ]);
+    expect(presentation.headingsByFrom.size).toBe(9);
+    const selected = state.update({ selection: { anchor: doc.length } }).state;
+    expect(getDocumentPresentation(selected)).toBe(presentation);
+    expect(getPandocTree(selected)).toBe(getPandocTree(state));
+  });
+
+  it.each<readonly [string, ChangeSpec, string]>([
+    ["earlier heading insertion", { from: 0, insert: "# Earlier\n\n" }, "Section 2.1"],
+    ["heading level", { from: source.indexOf("## Detail"), insert: "#" }, "Section 1.0.1"],
+    ["unnumbered attribute", { from: source.indexOf("#sec:introduction"), insert: ".unnumbered " }, "Section 0.1"],
+    ["appendix boundary", { from: source.indexOf("#sec:introduction"), insert: ".appendix " }, "Section A.1"],
+    ["same-length ID edit", { from: source.indexOf("sec:detail"), to: source.indexOf("sec:detail") + 10, insert: "sec:rename" }, "Section 1.1"],
+  ])("updates heading targets after %s", (_name, changes, label) => {
+    const before = stateFor(source);
+    const after = before.update({ changes }).state;
+    const targets = getDocumentPresentation(after).localTargets;
+    expect(targets.get("sec:rename")?.label ?? targets.get("sec:detail")?.label).toBe(label);
+    if (targets.has("sec:rename")) expect(targets.has("sec:detail")).toBe(false);
+    expect(getDocumentPresentation(after)).toEqual(buildDocumentPresentation(getPandocTree(after)));
+    expect(getPandocTree(after).text).toBe(after.doc.toString());
+    expect(getDocumentPresentation(before).localTargets.get("sec:detail")?.label).toBe("Section 1.1");
+  });
+
   it("removes remote targets when a YAML edit reparses the full CST", () => {
     const doc = "---\ntitle: Old\n---\n\nUnrelated.\n\nText.\n::: {.theorem #thm:a}\n$$x$$\n:::";
     const before = stateFor(doc);
@@ -55,7 +106,7 @@ describe("incremental document presentation", () => {
     fc.assert(fc.property(
       fc.integer({ min: 0, max: source.length }),
       fc.integer({ min: 0, max: source.length }),
-      fc.constantFrom("", "😀", "\n", "\n\n", "$$", "::: {.equation #eq:new}\n", "::::", "theorem"),
+      fc.constantFrom("", "😀", "\n", "\n\n", "$$", "::: {.equation #eq:new}\n", "::::", "theorem", "# New {#sec:new}\n\n", ".appendix", "{-}"),
       (left, right, insert) => {
         const before = stateFor(source);
         const after = before.update({
@@ -71,6 +122,7 @@ describe("incremental document presentation", () => {
   it.each([
     "x::: {.theorem #thm:new}\nBody.\n:::\n\n::: {.lemma #thm:next}\nNext.\n:::",
     "x::: {.equation #eq:new}\n$$x=1$$\n:::\n\n::: {.equation #eq:next}\n$$y=2$$\n:::",
+    "x# New {#sec:new}\n\n## Next {#sec:next}",
   ])("finds targets in the remainder of a split paragraph", (doc) => {
     const before = stateFor(doc);
     const after = before.update({ changes: { from: 0, to: 1, insert: "\n" } }).state;
@@ -98,6 +150,9 @@ describe("incremental document presentation", () => {
       { from: 3, insert: "中文 😀" },
       { from: source.indexOf("y=2") + 1, insert: "+w" },
     ]],
+    ["heading title", { from: source.indexOf("Detail"), to: source.indexOf("Detail") + 6, insert: "更新 😀" }],
+    ["remove heading", { from: source.indexOf("# Introduction"), to: source.indexOf(":::: {.theorem"), insert: "" }],
+    ["remove heading ID", { from: source.indexOf("{#sec:detail}"), to: source.indexOf("{#sec:detail}") + 13, insert: "" }],
     ["replace whole document", { from: 0, to: source.length, insert: "" }],
   ])("matches a full rebuild after %s", (_name, changes) => {
     const before = stateFor(source);
@@ -126,6 +181,9 @@ describe("incremental document presentation", () => {
     }
     for (const [from, value] of presentation.equationsByMathFrom) {
       expect(after.equationsByMathFrom.get(transaction.changes.mapPos(from, 1))).toBe(value);
+    }
+    for (const [from, value] of presentation.headingsByFrom) {
+      expect(after.headingsByFrom.get(transaction.changes.mapPos(from, 1))).toBe(value);
     }
   });
 

@@ -1,6 +1,8 @@
 import { type ChangeDesc, type EditorState, StateField, type Transaction } from "@codemirror/state";
 import {
+  explicitIdentifier,
   fenceInfo,
+  headingLevel,
   mathDisplay,
   type SourceRange,
   type SyntaxNode,
@@ -10,6 +12,11 @@ import {
   getBlockManifestEntry,
   getManifestBlockTitle,
 } from "../../core/constants/block-manifest";
+import {
+  type HeadingNumberInput,
+  initialHeadingNumberCounters,
+  nextHeadingNumber,
+} from "../../core/semantics/heading-numbering";
 import { changedBlockRanges } from "./decoration-ranges";
 import { getPandocTree } from "./pandoc-cst-field";
 
@@ -52,6 +59,13 @@ export interface EquationPresentation {
   readonly number: number;
 }
 
+export interface HeadingPresentation {
+  readonly kind: "AtxHeading" | "SetextHeading";
+  readonly id?: string;
+  readonly number: string;
+  readonly title: string;
+}
+
 export interface LocalReferenceTarget {
   readonly id: string;
   readonly label: string;
@@ -60,6 +74,7 @@ export interface LocalReferenceTarget {
 export interface DocumentPresentation {
   readonly equationsByMathFrom: ReadonlyMap<number, EquationPresentation>;
   readonly fencedDivsByFrom: ReadonlyMap<number, FencedDivPresentation>;
+  readonly headingsByFrom: ReadonlyMap<number, HeadingPresentation>;
   readonly localTargets: ReadonlyMap<string, LocalReferenceTarget>;
 }
 
@@ -187,6 +202,33 @@ function hasPipeTableAncestor(node: SyntaxNode): boolean {
   return false;
 }
 
+function headingNumberInput(node: SyntaxNode): HeadingNumberInput {
+  const level = node.prop(headingLevel) ?? 1;
+  const attributes = [...node.children()].find((child) => child.kind === "AttributeList");
+  let appendixBoundary = false;
+  let unnumbered = false;
+  for (const attribute of attributes?.children() ?? []) {
+    if (attribute.kind !== "Attribute") continue;
+    if (attribute.text() === "-") unnumbered = true;
+    for (const token of attribute.children()) {
+      if (token.kind !== "ClassName") continue;
+      if (token.text() === "unnumbered") unnumbered = true;
+      if (level === 1 && token.text() === "appendix") {
+        appendixBoundary = true;
+        unnumbered = true;
+      }
+    }
+  }
+  return { level, appendixBoundary, unnumbered };
+}
+
+function headingTitle(node: SyntaxNode): string {
+  return [...node.children()]
+    .filter((child) => child.kind !== "Delimiter" && child.kind !== "AttributeList")
+    .map((child) => child.kind === "LineEnding" ? " " : child.text())
+    .join("").trim();
+}
+
 function setFirstTarget(
   targets: Map<string, LocalReferenceTarget>,
   id: string | undefined,
@@ -200,12 +242,26 @@ export function buildDocumentPresentation(
 ): DocumentPresentation {
   const fencedDivInfos = new Map<number, FencedDivInfo>();
   const fencedDivsByFrom = new Map<number, FencedDivPresentation>();
-  const localTargets = new Map<string, LocalReferenceTarget>();
+  const headingsByFrom = new Map<number, HeadingPresentation>();
+  const targets: Array<{ readonly from: number; readonly id?: string; readonly label: string }> = [];
   const numberedDisplayMath: SyntaxNode[] = [];
   const equationWrapperCandidates = new Map<number, SyntaxNode[]>();
   let blockNumber = 0;
+  let headingCounters = initialHeadingNumberCounters();
 
   tree.iterate((node) => {
+    if (node.kind === "AtxHeading" || node.kind === "SetextHeading") {
+      const result = nextHeadingNumber(headingNumberInput(node), headingCounters);
+      headingCounters = result.counters;
+      const id = node.prop(explicitIdentifier);
+      headingsByFrom.set(node.from, {
+        kind: node.kind,
+        id,
+        number: result.number,
+        title: headingTitle(node),
+      });
+      targets.push({ from: node.from, id, label: result.number ? `Section ${result.number}` : "Section" });
+    }
     if (
       node.kind === "Math"
       && (node.prop(mathDisplay) ?? false)
@@ -234,11 +290,11 @@ export function buildDocumentPresentation(
     };
     fencedDivsByFrom.set(node.from, presentation);
     if (info.canonicalClassName !== "equation") {
-      setFirstTarget(
-        localTargets,
-        info.id,
-        numbered ? `${presentation.label} ${blockNumber}` : presentation.label,
-      );
+      targets.push({
+        from: node.from,
+        id: info.id,
+        label: numbered ? `${presentation.label} ${blockNumber}` : presentation.label,
+      });
     }
     return;
   });
@@ -258,15 +314,22 @@ export function buildDocumentPresentation(
       number,
       ...(id ? { id } : {}),
     });
-    setFirstTarget(localTargets, id, `(${number})`);
+    targets.push({ from: node.from, id, label: `(${number})` });
   });
 
-  return { equationsByMathFrom, fencedDivsByFrom, localTargets };
+  const localTargets = new Map<string, LocalReferenceTarget>();
+  // Equation targets are known only after visiting their wrappers. Resolve
+  // duplicate IDs in source order across headings, divs, and equations.
+  for (const target of targets.sort((left, right) => left.from - right.from)) {
+    setFirstTarget(localTargets, target.id, target.label);
+  }
+  return { equationsByMathFrom, fencedDivsByFrom, headingsByFrom, localTargets };
 }
 
 const EMPTY_DOCUMENT_PRESENTATION: DocumentPresentation = Object.freeze({
   equationsByMathFrom: new Map(),
   fencedDivsByFrom: new Map(),
+  headingsByFrom: new Map(),
   localTargets: new Map(),
 });
 
@@ -279,6 +342,8 @@ function presentationNodes(
     tree.iterate((node) => {
       if (
         node.kind === "FencedDiv"
+        || node.kind === "AtxHeading"
+        || node.kind === "SetextHeading"
         || node.kind === "PipeTable"
         || (node.kind === "Math" && node.prop(mathDisplay))
       ) nodes.set(`${node.kind}:${node.from}`, node);
@@ -298,7 +363,8 @@ function presentationStructureChanged(transaction: Transaction): boolean {
     return node.kind !== next.kind
       || transaction.changes.mapPos(node.from, 1) !== next.from
       || transaction.changes.mapPos(node.to, -1) !== next.to
-      || node.prop(fenceInfo) !== next.prop(fenceInfo);
+      || node.prop(fenceInfo) !== next.prop(fenceInfo)
+      || ((node.kind === "AtxHeading" || node.kind === "SetextHeading") && node.text() !== next.text());
   });
 }
 
@@ -338,10 +404,15 @@ export const cstDocumentPresentationField =
         value.fencedDivsByFrom,
         transaction.changes,
       );
+      const headingsByFrom = mapPresentationPositions(
+        value.headingsByFrom,
+        transaction.changes,
+      );
       return equationsByMathFrom === value.equationsByMathFrom
         && fencedDivsByFrom === value.fencedDivsByFrom
+        && headingsByFrom === value.headingsByFrom
         ? value
-        : { equationsByMathFrom, fencedDivsByFrom, localTargets: value.localTargets };
+        : { equationsByMathFrom, fencedDivsByFrom, headingsByFrom, localTargets: value.localTargets };
     },
   });
 

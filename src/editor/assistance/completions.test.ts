@@ -11,7 +11,7 @@ import {
   setSelectedCompletion,
   startCompletion,
 } from "@codemirror/autocomplete";
-import { history, undo } from "@codemirror/commands";
+import { history, redo, undo } from "@codemirror/commands";
 import { EditorState, type Extension, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -91,6 +91,18 @@ describe("CST editing completions", () => {
     },
   );
 
+  it.each(["@¦", "[@¦]", "[@sec:¦]", "@Introduction¦"])(
+    "suggests explicit heading labels in %s",
+    async (text) => {
+      const result = await complete(`# Introduction {#sec:introduction}\n\nSee ${text}`);
+      expect(result?.options).toContainEqual(expect.objectContaining({
+        label: "sec:introduction",
+        displayLabel: "@sec:introduction",
+        detail: "Section 1 · Introduction",
+      }));
+    },
+  );
+
   it.each([
     "`@thm:¦`", "```text\n@thm:¦\n```", "    @thm:¦", "$@thm:¦$", "$$\n@thm:¦\n$$",
     "[link](@thm:¦)", "![alt](@thm:¦)", "<https://host/@thm:¦>",
@@ -138,6 +150,26 @@ describe("CST editing completions", () => {
     expect(view.state.doc.toString()).toBe(original);
     expect(getPandocTree(view.state).text).toBe(original);
     expect(getPandocCstUpdateCountForTesting(view.state)).toBe(2);
+  });
+
+  it("completes a heading reference with synchronized selection, undo, and redo", async () => {
+    const view = mount("# Introduction 中文 😀 {#sec:introduction}\n\nSee [@sec:¦].");
+    const original = view.state.doc.toString();
+    await select(view, "sec:introduction");
+    const completed = original.replace("[@sec:]", "[@sec:introduction]");
+    expect(view.state.doc.toString()).toBe(completed);
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.head).toBe(completed.indexOf("]."));
+    expect(getPandocTree(view.state).text).toBe(completed);
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(original);
+    expect(getPandocTree(view.state).text).toBe(original);
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(2);
+    expect(redo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(completed);
+    expect(getPandocTree(view.state).text).toBe(completed);
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(3);
   });
 
   it.each(["@thm:ma¦in.", "_@thm:ma¦in_", "[@thm:ma¦in; @other]"])(
@@ -352,6 +384,29 @@ describe("CST editing completions", () => {
     expect(view.state.selection.main.head).toBe(view.state.doc.length);
     expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
     expect(getPandocCstUpdateCountForTesting(view.state)).toBe(change === "removed" ? 1 : 2);
+  });
+
+  it.each([
+    ["#sec:introduction", "#sec:background", "sec:background", "Section 1 · Introduction"],
+    ["Introduction", "Organization", "sec:introduction", "Section 1 · Organization"],
+    ["# Introduction", "## Introduction", "sec:introduction", "Section 0.1 · Introduction"],
+    ["# Introduction", "# Earlier\n\n# Introduction", "sec:introduction", "Section 2 · Introduction"],
+    ["#sec:introduction", "#sec:introduction -", "sec:introduction", "Section · Introduction"],
+    ["{#sec:introduction}", "", "", ""],
+  ])("refreshes open heading suggestions after replacing %s with %s", async (oldText, insert, id, detail) => {
+    const view = mount("# Introduction {#sec:introduction}\n\nSee @¦");
+    startCompletion(view);
+    await vi.waitFor(() => expect(currentCompletions(view.state).map((item) => item.label)).toEqual(["sec:introduction"]));
+    const from = view.state.doc.toString().indexOf(oldText);
+    view.dispatch({ changes: { from, to: from + oldText.length, insert } });
+    await vi.waitFor(() => {
+      expect(currentCompletions(view.state).map((item) => item.label)).toEqual(id ? [id] : []);
+      if (id) expect(currentCompletions(view.state)[0].detail).toBe(detail);
+      else expect(completionStatus(view.state)).toBeNull();
+    });
+    expect(view.state.selection.main.head).toBe(view.state.doc.length);
+    expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());
+    expect(getPandocCstUpdateCountForTesting(view.state)).toBe(1);
   });
 
   it.each(["loaded", "dismissed", "edited", "destroyed"])("handles pending bibliography completion when %s", async (outcome) => {

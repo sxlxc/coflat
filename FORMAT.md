@@ -586,7 +586,7 @@ IDs are conventionally prefixed by target kind. The LaTeX exporter uses these pr
 | `tbl:` | table |
 | `alg:` | algorithm |
 
-Any other bare key (e.g. `karger2000`) is treated as a citation key. IDs with unrecognized prefixes still resolve if they match a fenced block `#id`.
+Any other bare key (e.g. `karger2000`) is treated as a citation key. IDs with unrecognized prefixes still resolve in the editor if they match an explicit heading or fenced block `#id`.
 
 ### Bracketed (rendered inline)
 
@@ -609,7 +609,7 @@ Bibliography citations can be clustered with `;`:
 [@karger2000; @stein2001]
 ```
 
-Simple standalone local references resolve from fenced-div `#id` values. Local targets take priority over bibliography entries with the same key. A mixed local/bibliography cluster remains literal source so Coflat does not silently discard either item.
+Simple standalone local references resolve from explicit heading or fenced-div `#id` values. Heading references share the displayed section numbering, including appendix letters; unnumbered headings resolve as “Section” without a number. Autocomplete includes the heading ID and title. Local targets take priority over bibliography entries with the same key; duplicate local IDs resolve to the first target in source order. A mixed local/bibliography cluster remains literal source so Coflat does not silently discard either item.
 
 ### Cross-reference example
 

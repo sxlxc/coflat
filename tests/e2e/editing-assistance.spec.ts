@@ -165,6 +165,41 @@ test("completes local labels from typing and preserves source, cursor, and undo"
   await expectDocument(page, `${source}@thm:main`);
 });
 
+test("completes, renders, and previews heading references from the keyboard", async ({ page }, testInfo) => {
+  const source = "# Introduction 中文 😀 {#sec:introduction}\n\nSee ";
+  await mount(page, source);
+  await page.keyboard.type("[@sec:");
+  await expect(page.getByRole("option")).toContainText("Section 1 · Introduction 中文 😀");
+  await page.screenshot({ path: testInfo.outputPath("heading-reference-completion.png") });
+  await acceptOption(page, "@sec:introduction", "Tab");
+  const completed = `${source}[@sec:introduction]`;
+  await expectDocument(page, completed);
+  expect(await selectedSource(page)).toBe("");
+  expect(await page.evaluate(() => (
+    (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+  ))).toBe(completed.length - 1);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expectDocument(page, `${source}[@sec:]`);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expectDocument(page, completed);
+
+  await page.keyboard.press("ControlOrMeta+Shift+Space");
+  const preview = page.locator(".cf-reference-preview");
+  await expect(preview).toContainText("Section 1");
+  await expect(preview.locator("h1")).toContainText("Introduction 中文 😀");
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type(".");
+  await expectDocument(page, `${completed}.`);
+  const reference = page.locator('.cf-fenced-div-reference[data-reference-id="sec:introduction"]');
+  await expect(reference).toHaveText("Section 1");
+  await reference.hover();
+  await expect(preview.locator("h1")).toContainText("Introduction 中文 😀");
+  await page.screenshot({ path: testInfo.outputPath("heading-reference-preview.png") });
+  await expectDocument(page, `${completed}.`);
+});
+
 test("preserves formatting delimiters when completing an unfinished reference by keyboard", async ({ page }) => {
   for (const [before, after] of [["_See ", "_"], ["~~See ", "~~"], ["_", "_"]]) {
     const source = `中文 😀 introduction.\n\n${theorem}\n\n${before}`;
