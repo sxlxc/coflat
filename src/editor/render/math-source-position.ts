@@ -5,6 +5,9 @@ interface SourceRange {
 
 const locationSelector = "[data-loc-start][data-loc-end]";
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// Consume KaTeX's complete verbatim spans before looking for other commands,
+// so literal backslashes in their payloads are never scanned as commands.
+const controlSequence = /\\verb\*([\s\S]).*?\1|\\verb([^*a-zA-Z]).*?\2|\\(?:[a-zA-Z@]+|.)/gu;
 
 function sourceRange(element: Element, sourceLength: number): SourceRange | null {
   const from = Number(element.getAttribute("data-loc-start"));
@@ -81,9 +84,39 @@ export function mathSourceOffsetFromPointer(
     ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
     : 0;
   const offset = source.length * fraction;
-  for (const { segment, index } of graphemes.segment(source)) {
+  const segments = graphemes.segment(source);
+  let candidate = source.length;
+  for (const { segment, index } of segments) {
     const end = index + segment.length;
-    if (offset <= end) return offset < (index + end) / 2 ? index : end;
+    if (offset <= end) {
+      candidate = offset < (index + end) / 2 ? index : end;
+      break;
+    }
   }
-  return source.length;
+  const snapped = snapOutOfControlSequence(source, candidate);
+  // A command edge can itself be inside a grapheme. Continue outward in the
+  // same direction rather than undoing the grapheme-safe proportional guess.
+  const segment = segments.containing(snapped);
+  if (segment && segment.index !== snapped) {
+    return snapped < candidate ? segment.index : segment.index + segment.segment.length;
+  }
+  return snapped;
+}
+
+/**
+ * A proportional guess may land inside a TeX control sequence such as
+ * `\operatorname`, where the caret cannot usefully rest. Fall back to the
+ * nearer end of the command instead of slicing through its name.
+ */
+function snapOutOfControlSequence(source: string, offset: number): number {
+  for (const match of source.matchAll(controlSequence)) {
+    const start = match.index;
+    const command = match[1] !== undefined || match[2] !== undefined ? "\\verb" : match[0];
+    const end = start + command.length;
+    if (offset > start && offset < end) {
+      return offset - start <= end - offset ? start : end;
+    }
+    if (start >= offset) break;
+  }
+  return offset;
 }

@@ -29,6 +29,8 @@ describe("KaTeX source locations", () => {
     [String.raw`\alpha+\beta`, "β", 7, 12],
     ["\n\\alpha+\\beta\n", "β", 8, 13],
     [String.raw`\text{中文😀}`, "😀", 8, 10],
+    [String.raw`\operatorname{rank}`, "rank", 14, 18],
+    [String.raw`\operatorname*{rank}`, "rank", 15, 19],
   ] as const)("preserves original character ranges in %s", (source, text, from, to) => {
     expectRange(mappedText(rendered(source), text), from, to);
   });
@@ -58,6 +60,20 @@ describe("KaTeX source locations", () => {
     expectRange(mappedText(element, "z"), source.indexOf("{z}") + 1, source.indexOf("{z}") + 2);
     const call = source.lastIndexOf("\\sq");
     expectRange(mappedText(element, "2"), call, call + 3);
+  });
+
+  it("maps operatorname runs split by spacing to their own source", () => {
+    const element = rendered(String.raw`\operatorname{ra\,nk}`);
+    expectRange(mappedText(element, "ra"), 14, 16);
+    expectRange(mappedText(element, "nk"), 18, 20);
+  });
+
+  it("maps macro-defined operator words to their call site", () => {
+    // \argmin expands to \operatorname*{arg\,min}; its definition letters
+    // cannot point into user source, so they resolve to the whole call.
+    const element = rendered(String.raw`x+\argmin_n`);
+    expectRange(mappedText(element, "g"), 2, 9);
+    expectRange(mappedText(element, "i"), 2, 9);
   });
 
   it.each([

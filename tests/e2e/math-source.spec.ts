@@ -77,6 +77,33 @@ for (const display of [false, true]) {
     }
   });
 
+  test(`preserves verbatim text and graphemes in unmapped ${display ? "display" : "inline"} math`, async ({ page }) => {
+    for (const [latex, fraction, offset] of [
+      [String.raw`\verb|\alpha|`, 0.7, 9],
+      [String.raw`\verb*|\alpha|`, 0.7, 10],
+      ["\\alpha\u0301{", 0.55, 7],
+    ] as const) {
+      const source = await mountMath(page, latex, display);
+      const surface = page.locator(display ? ".cf-math-display" : ".cf-math-inline");
+      await expect(surface.locator("[data-loc-start]")).toHaveCount(0);
+      const point = await surface.evaluate((element, fraction) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width * fraction, y: (rect.top + rect.bottom) / 2 };
+      }, fraction);
+      await page.mouse.click(point.x, point.y);
+      const position = source.indexOf(latex) + offset;
+      await expectCursor(page, source, position);
+
+      await page.keyboard.insertText("z");
+      const edited = source.slice(0, position) + "z" + source.slice(position);
+      await expectCursor(page, edited, position + 1);
+      await page.keyboard.press("ControlOrMeta+z");
+      await expectCursor(page, source, position);
+      await page.keyboard.press("ControlOrMeta+Shift+z");
+      await expectCursor(page, edited, position + 1);
+    }
+  });
+
   test(`places the caret on exact symbol boundaries in ${display ? "display" : "inline"} math`, async ({ page }) => {
     for (const [latex, text, character, sourceToken] of [
       ["x+1234", "1234", 2, "3"],
@@ -112,6 +139,27 @@ test("maps macro output to the call and arguments to their own source", async ({
       await clickText(page, symbol, 0, side);
       await expectCursor(page, source, source.indexOf(latex) + latex.indexOf(token) + (side === "right" ? token.length : 0));
     }
+  }
+});
+
+test("maps operatorname words to their own source", async ({ page }) => {
+  for (const display of [false, true]) {
+    const latex = String.raw`\operatorname{rank}`;
+    const source = await mountMath(page, latex, display);
+    const body = source.indexOf(latex);
+    await clickText(page, "rank", 1, "left");
+    await expectCursor(page, source, body + 15);
+    await clickText(page, "rank", 2, "right");
+    await expectCursor(page, source, body + 17);
+
+    // KaTeX builds \argmin from a macro; its letters target the call site.
+    const macroLatex = String.raw`x+\argmin`;
+    const macroSource = await mountMath(page, macroLatex, display);
+    const macroBody = macroSource.indexOf(macroLatex);
+    await clickText(page, "g", 0, "left");
+    await expectCursor(page, macroSource, macroBody + 2);
+    await clickText(page, "g", 0, "right");
+    await expectCursor(page, macroSource, macroBody + 9);
   }
 });
 

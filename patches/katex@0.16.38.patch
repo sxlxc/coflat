@@ -1,5 +1,5 @@
 diff --git a/dist/katex.js b/dist/katex.js
-index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167951bf3d0 100644
+index 69a5eac63dba04361390b46275880332c983cc9f..e0c44cd977d3d9afd85aed5e3a630ab142ad26d2 100644
 --- a/dist/katex.js
 +++ b/dist/katex.js
 @@ -1265,6 +1265,7 @@ class SymbolNode {
@@ -159,7 +159,17 @@ index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167
      }
    }
  }
-@@ -14459,7 +14539,10 @@ class Lexer {
+@@ -12890,7 +12970,8 @@ const operatorname_htmlBuilder = (grp, options) => {
+         return {
+           type: "textord",
+           mode: child.mode,
+-          text: childText
++          text: childText,
++          loc: child.loc
+         };
+       } else {
+         return child;
+@@ -14459,7 +14540,10 @@ class Lexer {
        }
        return this.lex();
      }
@@ -171,7 +181,7 @@ index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167
    }
  }
  ;// ./src/Namespace.ts
-@@ -15850,7 +15933,21 @@ class MacroExpander {
+@@ -15850,7 +15934,21 @@ class MacroExpander {
        return false;
      }
      this.countExpansion(1);
@@ -194,7 +204,7 @@ index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167
      const args = this.consumeArgs(expansion.numArgs, expansion.delimiters);
      if (expansion.numArgs) {
        // paste arguments in place of the placeholders
-@@ -16994,7 +17091,9 @@ class Parser {
+@@ -16994,7 +17092,9 @@ class Parser {
        args,
        optArgs
      } = this.parseArguments(func, funcData);
@@ -206,7 +216,7 @@ index 69a5eac63dba04361390b46275880332c983cc9f..caa994ca30335290472ec41e19fc3167
  
    /**
 diff --git a/dist/katex.mjs b/dist/katex.mjs
-index 250484b791d3954163ae2320972ca011d2494df9..9ee9543576c748588eff6697997c34c4a0cc6c44 100644
+index 250484b791d3954163ae2320972ca011d2494df9..9c60e5fee665947f2c063bd5d09d4703dead6082 100644
 --- a/dist/katex.mjs
 +++ b/dist/katex.mjs
 @@ -1123,6 +1123,7 @@ class SymbolNode {
@@ -365,7 +375,17 @@ index 250484b791d3954163ae2320972ca011d2494df9..9ee9543576c748588eff6697997c34c4
      }
    }
  }
-@@ -13376,7 +13455,10 @@ class Lexer {
+@@ -12014,7 +12093,8 @@ var htmlBuilder$1 = (grp, options) => {
+         return {
+           type: "textord",
+           mode: child.mode,
+-          text: childText
++          text: childText,
++          loc: child.loc
+         };
+       } else {
+         return child;
+@@ -13376,7 +13456,10 @@ class Lexer {
        }
        return this.lex();
      }
@@ -377,7 +397,7 @@ index 250484b791d3954163ae2320972ca011d2494df9..9ee9543576c748588eff6697997c34c4
    }
  }
  
-@@ -14656,7 +14738,21 @@ class MacroExpander {
+@@ -14656,7 +14739,21 @@ class MacroExpander {
        return false;
      }
      this.countExpansion(1);
@@ -400,7 +420,7 @@ index 250484b791d3954163ae2320972ca011d2494df9..9ee9543576c748588eff6697997c34c4
      var args = this.consumeArgs(expansion.numArgs, expansion.delimiters);
      if (expansion.numArgs) {
        // paste arguments in place of the placeholders
-@@ -15751,7 +15847,9 @@ class Parser {
+@@ -15751,7 +15848,9 @@ class Parser {
        args,
        optArgs
      } = this.parseArguments(func, funcData);
@@ -664,3 +684,15 @@ index 8d60b661b65abd83c64885b1e482e47ae4739c4c..2d3bf7f4ea502c5abb70993069f1527e
          const escaped = escape(this.text);
          if (needsSpan) {
              markup += ">";
+diff --git a/src/functions/operatorname.ts b/src/functions/operatorname.ts
+index f3d1fd9d9ef9725da5d24dc822ff7c32871af8ce..f71933e6634aa4032c2ab9742c5abf4d6a4ccffe 100644
+--- a/src/functions/operatorname.ts
++++ b/src/functions/operatorname.ts
+@@ -42,6 +42,7 @@ export const htmlBuilder: HtmlBuilderSupSub<"operatorname"> = (grp, options) =>
+                     type: "textord",
+                     mode: child.mode,
+                     text: childText,
++                    loc: child.loc,
+                 };
+             } else {
+                 return child;

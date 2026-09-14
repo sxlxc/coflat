@@ -30,6 +30,40 @@ describe("math pointer placement without source locations", () => {
   });
 
   it.each([
+    String.raw`\verb|\alpha|`,
+    String.raw`\verb*|\alpha|`,
+    String.raw`\verb!\alpha!`,
+    String.raw`\verb*z\alphaz`,
+    "\\verb\\alpha\\",
+    String.raw`\verb+\verb|\alpha|+`,
+  ])("keeps literal character offsets inside %s", (source) => {
+    const surface = surfaceWithGeometry();
+    surface.innerHTML = renderKatexToHtml(source, false, {}, "html");
+    expect(surface.querySelector("[data-loc-start]")).toBeNull();
+    const from = source.indexOf("alpha");
+    for (let offset = from; offset <= from + 5; offset++) {
+      expect(offsetAt(surface, source, 100 + 100 * offset / source.length)).toBe(offset);
+    }
+    // Only the actual command word remains atomic, not its verbatim payload.
+    expect(offsetAt(surface, source, 100 + 300 / source.length)).toBe(5);
+  });
+
+  it("still snaps commands following verbatim text", () => {
+    const surface = surfaceWithGeometry();
+    const source = String.raw`\verb|\alpha|\beta`;
+    surface.textContent = source;
+    expect(offsetAt(surface, source, 100 + 100 * 15 / source.length)).toBe(13);
+    expect(offsetAt(surface, source, 100 + 100 * 16 / source.length)).toBe(18);
+  });
+
+  it("does not treat an escaped backslash as a verbatim opener", () => {
+    const surface = surfaceWithGeometry();
+    const source = String.raw`\\verb|\alpha|`;
+    surface.textContent = source;
+    expect(offsetAt(surface, source, 100 + 100 * 9 / source.length)).toBe(7);
+  });
+
+  it.each([
     ["中文😀x^{", 140, 2],
     ["中文😀x^{", 145, 4],
     ["xe\u0301^{", 135, 1],
@@ -40,11 +74,32 @@ describe("math pointer placement without source locations", () => {
     expect(offsetAt(surface, source, clientX)).toBe(expected);
   });
 
+  it.each([
+    ["\\alpha\u0301{", 150, 7],
+    ["\\alpha\u0301", 160, 7],
+    ["\\alpha\u0301\u0300{", 150, 8],
+    ["\u0600\\alpha{", 125, 0],
+  ] as const)("keeps command snapping on grapheme boundaries in %s", (source, clientX, expected) => {
+    const surface = surfaceWithGeometry();
+    surface.innerHTML = renderKatexToHtml(source, false, {}, "html");
+    expect(surface.querySelector("[data-loc-start]")).toBeNull();
+    expect(offsetAt(surface, source, clientX)).toBe(expected);
+
+    const boundaries = new Set([source.length, ...Array.from(
+      new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(source),
+      ({ index }) => index,
+    )]);
+    for (let x = 100; x <= 200; x++) {
+      expect(boundaries.has(offsetAt(surface, source, x))).toBe(true);
+    }
+  });
+
   it("uses geometry when mapped elements have no visible rectangles", () => {
     const surface = surfaceWithGeometry();
     surface.innerHTML = renderKatexToHtml(String.raw`\alpha`, false, {}, "html");
     expect(surface.querySelector("[data-loc-start]")).not.toBeNull();
-    expect(offsetAt(surface, String.raw`\alpha`, 190)).toBe(5);
+    // The proportional guess lands inside \alpha and snaps to its end.
+    expect(offsetAt(surface, String.raw`\alpha`, 190)).toBe(6);
   });
 
   it("preserves a mapped offset of zero even when the fallback would choose the end", () => {
@@ -57,6 +112,26 @@ describe("math pointer placement without source locations", () => {
       item: (index: number) => rects[index] ?? null,
     }));
     expect(offsetAt(surface, String.raw`\alpha`, 185)).toBe(0);
+  });
+
+  it("keeps unmapped command words atomic in the proportional fallback", () => {
+    const surface = surfaceWithGeometry();
+    surface.textContent = String.raw`\operatorname{rank}`;
+    // Clicks that proportionally land inside \operatorname snap to its ends;
+    // positions inside the argument stay exact.
+    expect(offsetAt(surface, String.raw`\operatorname{rank}`, 110)).toBe(0);
+    expect(offsetAt(surface, String.raw`\operatorname{rank}`, 135)).toBe(13);
+    expect(offsetAt(surface, String.raw`\operatorname{rank}`, 150)).toBe(13);
+    expect(offsetAt(surface, String.raw`\operatorname{rank}`, 190)).toBe(17);
+  });
+
+  it("snaps control symbols out of the fallback", () => {
+    const surface = surfaceWithGeometry();
+    const source = String.raw`a\,b`;
+    surface.textContent = source;
+    expect(offsetAt(surface, source, 120)).toBe(1);
+    expect(offsetAt(surface, source, 155)).toBe(1);
+    expect(offsetAt(surface, source, 165)).toBe(3);
   });
 
   it("handles empty source and surfaces with no width", () => {

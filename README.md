@@ -82,7 +82,7 @@ visible and no inline rendering. The table stays
 in place as a live preview. All content can be edited as Markdown
 without using a mouse.
 
-Clicking rendered math places the caret at the nearest symbol or character boundary in its TeX source. Fractions, scripts, matrices, and wrapped inline math use both click coordinates. Generated macro symbols target the macro invocation; macro arguments retain their own source positions. Fraction bars and radical signs target their enclosing commands. The editor bundles its patched KaTeX renderer so this mapping also works in consuming applications.
+Clicking rendered math places the caret at the nearest symbol or character boundary in its TeX source. Fractions, scripts, matrices, and wrapped inline math use both click coordinates. Generated macro symbols target the macro invocation; macro arguments retain their own source positions. Operator-name words such as `\operatorname{rank}` map letter by letter, and macro-defined operators like `\argmin` target their call site. Fraction bars and radical signs target their enclosing commands. The editor bundles its patched KaTeX renderer so this mapping also works in consuming applications.
 
 Revealed YAML, math, and pipe-table source includes syntax highlighting. YAML and TeX tokenizers color only CST-defined source regions; tables use the existing Markdown CST. Highlighting leaves all source characters visible and editable, including inline markup inside tables.
 
