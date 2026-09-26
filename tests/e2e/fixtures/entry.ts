@@ -7,7 +7,7 @@ import { requiredHTMLElement } from "./utils";
 export interface EditorFixtureWindow {
   __coflatEditor: MountedEditor;
   __coflatEditorView: EditorView;
-  __coflatRemount(options: Pick<MountEditorOptions, "doc" | "editingAssistance">): void;
+  __coflatRemount(options: Pick<MountEditorOptions, "doc" | "editingAssistance" | "readImageResource">): void;
 }
 
 const root = requiredHTMLElement("editor-root");

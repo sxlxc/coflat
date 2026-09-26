@@ -17,6 +17,7 @@ import {
   citationResourceExtension,
 } from "./src/editor/citations/citation-surface";
 import { getPandocCursorContext } from "./src/editor/cst/cursor-context";
+import { imageResourceFacet } from "./src/editor/cst/image-surface";
 import { getPandocTree } from "./src/editor/cst/pandoc-cst-field";
 import {
   getYamlMetadataEnd,
@@ -136,6 +137,8 @@ export interface MountEditorOptions extends Omit<SimpleEditorConfig, "doc"> {
   readonly onCursorContextChange?: (context: PandocCursorContext) => void;
   /** Resolve YAML `bibliography` and `csl` paths relative to the host document. */
   readonly readTextResource?: (path: string) => Promise<string>;
+  /** Load image bytes relative to the host document. Coflat owns blob URL cleanup. */
+  readonly readImageResource?: (path: string) => Promise<Blob>;
   readonly saveHandler?: SaveHandler;
   readonly statusEvents?: StatusEvents;
 }
@@ -311,6 +314,7 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
     extensions: [
       updateListener,
       saveKeymap,
+      imageResourceFacet.of(options.readImageResource),
       citationResourceExtension({
         ...(options.readTextResource
           ? { readTextResource: options.readTextResource }

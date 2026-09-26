@@ -1,9 +1,15 @@
-import { EditorSelection, type EditorState, StateField } from "@codemirror/state";
+import { EditorSelection, type EditorState, Facet, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { destinationSyntax, type SyntaxNode } from "pandocmd-cst";
 import { CSS } from "../../core/constants/css-classes";
 import { isSafeUrl } from "../../core/lib/url-utils";
 import { getPandocTree } from "./pandoc-cst-field";
+
+type ImageResourceReader = (path: string) => Promise<Blob>;
+
+export const imageResourceFacet = Facet.define<ImageResourceReader | undefined, ImageResourceReader | undefined>({
+  combine: (values) => values.find((value) => value !== undefined),
+});
 
 function child(node: SyntaxNode, kind: SyntaxNode["kind"]): SyntaxNode | undefined {
   return [...node.children()].find((value) => value.kind === kind);
@@ -33,6 +39,9 @@ function decodedDestination(ownerDocument: Document, source: string): string {
   });
 }
 
+// CodeMirror can reuse a DOM node with a different, equal widget instance.
+const imageCleanups = new WeakMap<HTMLElement, () => void>();
+
 class ImageWidget extends WidgetType {
   constructor(
     private readonly source: string,
@@ -48,6 +57,13 @@ class ImageWidget extends WidgetType {
       && this.src === other.src;
   }
 
+  updateDOM(surface: HTMLElement, view: EditorView, previous: ImageWidget): boolean {
+    if (this.source !== previous.source || this.src !== previous.src) return false;
+    // Position-only edits keep both loaded images and pending host reads alive.
+    this.bindSourceSelection(surface, view);
+    return true;
+  }
+
   toDOM(view: EditorView): HTMLElement {
     const surface = view.dom.ownerDocument.createElement("div");
     surface.className = CSS.imagePreview;
@@ -55,27 +71,58 @@ class ImageWidget extends WidgetType {
     const image = view.dom.ownerDocument.createElement("img");
     image.alt = this.alt;
     const src = decodedDestination(view.dom.ownerDocument, this.src);
-    if (src && isSafeUrl(src)) image.src = src;
     image.style.width = this.width;
     image.style.height = this.height;
     image.onload = () => view.requestMeasure();
     image.onerror = () => view.requestMeasure();
     surface.appendChild(image);
-    surface.addEventListener("mousedown", (event) => {
+    let alive = true;
+    let objectUrl: string | null = null;
+    imageCleanups.set(surface, () => {
+      alive = false;
+      surface.onmousedown = null;
+      image.onload = null;
+      image.onerror = null;
+      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
+    });
+    const reader = view.state.facet(imageResourceFacet);
+    if (src && isSafeUrl(src)) {
+      if (reader) {
+        // Never assign the source URL while waiting: that would issue a network
+        // request before a local-file host has resolved the image.
+        void (async () => {
+          try {
+            const blob = await reader(src);
+            if (!alive) return;
+            objectUrl = URL.createObjectURL(blob);
+            const fragmentStart = src.indexOf("#");
+            image.src = objectUrl + (fragmentStart < 0 ? "" : src.slice(fragmentStart));
+          } catch (error) {
+            if (!alive) return;
+            image.title = `Could not load image: ${String(error)}`;
+            view.requestMeasure();
+          }
+        })();
+      } else {
+        image.src = src;
+      }
+    }
+    this.bindSourceSelection(surface, view);
+    return surface;
+  }
+
+  private bindSourceSelection(surface: HTMLElement, view: EditorView): void {
+    surface.onmousedown = (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
       view.dispatch({ selection: EditorSelection.cursor(this.from), scrollIntoView: true });
       view.focus();
-    });
-    return surface;
+    };
   }
 
   destroy(dom: HTMLElement): void {
-    const image = dom.querySelector("img");
-    if (image) {
-      image.onload = null;
-      image.onerror = null;
-    }
+    imageCleanups.get(dom)?.();
+    imageCleanups.delete(dom);
   }
 
   ignoreEvent(): boolean { return true; }

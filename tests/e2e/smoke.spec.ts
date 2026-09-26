@@ -1892,6 +1892,62 @@ test("preserves title references and literal image citations with decoded URLs",
   })).toEqual({ doc: source, cst: source });
 });
 
+test("keeps host image previews loaded while typing and preserves SVG views", async ({ page }) => {
+  type ImageFixtureWindow = EditorFixtureWindow & { __coflatImageReads: string[] };
+  const imageSource = "![Detail](figures.svg#detail)";
+  const source = `Before.\n\n${imageSource}\n\nAfter.`;
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as ImageFixtureWindow;
+    fixture.__coflatImageReads = [];
+    fixture.__coflatRemount({
+      doc,
+      async readImageResource(path) {
+        fixture.__coflatImageReads.push(path);
+        return new Blob([
+          '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60">',
+          '<view id="detail" viewBox="60 0 60 60"/>',
+          '<rect width="60" height="60" fill="blue"/>',
+          '<rect x="60" width="60" height="60" fill="red"/></svg>',
+        ], { type: "image/svg+xml" });
+      },
+    });
+    fixture.__coflatEditor.focus();
+  }, source);
+  const image = page.locator(".cf-image-preview img");
+  await expect(image).toHaveAttribute("src", /^blob:.*#detail$/);
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(120);
+  const imageUrl = await image.getAttribute("src");
+  const originalImage = await image.elementHandle();
+  if (!originalImage) throw new Error("Missing image preview");
+  // Without the fragment, this pixel is in the blue half of the full SVG.
+  expect(await image.evaluate((element: HTMLImageElement) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 120;
+    canvas.height = 60;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Missing canvas context");
+    context.drawImage(element, 0, 0);
+    return [...context.getImageData(40, 30, 1, 1).data];
+  })).toEqual([255, 0, 0, 255]);
+  await page.keyboard.type("More ");
+  await expect(image).toHaveAttribute("src", imageUrl ?? "");
+  expect(await originalImage.evaluate((element) => element.isConnected)).toBe(true);
+  await image.click();
+  await expect(page.locator(".cf-image-source")).toHaveText(imageSource);
+  const updatedSource = `More ${source}`;
+  const from = updatedSource.indexOf("![");
+  expect(await page.evaluate(() => (window as unknown as ImageFixtureWindow).__coflatEditorView.state.selection.main.head)).toBe(from);
+  await page.evaluate((position) => {
+    (window as unknown as ImageFixtureWindow).__coflatEditor.scrollToPosition(position);
+  }, from - 1);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".cf-image-source")).toHaveText(imageSource);
+  expect(await page.evaluate(() => {
+    const fixture = window as unknown as ImageFixtureWindow;
+    return { paths: fixture.__coflatImageReads, doc: fixture.__coflatEditor.getDoc(), cst: fixture.__coflatEditor.getCst()?.text };
+  })).toEqual({ paths: ["figures.svg#detail"], doc: updatedSource, cst: updatedSource });
+});
+
 test("renders YAML title math and edits standalone images below their preview", async ({ page }) => {
   await page.route("**/assets/k3-exponent-comparison-7bj06n1r.png", (route) => route.fulfill({
     contentType: "image/svg+xml",
