@@ -40,7 +40,7 @@ async function typographySnapshot(page: Page): Promise<TypographySnapshot> {
       paperTitleFontSize: paperTitle.fontSize,
       paperTitleFontWeight: paperTitle.fontWeight,
       headings: Array.from({ length: 6 }, (_, index) => {
-        const heading = style(`.cf-heading-line-${index + 1}`);
+        const heading = style(`.cm-line.cf-heading-line-${index + 1}`);
         return {
           fontSize: heading.fontSize,
           fontWeight: heading.fontWeight,
@@ -280,7 +280,7 @@ test("reveals heading labels in monospace through keyboard navigation", async ({
 
 test("keeps every heading row stable while revealing its source marker", async ({ page }) => {
   for (let level = 1; level <= 6; level += 1) {
-    const heading = page.locator(`.cf-heading-line-${level}`);
+    const heading = page.locator(`.cm-line.cf-heading-line-${level}`);
     const hiddenBuffers = heading.locator(".cm-widgetBuffer");
     expect(await hiddenBuffers.count()).toBeGreaterThan(0);
     const hiddenBufferMetrics = await hiddenBuffers.evaluateAll((elements) =>

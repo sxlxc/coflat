@@ -1,7 +1,10 @@
+import { undo } from "@codemirror/commands";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountEditor } from "./editor";
+import type { EditorDocumentChange, MountedEditor, SaveHandler } from "./editor";
+import { CSS } from "./src/core/constants/css-classes";
 import { DOCUMENT_SURFACE_CLASS } from "./src/core/document-surface-classes";
 
 function mountedView(parent: HTMLElement): EditorView {
@@ -9,6 +12,34 @@ function mountedView(parent: HTMLElement): EditorView {
   const view = editor ? EditorView.findFromDOM(editor) : null;
   if (!view) throw new Error("CodeMirror view was not mounted");
   return view;
+}
+
+const cleanups: Array<() => void> = [];
+
+afterEach(() => {
+  while (cleanups.length) cleanups.pop()?.();
+});
+
+function mountHostEditor(options: {
+  readonly doc: string;
+  readonly onChange?: (doc: string) => void;
+  readonly onDocumentChange?: (change: EditorDocumentChange) => void;
+  readonly saveHandler?: SaveHandler;
+}): { readonly editor: MountedEditor; readonly view: EditorView } {
+  const parent = document.createElement("div");
+  document.body.appendChild(parent);
+  const editor = mountEditor({
+    parent,
+    doc: options.doc,
+    onChange: options.onChange,
+    onDocumentChange: options.onDocumentChange,
+    saveHandler: options.saveHandler,
+  });
+  cleanups.push(() => {
+    editor.unmount();
+    parent.remove();
+  });
+  return { editor, view: mountedView(parent) };
 }
 
 describe("mountEditor", () => {
@@ -24,24 +55,11 @@ describe("mountEditor", () => {
     expect(parent.querySelector(".cm-content")?.getAttribute("contenteditable")).toBe("true");
     expect("getMode" in editor).toBe(false);
     expect("setMode" in editor).toBe(false);
+    expect("outline" in editor).toBe(false);
+    expect("cursorContext" in editor).toBe(false);
 
     editor.unmount();
-  });
-
-  it("publishes the CST snapshot with every user document change", () => {
-    const parent = document.createElement("div");
-    const onDocumentChange = vi.fn();
-    const editor = mountEditor({ parent, doc: "text", onDocumentChange });
-    const before = editor.getCst();
-
-    mountedView(parent).dispatch({ changes: { from: 4, insert: "!" } });
-
-    expect(editor.getDoc()).toBe("text!");
-    expect(editor.getCst()?.text).toBe("text!");
-    expect(editor.getCst()?.version).toBeGreaterThan(before?.version ?? -1);
-    expect(onDocumentChange).toHaveBeenCalledTimes(1);
-    expect(onDocumentChange.mock.calls[0][0].tree).toBe(editor.getCst());
-    editor.unmount();
+    expect(parent.querySelector(".cm-editor")).toBeNull();
   });
 
   it("derives inline and block cursor context directly from the CST", () => {
@@ -190,19 +208,217 @@ describe("mountEditor", () => {
     expect(parent.querySelector(".cf-math-source")).not.toBeNull();
     editor.unmount();
   });
+});
 
-  it("does not emit host change callbacks for setDoc", () => {
-    const parent = document.createElement("div");
+describe("mountEditor host integration", () => {
+  it.each([false, true])("publishes the synchronized CST and change metadata (onChange enabled: %s)", (withOnChange) => {
+    const changes: EditorDocumentChange[] = [];
+    const onChange = vi.fn();
+    const { editor, view } = mountHostEditor({
+      doc: "alpha",
+      onChange: withOnChange ? onChange : undefined,
+      onDocumentChange(change) {
+        changes.push(change);
+      },
+    });
+    const before = editor.getCst();
+
+    view.dispatch({ changes: { from: 5, insert: " beta" } });
+
+    expect(editor.getDoc()).toBe("alpha beta");
+    expect(editor.getCst()?.text).toBe(editor.getDoc());
+    expect(editor.getCst()?.version).toBeGreaterThan(before?.version ?? -1);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].tree).toBe(editor.getCst());
+    expect(changes[0].changes.empty).toBe(false);
+    if (withOnChange) expect(onChange).toHaveBeenCalledExactlyOnceWith("alpha beta");
+    else expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("does not emit document callbacks for programmatic setDoc", () => {
     const onChange = vi.fn();
     const onDocumentChange = vi.fn();
-    const editor = mountEditor({ parent, doc: "old", onChange, onDocumentChange });
+    const { editor, view } = mountHostEditor({
+      doc: "alpha",
+      onChange,
+      onDocumentChange,
+    });
 
-    editor.setDoc("new");
+    view.dispatch({ changes: { from: 5, insert: " beta" } });
+    onChange.mockClear();
+    onDocumentChange.mockClear();
 
-    expect(editor.getDoc()).toBe("new");
-    expect(editor.getCst()?.text).toBe("new");
+    editor.setDoc("short");
+
+    expect(editor.getDoc()).toBe("short");
+    expect(editor.getCst()?.text).toBe("short");
     expect(onChange).not.toHaveBeenCalled();
     expect(onDocumentChange).not.toHaveBeenCalled();
-    editor.unmount();
+  });
+
+  it("keeps delayed document snapshots tied to each change", () => {
+    const changes: EditorDocumentChange[] = [];
+    const { editor, view } = mountHostEditor({
+      doc: "a",
+      onDocumentChange(change) {
+        changes.push(change);
+      },
+    });
+
+    view.dispatch({ changes: { from: 1, insert: "b" } });
+    view.dispatch({ changes: { from: 2, insert: "c" } });
+
+    expect(changes).toHaveLength(2);
+    expect(changes[0].changes.empty).toBe(false);
+    expect(changes[1].changes.empty).toBe(false);
+    expect(editor.getDoc()).toBe("abc");
+    expect(changes.map(({ tree }) => tree.text)).toEqual(["ab", "abc"]);
+    expect(changes[0].tree).not.toBe(changes[1].tree);
+    expect(changes[1].tree).toBe(editor.getCst());
+  });
+
+  it("reuses the synchronized CST source for host updates and reads", () => {
+    const onChange = vi.fn();
+    const { editor, view } = mountHostEditor({ doc: "数学 😀\r\nBody", onChange });
+    const transaction = view.state.update({ changes: { from: 2, insert: " notes" } });
+    const nextState = transaction.state;
+    const serialize = vi.spyOn(nextState.doc, "toString");
+    try {
+      view.update([transaction]);
+      expect(editor.getDoc()).toBe("数学 notes 😀\nBody");
+      expect(editor.getCst()?.text).toBe(editor.getDoc());
+      expect(onChange).toHaveBeenCalledWith(editor.getDoc());
+      editor.setDoc(editor.getDoc());
+      expect(serialize).not.toHaveBeenCalled();
+    } finally {
+      serialize.mockRestore();
+    }
+  });
+
+  it("saves the edited source and clears dirty state", async () => {
+    const saves: string[] = [];
+    const { editor } = mountHostEditor({
+      doc: "draft",
+      saveHandler: {
+        async save({ source, reason }) {
+          saves.push(`${reason}:${source}`);
+          return { ok: true };
+        },
+      },
+    });
+
+    editor.insertText(" updated");
+    expect(editor.isSaved()).toBe(false);
+    await editor.triggerSave();
+
+    expect(saves).toEqual(["manual: updateddraft"]);
+    expect(editor.isSaved()).toBe(true);
+  });
+
+  it("saves a stable source snapshot while further typing remains dirty", async () => {
+    let finishSave: () => void = () => { throw new Error("Save has not started"); };
+    const save = vi.fn(() => new Promise<{ ok: true }>((resolve) => {
+      finishSave = () => resolve({ ok: true });
+    }));
+    const { editor, view } = mountHostEditor({ doc: "数学 😀", saveHandler: { save } });
+    const pending = editor.triggerSave();
+    view.dispatch({ changes: { from: 2, insert: " notes" }, userEvent: "input" });
+    finishSave();
+    await pending;
+    expect(save).toHaveBeenCalledWith({ source: "数学 😀", reason: "manual" });
+    expect(editor.isSaved()).toBe(false);
+    expect(undo(view)).toBe(true);
+    expect(editor.getDoc()).toBe("数学 😀");
+    expect(editor.isSaved()).toBe(true);
+  });
+
+  it("keeps the source cursor stable for a localized setDoc update", () => {
+    const { editor } = mountHostEditor({ doc: "# Intro\n\nfirst\n\nsecond\n" });
+    const cursor = "# Intro\n\nfirst\n\nsec".length;
+    editor.scrollToPosition(cursor);
+
+    editor.setDoc("# Intro\n\nfirst\n\nsecond\n\nthird\n");
+
+    expect(editor.getCursorContext()?.position).toBe(cursor);
+    expect(editor.getCst()?.text).toBe(editor.getDoc());
+  });
+
+  it.each([
+    ["abcdef", "aXYZf", 2, 4],
+    ["abcdef", "aXYZf", 4, 2],
+    ["中文 😀 abcdef", "中文 😀 aXYZf", 8, 10],
+  ] as const)("replaces %s while mapping an enclosed selection", (doc, replacement, anchor, head) => {
+    const { editor, view } = mountHostEditor({ doc });
+    view.dispatch({ selection: { anchor, head } });
+
+    editor.setDoc(replacement);
+
+    expect(editor.getDoc()).toBe(replacement);
+    expect(editor.getCst()?.text).toBe(replacement);
+    expect(view.state.selection.main.from).toBe(replacement.indexOf("XYZ"));
+    expect(view.state.selection.main.to).toBe(replacement.indexOf("XYZ") + 3);
+    editor.insertText("done");
+    expect(editor.getDoc()).toBe(replacement.replace("XYZ", "done"));
+    expect(editor.getCst()?.text).toBe(editor.getDoc());
+  });
+
+  it("keeps newly loaded YAML metadata collapsed at a visible caret boundary", () => {
+    const { editor, view } = mountHostEditor({ doc: "alpha" });
+    const doc = "---\ntitle: Loaded Title\n---\nBody";
+
+    editor.setDoc(doc);
+
+    const metadata = editor.getCst()?.topLevelBlocks()[0];
+    expect(metadata?.kind).toBe("YamlMetadata");
+    expect(view.state.selection.main.head).toBe(metadata?.to);
+    expect(view.dom.querySelectorAll(`.cm-line.${CSS.yamlHidden}`)).toHaveLength(3);
+    expect(view.dom.querySelector(".cf-doc-title")?.textContent)
+      .toBe("Loaded Title");
+  });
+
+  it("inserts text at the current selection as a normal editor change", () => {
+    const onChange = vi.fn();
+    const changes: EditorDocumentChange[] = [];
+    const { editor, view } = mountHostEditor({
+      doc: "alpha omega",
+      onChange,
+      onDocumentChange(change) {
+        changes.push(change);
+      },
+    });
+    view.dispatch({ selection: { anchor: 5 } });
+
+    editor.insertText(" beta");
+
+    expect(editor.getDoc()).toBe("alpha beta omega");
+    expect(onChange).toHaveBeenCalledWith("alpha beta omega");
+    expect(changes).toHaveLength(1);
+    expect(changes[0].changes.empty).toBe(false);
+  });
+
+  it("replaces the current selection when inserting text", () => {
+    const { editor, view } = mountHostEditor({
+      doc: "alpha TODO omega",
+    });
+    const from = "alpha ".length;
+    const to = from + "TODO".length;
+    view.dispatch({ selection: { anchor: from, head: to } });
+
+    editor.insertText("done");
+
+    expect(editor.getDoc()).toBe("alpha done omega");
+  });
+
+  it("inserts text at an explicit source position without replacing the current selection", () => {
+    const { editor, view } = mountHostEditor({
+      doc: "alpha TODO omega",
+    });
+    const from = "alpha ".length;
+    const to = from + "TODO".length;
+    view.dispatch({ selection: { anchor: from, head: to } });
+
+    editor.insertText(" beta", { position: "alpha TODO".length });
+
+    expect(editor.getDoc()).toBe("alpha TODO beta omega");
   });
 });

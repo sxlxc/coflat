@@ -88,10 +88,15 @@ Choose checks proportional to the change:
 - Production package build: `bun run build`
 - Published-package smoke test: `bun run check:package-smoke`
 - Package metadata/export validation: `bun run check:package`
-- Chromium interaction smoke suite: `bun run test:e2e`
+- Interaction smoke suite (Chromium and selected Firefox cases): `bun run test:e2e`
+- Chromium interaction smoke suite only: `bun run test:e2e --project=chromium`
 - Local showcase: `bun run dev:pages`
 
-Tests use Vitest with jsdom and are normally colocated as `*.test.ts` or `*.test.mjs`. Browser tests live under `tests/e2e`. Add focused regression coverage for behavior changes; assert source text, CST synchronization, cursor/selection state, and rendered DOM where applicable. Include keyboard paths for interactive surfaces, not only click paths.
+Tests use Vitest with jsdom and are normally colocated as `*.test.ts` or `*.test.mjs`. Browser tests live under `tests/e2e`. Before adding a test, inspect existing coverage and prefer extending the relevant test or adding a case to its existing input table. Add a separate test only for a distinct behavior or failure mode; a bug fix or feature does not automatically require another test file. Keep host API behavior in `editor.test.ts` and surface-specific cases with their existing surface suite.
+
+Assert observable behavior: source text, CST synchronization, cursor/selection state, and rendered DOM where applicable. Preserve distinct regressions, including Unicode, CRLF, undo, and lifecycle cases. Consolidate duplicate setup and assertions when the same scenario is already covered; do not combine unrelated scenarios merely to reduce the reported test count. Tests should protect a contract or reproduce a failure, rather than mirror the implementation.
+
+Use the lowest test layer that can reliably catch the failure. Add browser coverage when real layout, focus, native selection, keyboard events, or cross-browser behavior matter; avoid repeating the same non-browser assertion at every layer. Include keyboard paths for interactive surfaces, not only click paths.
 
 For an editor behavior change, normally run the focused tests, `bun run check:static`, and `bun run test`. Add `bun run build` and package checks for entry-point, dependency, export, asset, or packaging changes. Add Playwright coverage for real layout, focus, selection, keyboard navigation, or cross-browser behavior. Documentation-only changes do not require the full suite.
 

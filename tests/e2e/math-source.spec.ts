@@ -124,6 +124,12 @@ for (const display of [false, true]) {
         await expectCursor(page, source, expected);
       }
     }
+    await expect(page.locator(".cm-content")).toHaveAttribute("data-cst-inline", "Math");
+    await expect(page.locator(".cf-math-source")).not.toHaveCount(0);
+    await expect(page.locator(display
+      ? ".cf-cst-math-preview.cf-math-display"
+      : ".cf-cst-math-preview.cf-math-inline"))
+      .toHaveCount(1);
   });
 }
 

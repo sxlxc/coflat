@@ -725,7 +725,7 @@ for (const [name, inline, selector, punctuation] of [
   });
 }
 
-test("mounts one editable CST-backed surface", async ({ page }) => {
+test("mounts one editable surface and synchronizes keyboard input", async ({ page }) => {
   await expect(page.locator("#editor-root .cm-content"))
     .toHaveAttribute("contenteditable", "true");
   await expect(page.locator("#reader, [data-editor-mode], .cf-rich-readonly"))
@@ -744,6 +744,27 @@ test("mounts one editable CST-backed surface", async ({ page }) => {
   expect(snapshot.cstText).toBe(snapshot.doc);
   expect(snapshot.hasGetMode).toBe(false);
   expect(snapshot.hasSetMode).toBe(false);
+
+  await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    mounted.scrollToPosition(0);
+    mounted.focus();
+  });
+  await page.keyboard.insertText("Typed ");
+
+  const state = await page.evaluate(() => {
+    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
+      .__coflatEditor;
+    return {
+      cstText: mounted.getCst()?.text,
+      doc: mounted.getDoc(),
+      version: mounted.getCst()?.version,
+    };
+  });
+  expect(state.doc).toMatch(/^Typed /);
+  expect(state.cstText).toBe(state.doc);
+  expect(state.version).toBeGreaterThan(0);
 });
 
 test("keeps the cursor at text height on a blank line", async ({ page }) => {
@@ -1036,29 +1057,6 @@ test("keeps fenced-div layout stable when revealing its opener source", async ({
   expect(sourceLayout.statementTop).toBeCloseTo(renderedLayout.statementTop, 5);
 });
 
-test("publishes a synchronized CST after keyboard input", async ({ page }) => {
-  await page.evaluate(() => {
-    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
-      .__coflatEditor;
-    mounted.scrollToPosition(0);
-    mounted.focus();
-  });
-  await page.keyboard.insertText("Typed ");
-
-  const state = await page.evaluate(() => {
-    const mounted = (window as unknown as { __coflatEditor: EditorHarness })
-      .__coflatEditor;
-    return {
-      cstText: mounted.getCst()?.text,
-      doc: mounted.getDoc(),
-      version: mounted.getCst()?.version,
-    };
-  });
-  expect(state.doc).toMatch(/^Typed /);
-  expect(state.cstText).toBe(state.doc);
-  expect(state.version).toBeGreaterThan(0);
-});
-
 test("reveals emphasis source and edits it without a mouse", async ({ page }) => {
   await expect(page.locator(".cf-source-delimiter")).toHaveCount(0);
   await page.evaluate(() => {
@@ -1112,16 +1110,6 @@ test("enters rendered math with an arrow key and edits its source", async ({ pag
   expect(state.context).toBe("Math");
   expect(state.doc).toContain("$x^2+1$");
   expect(state.cst).toBe(state.doc);
-});
-
-test("clicks rendered inline math to edit its source", async ({ page }) => {
-  await page.locator(".cf-math-inline").click();
-
-  await expect(page.locator("#editor-root .cm-content"))
-    .toHaveAttribute("data-cst-inline", "Math");
-  await expect(page.locator(".cf-math-source")).not.toHaveCount(0);
-  await expect(page.locator(".cf-cst-math-preview.cf-math-inline"))
-    .toHaveCount(1);
 });
 
 test("renders display math and opens its live editing popup on click", async ({ page }) => {
