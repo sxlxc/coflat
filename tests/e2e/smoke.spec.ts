@@ -469,8 +469,15 @@ test("tracks nested fenced divs across previews while editing from the keyboard"
 for (const [name, body, previewSelector, sourceSelector] of [
   ["display math", "$$\nx = 1\n$$", ".cf-math-display", ".cf-math-source-line"],
   ["pipe table", "| A | B |\n| --- | --- |\n| 中文 😀 | 2 |", ".cf-doc-table-block", ".cf-table-source"],
+  ["image", "![中文 😀](proof.png)", ".cf-image-preview", ".cf-image-source"],
 ]) {
   test(`keeps the proof tombstone after a terminal ${name} preview`, async ({ page }) => {
+    if (name === "image") {
+      await page.route("**/proof.png", (route) => route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="blue"/></svg>',
+      }));
+    }
     const source = `Before\n\n::: {.proof}\n${body}\n:::\n\nAfter`;
     const closer = source.lastIndexOf(":::");
     await page.evaluate((doc) => {
@@ -493,8 +500,8 @@ for (const [name, body, previewSelector, sourceSelector] of [
     }, closer);
     await expect(page.locator(".cf-fenced-div-source")).toHaveText(":::");
     await expect(qed).toBeVisible();
-    // Fully replaced math rows are entered through their source boundary.
-    await page.keyboard.press(name === "display math" ? "ArrowLeft" : "ArrowUp");
+    // Fully replaced math and image rows are entered through their source boundary.
+    await page.keyboard.press(name === "pipe table" ? "ArrowUp" : "ArrowLeft");
     await expect(page.locator(sourceSelector).first()).toBeVisible();
     await expect(qed).toHaveCount(1);
     await expect(qed).toBeVisible();
@@ -1848,4 +1855,81 @@ test("keeps demo undo and redo within the active file", async ({ page }) => {
   }
   await expect(example).toHaveAttribute("aria-current");
   await expect(page).toHaveURL(/\?doc=example$/);
+});
+
+test("preserves title references and literal image citations with decoded URLs", async ({ page }) => {
+  await page.route("**/assets/a(1)&b.png", (route) => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="blue"/></svg>',
+  }));
+  const imageSource = "![By 中文 😀 @smith2024](assets/a\\(1\\)&amp;b.png)";
+  const source = `---\ntitle: 'Functions on [0,1] by @smith2024 with $k$'\nbibliography: references.bib\n---\n\nBefore.\n\n${imageSource}\n\nAfter.`;
+  await page.evaluate((doc) => (window as unknown as EditorFixtureWindow).__coflatRemount({ doc }), source);
+  await expect(page.locator(".cf-doc-title")).toContainText("Functions on [0,1] by @smith2024");
+  await expect(page.locator(".cf-doc-title .katex")).toHaveCount(1);
+  await expect(page.locator(".cf-bibliography-entry")).toHaveCount(1);
+  const image = page.locator(".cf-image-preview img");
+  await expect(image).toHaveAttribute("src", "assets/a(1)&b.png");
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(120);
+  await image.click();
+  const revealed = page.locator(".cf-image-source");
+  await expect(revealed).toHaveText(imageSource);
+  await expect(revealed.locator(".cf-citation")).toHaveCount(0);
+  const from = source.indexOf("![");
+  for (const [position, key] of [[from - 1, "ArrowRight"], [from + imageSource.length + 1, "ArrowLeft"]] as const) {
+    await page.evaluate((anchor) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatEditorView.dispatch({ selection: { anchor } });
+      fixture.__coflatEditor.focus();
+    }, position);
+    await expect(revealed).toHaveCount(0);
+    await page.keyboard.press(key);
+    await expect(revealed).toHaveText(imageSource);
+  }
+  expect(await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    return { doc: fixture.__coflatEditor.getDoc(), cst: fixture.__coflatEditor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
+});
+
+test("renders YAML title math and edits standalone images below their preview", async ({ page }) => {
+  await page.route("**/assets/k3-exponent-comparison-7bj06n1r.png", (route) => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="160"><path d="M0 160L600 0" stroke="black"/></svg>',
+  }));
+  const imageSource = "![A dashed line of slope three and a left-continuous staircase, with filled lower endpoints and open upper endpoints at each jump.](assets/k3-exponent-comparison-7bj06n1r.png){width=100%}";
+  const source = `---\ntitle: 'A title with $k$'\n---\n\nBefore.\n\n${imageSource}\n\nAfter.`;
+  await page.evaluate((doc) => (window as unknown as EditorFixtureWindow).__coflatRemount({ doc }), source);
+  await expect(page.locator(".cf-doc-title .katex")).toHaveCount(1);
+  const preview = page.locator(".cf-image-preview");
+  const image = preview.locator("img");
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(600);
+  await expect(page.locator(".cf-image-source")).toHaveCount(0);
+  await image.click();
+  const revealed = page.locator(".cf-image-source");
+  await expect(revealed).toHaveText(imageSource);
+  expect(await revealed.evaluate((element) => getComputedStyle(element).fontFamily)).toContain("monospace");
+  expect((await revealed.boundingBox())?.y).toBeGreaterThanOrEqual(
+    await preview.evaluate((element) => element.getBoundingClientRect().bottom),
+  );
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type("Edited ");
+  await expect(image).toHaveAttribute("alt", /^Edited A dashed/);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(image).toHaveAttribute("alt", /^A dashed/);
+  await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatEditorView.dispatch({ selection: { anchor: fixture.__coflatEditor.getDoc().indexOf("![") - 1 } });
+    fixture.__coflatEditor.focus();
+  });
+  await expect(revealed).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
+  await expect(revealed).toHaveText(imageSource);
+  await page.setViewportSize({ width: 360, height: 800 });
+  expect(await image.evaluate((element) => element.getBoundingClientRect().width <= (element.parentElement?.getBoundingClientRect().width ?? 0) + 1)).toBe(true);
+  expect(await page.evaluate(() => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    return { doc: fixture.__coflatEditor.getDoc(), cst: fixture.__coflatEditor.getCst()?.text };
+  })).toEqual({ doc: source, cst: source });
 });

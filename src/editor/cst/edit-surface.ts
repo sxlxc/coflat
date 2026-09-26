@@ -49,6 +49,7 @@ import {
   getDocumentPresentation,
 } from "./document-presentation";
 import { getPandocTree } from "./pandoc-cst-field";
+import { cstImageDecorationField, isBlockImage } from "./image-surface";
 import { addOpaqueSourceHighlights, addSourceToken } from "./source-highlighting";
 import {
   activePipeTableKeys,
@@ -819,6 +820,7 @@ function addFencedDivPresentation(
         for (const decorations of [
           state.field(cstDisplayMathDecorationField).decorations,
           state.field(cstTableDecorationField).decorations,
+          state.field(cstImageDecorationField).decorations,
         ]) {
           decorations.between(contentEnd, contentEnd, (from, to, decoration) => {
             if (decoration.spec.block && from < to) {
@@ -1070,7 +1072,7 @@ function buildDisplayMathDecorationState(
   const addMath = (node: SyntaxNode): false | undefined => {
     // A table owns the rich presentation of all inline content in its cells.
     // Descendant block replacements would overlap the table replacement.
-    if (node.kind === "PipeTable") return false;
+    if (node.kind === "PipeTable" || isBlockImage(node)) return false;
     if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
     const body = childOfKind(node, "OpaqueBody");
     if (!body) return false;
@@ -1155,7 +1157,7 @@ function displayMathSourcesInRanges(
   }));
   for (const range of pending) {
     tree.iterate((node) => {
-      if (node.kind === "PipeTable") return false;
+      if (node.kind === "PipeTable" || isBlockImage(node)) return false;
       if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
       if (!nodes.has(node.from)) {
         nodes.set(node.from, node);
@@ -1403,6 +1405,8 @@ function buildCstEditDecorations(
         ));
         return;
       }
+
+      if (isBlockImage(node)) return false;
 
       switch (node.kind) {
         case "AttributeList": {
@@ -1821,6 +1825,7 @@ export const cstEditSurface: Extension = [
   cstHeadingNumberDecorationField,
   cstDisplayMathDecorationField,
   cstTableSurface,
+  cstImageDecorationField,
   cstEditDecorationPlugin,
   cstFencedDivRangeLayer,
   cstMathKeyboardNavigation,

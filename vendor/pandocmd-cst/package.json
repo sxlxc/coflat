@@ -1,6 +1,6 @@
 {
   "name": "pandocmd-cst",
-  "version": "1.0.0-vendor.5dd0dde",
+  "version": "1.0.0-vendor.5dd0dde.title",
   "description": "Vendored build input for Coflat's Pandoc Markdown CST v1",
   "license": "MIT",
   "private": true,
@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@lezer/common": "1.5.2"
+    "@lezer/common": "1.5.2",
+    "yaml": "^2.8.3"
   }
 }

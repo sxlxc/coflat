@@ -22,3 +22,5 @@ export type {
 } from "./semantic/index.js";
 export { canonicalizePandocJson } from "./projection/canonicalize.js";
 export { projectPandocJson } from "./projection/pandoc-json.js";
+
+export type { MetadataInline, MetadataTitle } from "./semantic/metadata-title.js";

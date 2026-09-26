@@ -10,3 +10,8 @@ package version, and then regenerate `bun.lock`.
 
 Vite bundles this package into Coflat's editor output. It is not exposed as a
 runtime dependency of the published Coflat package.
+
+The `.title` snapshot suffix includes the tested, uncommitted upstream YAML
+title semantic-index change in `src/semantic/metadata-title.ts` and its API
+wiring. Existing vendored parser fixes are preserved. YAML is decoded before
+the parser supplies title inlines; Coflat does not parse title Markdown.

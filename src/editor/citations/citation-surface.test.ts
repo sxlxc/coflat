@@ -105,6 +105,39 @@ describe("CST citation surface", () => {
     expect(editor.getCst()?.text).toBe(editor.getDoc());
   });
 
+  it.each(["(a.png)", "[pic]"])("keeps citations literal in image source using %s", async (destination) => {
+    const citation = "@smith2024";
+    const imageSource = `![By 中文 😀 ${citation}]${destination}`;
+    const statuses: BibliographyStatus[] = [];
+    const parent = mount(`Before.\n\n${imageSource}\n\nAfter.\n\n[pic]: a.png`, statuses);
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("ok"));
+    if (!editor) throw new Error("Missing mounted editor");
+    const source = editor.getDoc();
+    const tree = editor.getCst();
+    const from = source.indexOf("![");
+    parent.querySelector(`.${CSS.imagePreview} img`)?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    expect(parent.querySelector(`.${CSS.imageSource}`)?.textContent).toBe(imageSource);
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+
+    for (const [position, key] of [[from - 1, "ArrowRight"], [from + imageSource.length + 1, "ArrowLeft"]] as const) {
+      editor.scrollToPosition(position);
+      parent.querySelector(".cm-content")?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      expect(parent.querySelector(`.${CSS.imageSource}`)?.textContent).toBe(imageSource);
+      expect(editor.getDoc()).toBe(source);
+      expect(editor.getCst()).toBe(tree);
+    }
+
+    editor.scrollToPosition(0);
+    editor.setDoc(source.replace(imageSource, `By 中文 😀 ${citation}.`));
+    expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toContain("1");
+    editor.setDoc(source);
+    editor.scrollToPosition(from);
+    expect(parent.querySelector(`.${CSS.imageSource}`)?.textContent).toBe(imageSource);
+    expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+    expect(parent.querySelectorAll(`.${CSS.bibliographyEntry}`)).toHaveLength(1);
+    expect(editor.getCst()?.text).toBe(source);
+  });
+
   it("gives a local numbered target precedence over a bibliography key", async () => {
     const parent = mount([
       "::: {.lem #smith2024}",

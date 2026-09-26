@@ -1,3 +1,4 @@
+import { readMetadataTitle, type MetadataTitle } from "./metadata-title.js";
 import {
   exampleLabel, explicitIdentifier, footnoteLabel, headingLevel, normalizedCitationKey, normalizedReferenceLabel,
   orderedListStyle, referenceDestination, referenceForm, referenceTitle,
@@ -30,6 +31,7 @@ export interface ExampleResolution {
 }
 
 export interface DocumentSemantics {
+  metadataTitle(node: SyntaxNode): MetadataTitle | null;
   reference(candidate: SyntaxNode): ReferenceResolution;
   heading(node: SyntaxNode): HeadingInfo;
   footnote(reference: SyntaxNode): FootnoteResolution;
@@ -81,6 +83,7 @@ function headingInlineText(node: SyntaxNode): string {
 export class DocumentSemanticsImpl implements DocumentSemantics {
   readonly snapshot: SemanticSnapshot;
   readonly #treeToken: object;
+  readonly #metadataTitles = new WeakMap<SyntaxNode, MetadataTitle | null>();
   readonly #definitions = new Map<string, DefinitionRecord>();
   readonly #implicitHeadings = new Map<string, { node: SyntaxNode; destination: string }>();
   readonly #headings = new Map<string, HeadingInfo>();
@@ -130,6 +133,13 @@ export class DocumentSemanticsImpl implements DocumentSemantics {
 
   #assert(node: SyntaxNode): void {
     if (node.treeToken !== this.#treeToken) throw new TypeError("Semantic queries require a node from the same SyntaxTree snapshot");
+  }
+
+  metadataTitle(node: SyntaxNode): MetadataTitle | null {
+    this.#assert(node);
+    if (node.kind !== "YamlMetadata") throw new TypeError("metadataTitle() requires a YAML metadata node");
+    if (!this.#metadataTitles.has(node)) this.#metadataTitles.set(node, readMetadataTitle(node));
+    return this.#metadataTitles.get(node) ?? null;
   }
 
   reference(candidate: SyntaxNode): ReferenceResolution {

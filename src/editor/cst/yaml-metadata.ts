@@ -9,11 +9,12 @@ import {
   EditorView,
   WidgetType,
 } from "@codemirror/view";
-import type { SyntaxNode } from "pandocmd-cst";
+import type { MetadataTitle, SyntaxNode } from "pandocmd-cst";
 import { parse as parseYaml } from "yaml";
 import { CSS } from "../../core/constants/css-classes";
 import { DOCUMENT_SURFACE_CLASS } from "../../core/document-surface-classes";
 import { getPandocTree } from "./pandoc-cst-field";
+import { appendPlanChildren } from "./inline-preview";
 
 interface YamlMetadata {
   readonly bibliographyPaths: readonly string[];
@@ -25,6 +26,7 @@ interface YamlMetadata {
   readonly nocite: readonly string[] | "all";
   readonly source: string;
   readonly title?: string;
+  readonly titleInlines: MetadataTitle | null;
   readonly to: number;
 }
 
@@ -144,7 +146,7 @@ function yamlPresentationMetadata(node: SyntaxNode): {
   };
 }
 
-function readYamlMetadata(node: SyntaxNode | null): YamlMetadata | null {
+function readYamlMetadata(state: EditorState, node: SyntaxNode | null): YamlMetadata | null {
   if (!node) return null;
   const {
     bibliographyPaths,
@@ -163,6 +165,7 @@ function readYamlMetadata(node: SyntaxNode | null): YamlMetadata | null {
     nocite,
     source: node.text(),
     ...(title ? { title } : {}),
+    titleInlines: getPandocTree(state).semantics.metadataTitle(node),
     to: node.to,
   };
 }
@@ -207,11 +210,18 @@ function createToggleButton(
   return button;
 }
 
+function createTitle(ownerDocument: Document, metadata: YamlMetadata): HTMLElement {
+  const title = ownerDocument.createElement("div");
+  title.className = DOCUMENT_SURFACE_CLASS.title;
+  appendPlanChildren(title, ownerDocument, metadata.titleInlines?.children ?? [], metadata.mathMacros);
+  return title;
+}
+
 class YamlMetadataControlWidget extends WidgetType {
   constructor(
     private readonly expanded: boolean,
     private readonly target: number,
-    private readonly title: string | undefined,
+    private readonly metadata: YamlMetadata,
   ) {
     super();
   }
@@ -219,7 +229,7 @@ class YamlMetadataControlWidget extends WidgetType {
   eq(other: YamlMetadataControlWidget): boolean {
     return other.expanded === this.expanded
       && other.target === this.target
-      && other.title === this.title;
+      && other.metadata === this.metadata;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -232,11 +242,8 @@ class YamlMetadataControlWidget extends WidgetType {
       this.expanded,
       this.target,
     ));
-    if (this.title) {
-      const title = ownerDocument.createElement("div");
-      title.className = DOCUMENT_SURFACE_CLASS.title;
-      title.textContent = this.title;
-      header.appendChild(title);
+    if (!this.expanded && this.metadata.titleInlines) {
+      header.appendChild(createTitle(ownerDocument, this.metadata));
     }
     return header;
   }
@@ -247,19 +254,16 @@ class YamlMetadataControlWidget extends WidgetType {
 }
 
 class YamlTitleWidget extends WidgetType {
-  constructor(private readonly title: string) {
+  constructor(private readonly metadata: YamlMetadata) {
     super();
   }
 
   eq(other: YamlTitleWidget): boolean {
-    return other.title === this.title;
+    return other.metadata === this.metadata;
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const title = view.dom.ownerDocument.createElement("div");
-    title.className = DOCUMENT_SURFACE_CLASS.title;
-    title.textContent = this.title;
-    return title;
+    return createTitle(view.dom.ownerDocument, this.metadata);
   }
 }
 
@@ -284,7 +288,7 @@ function buildYamlMetadataDecorations(
     ranges.push(Decoration.widget({
       block: true,
       side: -1,
-      widget: new YamlMetadataControlWidget(true, metadata.to, undefined),
+      widget: new YamlMetadataControlWidget(true, metadata.to, metadata),
     }).range(metadata.from));
     for (const lineNumber of metadataLineNumbers(state, metadata)) {
       ranges.push(Decoration.line({
@@ -295,7 +299,7 @@ function buildYamlMetadataDecorations(
       ranges.push(Decoration.widget({
         block: true,
         side: -1,
-        widget: new YamlTitleWidget(metadata.title),
+        widget: new YamlTitleWidget(metadata),
       }).range(metadata.to));
     }
     return Decoration.set(ranges, true);
@@ -316,7 +320,7 @@ function buildYamlMetadataDecorations(
     widget: new YamlMetadataControlWidget(
       false,
       metadata.editFrom,
-      metadata.title,
+      metadata,
     ),
   }).range(metadata.to));
   return Decoration.set(ranges, true);
@@ -341,7 +345,7 @@ function yamlMetadataDecorationState(
   let metadata = previous?.metadata ?? null;
   if (docChanged) {
     const node = yamlMetadataNode(state);
-    if (!sameYamlSource(metadata, node)) metadata = readYamlMetadata(node);
+    if (!sameYamlSource(metadata, node)) metadata = readYamlMetadata(state, node);
   }
   const active = metadata ? selectionTouchesMetadata(state, metadata) : false;
   if (previous && metadata === previous.metadata && active === previous.active) {

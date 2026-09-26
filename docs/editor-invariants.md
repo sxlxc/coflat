@@ -10,6 +10,8 @@
    the retired CST-to-Lezer projection.
    Completion and reference previews follow the same rule: targets and context
    come from the CST, while bibliography candidates reuse host-loaded data.
+   Decoded YAML title inlines come from the CST snapshot’s metadata semantic
+   index; their text is decoded metadata, not document source coordinates.
    Lexical matching of an unfinished completion prefix does not define grammar.
    Stream tokenizers may color source within CST-defined metadata, math, and
    code ranges, using CST fence info to select code languages. Their output is

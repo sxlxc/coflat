@@ -837,6 +837,8 @@ describe("CST edit surface block presentation", () => {
   it.each([
     ["display math", "$$\nx = 1\n$$"],
     ["pipe table", "| A | B |\n| --- | --- |\n| 中文 😀 | 2 |"],
+    ["image", "![中文 😀](image.png)"],
+    ["image followed by blank lines", "![中文 😀](image.png)\n\n"],
     ["nested equation", "::: {.equation}\n$$\nx = 1\n$$\n:::"],
   ])("keeps the tombstone after terminal %s previews", (_name, body) => {
     const source = `Before\n\n:::: {.proof}\n${body}\n::::\n\nAfter`;

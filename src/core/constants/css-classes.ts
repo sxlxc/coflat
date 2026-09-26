@@ -50,6 +50,8 @@ export const CSS = {
   mathSource: "cf-math-source",
   mathSourceLine: "cf-math-source-line",
   tableSource: "cf-table-source",
+  imagePreview: "cf-image-preview",
+  imageSource: "cf-image-source",
   mathError: "cf-math-error",
   mathDisplayContent: "cf-math-display-content",
   mathDisplayNumbered: "cf-math-display-numbered",

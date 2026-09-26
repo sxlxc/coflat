@@ -247,12 +247,21 @@ export const coflatTheme = EditorView.theme({
     minWidth: "0",
     whiteSpace: "normal",
   },
-  ".cm-line.cf-table-source, .cm-line.cf-math-source-line": {
+  ".cm-line.cf-table-source, .cm-line.cf-math-source-line, .cm-line.cf-image-source": {
     ...sourceTypography,
     backgroundColor: "var(--cf-subtle)",
   },
   ".cf-math-source-line .cf-math-source, .cf-math-source-line .cf-source-delimiter": {
     fontSize: "inherit",
+  },
+  [`.${CSS.imagePreview}`]: {
+    textAlign: "center",
+    padding: "0.35em 0",
+  },
+  [`.${CSS.imagePreview} img`]: {
+    maxWidth: "100%",
+    height: "auto",
+    verticalAlign: "middle",
   },
   ".tok-punctuation, .tok-meta": {
     color: "var(--cf-muted)",

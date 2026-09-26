@@ -21,6 +21,39 @@ describe("CST YAML metadata presentation", () => {
     return parent;
   }
 
+  it.each([
+    ["Functions on [0,1]", "Functions on [0,1]"],
+    ["By @smith2024 and [@jones2020]", "By @smith2024 and [@jones2020]"],
+    ["[label][missing] and ![alt][missing]", "[label][missing] and ![alt][missing]"],
+    ["Notes [^missing] and ^[a note]", "Notes [^missing] and ^[a note]"],
+    ["**中文 😀 @smith2024 [0,1]**", "中文 😀 @smith2024 [0,1]"],
+    ["*Functions* and [link](https://example.org)", "Functions and link"],
+  ])("preserves unsupported or unresolved title syntax: %s", (title, expected) => {
+    const doc = `---\ntitle: ${JSON.stringify(title)}\n---\n\nBody`;
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(parent.querySelector(".cf-doc-title")?.textContent).toBe(expected);
+    expect(editor.state.doc.toString()).toBe(doc);
+    expect(getPandocTree(editor.state).text).toBe(doc);
+  });
+
+  it.each(["'中文 😀 $k$ and $\\R$'", '"中文 😀 $k$ and $\\\\R$"', '>\n  中文 😀 $k$\n  and $\\R$'])("renders title math from decoded YAML: %s", (scalar) => {
+    const doc = `---\ntitle: ${scalar}\nmath:\n  R: "\\\\mathbb{R}"\n---\n\nBody`;
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(parent.querySelectorAll(".cf-doc-title .katex")).toHaveLength(2);
+    expect(parent.querySelector(".cf-doc-title .katex-error")).toBeNull();
+    parent.querySelector<HTMLButtonElement>(`.${CSS.yamlToggle}`)?.click();
+    expect(parent.querySelectorAll(".cf-doc-title .katex")).toHaveLength(2);
+    const position = doc.indexOf("$k$") + 1;
+    editor.dispatch({ changes: { from: position, to: position + 1, insert: "n" } });
+    expect(parent.querySelector(".cf-doc-title .katex .mord")?.textContent).toBe("n");
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    undo(editor);
+    expect(editor.state.doc.toString()).toBe(doc);
+    expect(parent.querySelector(".cf-doc-title .katex .mord")?.textContent).toBe("k");
+  });
+
   it("hides frontmatter behind an edit button and renders the paper title", () => {
     const doc = [
       "---",
