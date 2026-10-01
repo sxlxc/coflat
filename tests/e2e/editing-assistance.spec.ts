@@ -369,6 +369,17 @@ test("previews rendered cross-references and citations without changing source",
   await expect(preview.locator("section > strong")).toHaveText("Theorem (Main result)");
   await expect(preview.locator("section > strong + small")).toHaveText("@thm:main");
   await expect(preview).toContainText("Every finite example has a witness.");
+  const bodyTypography = await page.locator(".cm-content").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
+  });
+  for (const selector of ["section > div p", "section > small"]) {
+    expect(await preview.locator(selector).evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
+    })).toEqual(bodyTypography);
+  }
+  expect((await preview.boundingBox())?.width).toBeGreaterThan(512);
   await page.screenshot({ path: testInfo.outputPath("reference-preview.png") });
   await page.mouse.move(0, 0);
   await expect(preview).toHaveCount(0);
@@ -378,6 +389,10 @@ test("previews rendered cross-references and citations without changing source",
   await expect(preview).toContainText("Smith");
   await expect(preview).toContainText("2024");
   await expect(preview.locator(".csl-entry i")).toHaveText("Journal of Examples");
+  expect(await preview.locator(".csl-entry").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
+  })).toEqual(bodyTypography);
   await expect(preview).not.toContainText("[1]");
   await expect(preview.locator(".csl-left-margin")).toHaveCount(0);
   await expect(page.locator(".cf-bibliography .csl-left-margin")).toHaveText("[1]");

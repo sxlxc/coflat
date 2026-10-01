@@ -7,7 +7,7 @@
   --cf-subtle: #dbdbdb;
   --cf-accent: #396282;
   --cf-selection: rgba(73, 125, 165, 0.25);
-  --cf-content-font: KaTeX_Main, "Times New Roman", Times, serif;
+  --cf-content-font: KaTeX_Main, ui-serif, serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
   --cf-base-font-size: 18px;
   --cf-line-height: 1.4;

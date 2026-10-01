@@ -125,29 +125,41 @@ export const coflatTheme = EditorView.theme({
     left: "4px",
     width: "auto",
   },
+  [`.cm-tooltip:has(.${CSS.referencePreview})`]: {
+    borderRadius: "10px",
+    boxShadow: "0 8px 28px color-mix(in srgb, var(--cf-fg) 12%, transparent)",
+  },
   [`.${CSS.referencePreview}`]: {
     boxSizing: "border-box",
-    maxWidth: "min(32rem, 90vw)",
-    maxHeight: "min(24rem, 60vh)",
+    width: "42rem",
+    maxWidth: "calc(100vw - 24px)",
+    maxHeight: "min(32rem, 60vh)",
     overflowY: "auto",
+    overscrollBehavior: "contain",
     overflowWrap: "anywhere",
-    padding: "10px 14px",
+    padding: "18px 22px",
     fontFamily: "var(--cf-content-font)",
-    fontSize: "16px",
+    fontSize: "var(--cf-base-font-size)",
+    lineHeight: "var(--cf-line-height)",
   },
   [`.${CSS.referencePreview} section + section`]: {
     borderTop: "1px solid var(--cf-border)",
-    marginTop: "10px",
-    paddingTop: "10px",
+    marginTop: "1em",
+    paddingTop: "1em",
   },
   [`.${CSS.referencePreview} p`]: {
-    margin: "6px 0 0",
+    margin: "0.6em 0 0",
     whiteSpace: "pre-wrap",
   },
-  [`.${CSS.referencePreview} small`]: {
+  [`.${CSS.referencePreview} section > small`]: {
     color: "var(--cf-muted)",
     display: "block",
-    fontFamily: "var(--cf-code-font)",
+    fontFamily: "inherit",
+    fontSize: "1em",
+    marginBottom: "0.6em",
+  },
+  [`.${CSS.referencePreview} section > div > p:first-child`]: {
+    marginTop: "0",
   },
   // CM6's positioning rectangle follows browser caret metrics, which Firefox
   // expands to the full line height on an empty row. Keep that rectangle for

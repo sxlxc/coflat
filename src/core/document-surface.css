@@ -10,7 +10,7 @@
   --cf-syntax-string: #27683d;
   --cf-syntax-number: #945c17;
   --cf-selection: rgb(180, 215, 255);
-  --cf-content-font: KaTeX_Main, "Times New Roman", serif;
+  --cf-content-font: KaTeX_Main, ui-serif, serif;
   --cf-code-font: Monaco, "DejaVu Sans Mono", Consolas, monospace;
   --cf-base-font-size: 18px;
   --cf-line-height: 1.4;

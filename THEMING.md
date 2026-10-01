@@ -33,7 +33,7 @@ Revealed inline source uses the monospace font with `--cf-fg` text on the normal
 
 Selections use `--cf-selection`, which defaults to macOS-style light blue. Source spans have no opaque fill that could cover the selected text. Rendered inline math and references keep immediately following closing punctuation on the same visual line using a `.cf-inline-no-break` wrapper. Long rendered content wraps within the editor width, with punctuation beside its final visual line. This is presentation only: punctuation remains selectable source, and entering the inline node restores normal source wrapping.
 
-Completion menus and `.cf-reference-preview` tooltips use the same `--cf-bg`, `--cf-fg`, `--cf-border`, `--cf-muted`, and `--cf-selection` tokens. Their width is bounded by the viewport, and long reference previews scroll within the popup.
+Completion menus and `.cf-reference-preview` tooltips use the same `--cf-bg`, `--cf-fg`, `--cf-border`, `--cf-muted`, and `--cf-selection` tokens. Reference previews use the main body's `--cf-content-font`, `--cf-base-font-size`, and `--cf-line-height`, including their muted reference keys. They are 42rem wide, capped at the viewport width minus 24px; long previews scroll within the popup.
 
 `--cf-content-max-width` is the usable text measure; responsive inline padding
 is added outside that width. The default document scale is 18px with a 1.4 line
