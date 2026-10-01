@@ -27,9 +27,11 @@ import {
   type TableCellAlignment,
 } from "../../core/table-surface";
 import { appendPlanChildren, type InlinePlan } from "./inline-preview";
+import { linkDestination } from "./link-navigation";
 import { resolvePandocNode } from "./cursor-context";
 import { changedBlockRanges, selectionSourceRanges } from "./decoration-ranges";
 import {
+  getPandocInvalidations,
   getPandocTree,
 } from "./pandoc-cst-field";
 import {
@@ -198,22 +200,23 @@ function rowCellSlots(row: SyntaxNode): readonly TableCellSlot[] {
   }));
 }
 
-function inlinePlan(node: SyntaxNode): InlinePlan {
+function inlinePlan(node: SyntaxNode, tree: SyntaxTree): InlinePlan {
   return Object.freeze({
     kind: node.kind,
+    destination: linkDestination(node, tree),
     text: node.text(),
-    children: Object.freeze([...node.children()].map(inlinePlan)),
+    children: Object.freeze([...node.children()].map((node) => inlinePlan(node, tree))),
   });
 }
 
-function cellInlinePlans(cell: SyntaxNode | null): readonly InlinePlan[] {
+function cellInlinePlans(cell: SyntaxNode | null, tree: SyntaxTree): readonly InlinePlan[] {
   if (!cell) return Object.freeze([]);
   const children = [...cell.children()];
   let from = 0;
   let to = children.length;
   while (from < to && children[from]?.kind === "Space") from += 1;
   while (to > from && children[to - 1]?.kind === "Space") to -= 1;
-  return Object.freeze(children.slice(from, to).map(inlinePlan));
+  return Object.freeze(children.slice(from, to).map((node) => inlinePlan(node, tree)));
 }
 
 function normalizedSlots(
@@ -228,12 +231,12 @@ function normalizedSlots(
   return slots;
 }
 
-function rowPlan(row: SyntaxNode, columns: number): TableRowPlan {
+function rowPlan(row: SyntaxNode, columns: number, tree: SyntaxTree): TableRowPlan {
   return Object.freeze({
     cells: Object.freeze(normalizedSlots(row, columns).map((slot) => Object.freeze({
       from: slot.node?.from ?? slot.from,
       to: slot.node?.to ?? slot.to,
-      inline: cellInlinePlans(slot.node),
+      inline: cellInlinePlans(slot.node, tree),
     }))),
   });
 }
@@ -265,9 +268,9 @@ function buildTablePlan(table: SyntaxNode, tree: SyntaxTree): TablePlan {
     header: headRows[0] && [...headRows[0].children()].some((child) => (
       child.kind === "TableCell" && child.text().trim().length > 0
     ))
-      ? rowPlan(headRows[0], columns)
+      ? rowPlan(headRows[0], columns, tree)
       : null,
-    body: Object.freeze(bodyRows.map((row) => rowPlan(row, columns))),
+    body: Object.freeze(bodyRows.map((row) => rowPlan(row, columns, tree))),
   });
 }
 
@@ -410,6 +413,7 @@ function resolveWidgetTable(
 }
 
 class CstTableWidget extends WidgetType {
+  private readonly linkKey: string;
   constructor(
     private readonly plan: TablePlan,
     private readonly preview: boolean,
@@ -418,10 +422,21 @@ class CstTableWidget extends WidgetType {
     private readonly macrosKey: string,
   ) {
     super();
+    const destinations: string[] = [];
+    const collect = (inline: InlinePlan): void => {
+      if (inline.destination) destinations.push(inline.destination);
+      for (const child of inline.children) collect(child);
+    };
+    for (const row of [plan.header, ...plan.body]) {
+      for (const cell of row?.cells ?? []) for (const inline of cell.inline) collect(inline);
+    }
+    this.linkKey = JSON.stringify(destinations);
   }
 
   eq(other: CstTableWidget): boolean {
     return other.plan.raw === this.plan.raw
+      // Resolved reference destinations can change while table source stays identical.
+      && other.linkKey === this.linkKey
       && other.preview === this.preview
       && other.selected === this.selected
       && other.macrosKey === this.macrosKey;
@@ -436,7 +451,6 @@ class CstTableWidget extends WidgetType {
     surface.dataset.cstNode = "PipeTable";
     surface.dataset.sourceFrom = String(this.plan.sourceFrom);
     surface.dataset.sourceTo = String(this.plan.sourceTo);
-    surface.title = "Edit table";
 
     const table = createTableSurfaceElement(ownerDocument);
     table.setAttribute(
@@ -605,7 +619,8 @@ function updateTableDecorations(
   transaction: Transaction,
   selectionSignature: string,
 ): DecorationSet {
-  const changed = changedBlockRanges(transaction);
+  const changed = changedBlockRanges(transaction,
+    getPandocInvalidations(transaction.state).semanticChangedRanges);
   const oldRanges = [...changed.oldRanges];
   const newRanges = [...changed.newRanges];
   if (selectionSignature !== value.selectionSignature) {

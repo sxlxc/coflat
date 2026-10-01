@@ -196,7 +196,6 @@ function createToggleButton(
     "aria-label",
     expanded ? "Hide YAML metadata" : "Edit YAML metadata",
   );
-  button.title = expanded ? "Hide YAML metadata" : "Edit YAML metadata";
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();

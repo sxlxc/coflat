@@ -170,6 +170,25 @@ describe("CST YAML metadata presentation", () => {
     expect(parent.querySelectorAll(`.${CSS.mathError}`)).toHaveLength(0);
   });
 
+  it("renders title math and updates macros in collapsed and expanded metadata", () => {
+    const doc = "---\ntitle: '数学 **Title** $\\R$ and \\(x^2\\)'\nmath:\n  R: '\\mathbb{R}'\n---\n\nBody";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    expect(parent.querySelectorAll(".cf-doc-title .katex")).toHaveLength(2);
+    expect(parent.querySelector(".cf-doc-title strong")?.textContent).toBe("Title");
+    expect(editor.state.doc.toString()).toBe(doc);
+    parent.querySelector<HTMLButtonElement>(`.${CSS.yamlToggle}`)?.click();
+    expect(parent.querySelectorAll(".cf-doc-title .katex")).toHaveLength(2);
+    const from = doc.indexOf("mathbb{R}");
+    editor.dispatch({ changes: { from, to: from + 9, insert: "mathbf{Q}" } });
+    expect(parent.querySelector(".cf-doc-title .katex")?.textContent).toContain("Q");
+    parent.querySelector<HTMLButtonElement>(`.${CSS.yamlToggle}`)?.click();
+    expect(parent.querySelector(".cf-doc-title .katex")?.textContent).toContain("Q");
+    expect(getPandocTree(editor.state).text).toBe(editor.state.doc.toString());
+    expect(undo(editor)).toBe(true);
+    expect(editor.state.doc.toString()).toBe(doc);
+  });
+
   it("keeps title-less bibliography metadata hidden and available to loaders", () => {
     const doc = "---\nbibliography: references.bib\n---\nBody";
     const parent = mount(doc);

@@ -1,3 +1,4 @@
+import { plugins } from "@citation-js/core";
 import type { CslJsonItem } from "../../core/citations/csl-json";
 import defaultCslStyle from "./ieee.csl?raw";
 import type {
@@ -365,12 +366,12 @@ export class CslProcessor implements CitationFormatter {
     entries: readonly CslJsonItem[],
     styleXml?: string,
   ): Promise<CslProcessor> {
-    const [core, { default: CSL }] = await Promise.all([
-      import("@citation-js/core"),
+    // load-bibliography is already lazy-loaded; BibTeX also imports core statically.
+    const [{ default: CSL }] = await Promise.all([
       import("citeproc"),
       import("@citation-js/plugin-csl"),
     ]);
-    const { locales } = core.plugins.config.get("@csl");
+    const { locales } = plugins.config.get("@csl");
     const items = new Map(entries.map((entry) => [entry.id, entry]));
     // Own the engine directly: citation-js retains its engines and their item
     // closures in a module-level cache with no release operation.

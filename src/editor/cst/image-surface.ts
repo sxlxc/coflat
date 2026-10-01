@@ -67,7 +67,6 @@ class ImageWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const surface = view.dom.ownerDocument.createElement("div");
     surface.className = CSS.imagePreview;
-    surface.title = "Edit image";
     const image = view.dom.ownerDocument.createElement("img");
     image.alt = this.alt;
     const src = decodedDestination(view.dom.ownerDocument, this.src);

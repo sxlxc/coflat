@@ -14,6 +14,9 @@ const editor = mountEditor({
   async readTextResource(path) {
     return workspace.readTextRelativeToCurrentDocument(path);
   },
+  async readImageResource(path) {
+    return workspace.readImageRelativeToCurrentDocument(path);
+  },
   saveHandler,
   statusEvents,
   editingAssistance: {
@@ -44,6 +47,8 @@ retry policy.
 `readTextResource(path)` is optional unless the document declares YAML `bibliography`. Coflat passes each `bibliography` path and the optional `csl` path exactly as written; the host resolves it relative to the current document and returns UTF-8 text. Bibliography progress and failures are reported through `statusEvents.onBibliographyStatusChange`. Coflat never reads the host filesystem directly.
 
 `readImageResource(path)` optionally loads standalone image previews from host-managed storage and returns a `Blob` (or `File`). Coflat passes the decoded Markdown destination; the host owns URL/path resolution and access policy. When supplied, Coflat never requests the source URL, including on failure. It creates a temporary object URL for the returned bytes and revokes it when the preview is removed or the editor unmounts; late results for removed previews are ignored. Load failures leave the source editable and expose an error on the image tooltip. The callback never changes document text. Without this callback, safe image URLs retain their normal browser resolution against the host page.
+
+Rendered links follow their destination on Option/Alt-click; ordinary clicks keep source editing available. Fragment links jump to headings (including generated identifiers), labeled fenced divs, and equations without changing the document. External links use standard anchor clicks, which hosts can intercept to open a system browser. Source-reveal surfaces do not display native “Edit…” hover tooltips; accessibility labels remain available.
 
 `editingAssistance` is accepted by both `mountEditor` and `createEditor`. Omit it for the defaults shown above, set it to `false` to disable all editing aids, or provide a partial `EditingAssistanceOptions` object. Options are applied when the editor is created.
 

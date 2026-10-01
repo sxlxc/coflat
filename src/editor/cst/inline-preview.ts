@@ -5,6 +5,7 @@ import { renderKatexToHtml } from "../render/katex-render";
 
 export interface InlinePlan {
   readonly kind: NodeKind;
+  readonly destination?: string | null;
   readonly text: string;
   readonly children: readonly InlinePlan[];
 }
@@ -139,8 +140,14 @@ function appendInlinePlan(
     }
     case "Link":
     case "AutoLink":
+    case "ReferenceCandidate":
     case "Image": {
-      const link = ownerDocument.createElement("span");
+      if (plan.kind === "ReferenceCandidate" && !plan.destination) {
+        appendText(parent, ownerDocument, plan.text);
+        return;
+      }
+      const link = ownerDocument.createElement(plan.destination ? "a" : "span");
+      if (plan.destination) link.setAttribute("href", plan.destination);
       link.className = CSS.linkRendered;
       appendLinkLabel(link, ownerDocument, plan, macros);
       parent.appendChild(link);

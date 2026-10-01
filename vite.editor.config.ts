@@ -98,8 +98,11 @@ export default defineConfig(({ mode }) => ({
         return isEditorExternalDependency(id);
       },
       output: {
-        // Keep the three small public entries self-contained where possible.
+        // Keep KaTeX separate so hosts can chunk the editor without importing private sources.
         chunkFileNames: "shared/[name]-[hash].mjs",
+        codeSplitting: {
+          groups: [{ name: "math", test: /[/\\]node_modules[/\\]katex[/\\]/ }],
+        },
       },
     },
   },

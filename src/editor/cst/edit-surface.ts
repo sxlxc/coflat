@@ -48,6 +48,7 @@ import {
   fencedDivTitleRange,
   getDocumentPresentation,
 } from "./document-presentation";
+import { cstLinkNavigation, linkDestination } from "./link-navigation";
 import { getPandocTree } from "./pandoc-cst-field";
 import { cstImageDecorationField, isBlockImage } from "./image-surface";
 import { addOpaqueSourceHighlights, addSourceToken } from "./source-highlighting";
@@ -315,12 +316,12 @@ class CstFencedDivReferenceWidget extends WidgetType {
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const reference = view.dom.ownerDocument.createElement("span");
+    const reference = view.dom.ownerDocument.createElement("a");
+    reference.setAttribute("href", `#${encodeURIComponent(this.target.id)}`);
     reference.className = CSS.fencedDivReference;
     reference.dataset.referenceId = this.target.id;
     reference.textContent = this.target.label;
     reference.setAttribute("aria-label", this.source);
-    reference.title = `Edit reference to ${this.target.id}`;
     bindSourceReveal(reference, view, this.editPosition);
     return reference;
   }
@@ -530,7 +531,6 @@ class CstMathWidget extends WidgetType {
     surface.style.cursor = "pointer";
     surface.dataset.sourceFrom = String(this.sourceFrom);
     surface.dataset.sourceTo = String(this.sourceTo);
-    surface.title = this.isDisplay ? "Edit display math" : "Edit inline math";
 
     const eventType = this.isDisplay ? "mousedown" : "click";
     surface.addEventListener(eventType, (event) => {
@@ -782,7 +782,6 @@ function addFencedDivPresentation(
         "data-block-class": presentation.className,
         ...(presentation.id ? { "data-reference-id": presentation.id } : {}),
         "aria-label": state.sliceDoc(from, to),
-        title: "Edit fenced div attributes",
       },
     }).range(from, to));
     const label = presentation.number === undefined
@@ -874,11 +873,15 @@ function addLinkPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
   node: SyntaxNode,
   active: boolean,
+  destination: string | null,
 ): void {
-  ranges.push(Decoration.mark({ class: active ? CSS.inlineSource : CSS.linkRendered })
+  ranges.push(Decoration.mark({
+    class: active ? CSS.inlineSource : CSS.linkRendered,
+    ...(destination ? { tagName: "a", attributes: { href: destination } } : {}),
+  })
     .range(node.from, node.to));
   for (const child of node.children()) {
-    if (!LINK_SOURCE_KINDS.has(child.kind)) continue;
+    if (!LINK_SOURCE_KINDS.has(child.kind) && !(node.kind === "AutoLink" && child.kind === "Delimiter")) continue;
     ranges.push(
       active
         ? Decoration.mark({ class: CSS.inlineSource }).range(child.from, child.to)
@@ -1453,9 +1456,11 @@ function buildCstEditDecorations(
           return false;
         case "Link":
         case "AutoLink":
+        case "ReferenceCandidate":
+          if (node.kind === "ReferenceCandidate" && !tree.semantics.reference(node).destination) return;
           if (decorated.has(key)) return;
           decorated.add(key);
-          addLinkPresentation(ranges, node, isActive);
+          addLinkPresentation(ranges, node, isActive, linkDestination(node, tree));
           return;
         case "AtxHeading":
           if (decorated.has(key)) return;
@@ -1819,6 +1824,7 @@ export const cstEditTheme: Extension = EditorView.theme({
 });
 
 export const cstEditSurface: Extension = [
+  cstLinkNavigation,
   cstYamlMetadataField,
   cstDocumentPresentationField,
   cstCitationSurface,

@@ -344,7 +344,6 @@ class CitationWidget extends WidgetType {
       .join(";");
     element.innerHTML = this.html;
     element.setAttribute("aria-label", this.cluster.raw);
-    element.title = "Edit citation";
     bindSourceReveal(element, view);
     return element;
   }
