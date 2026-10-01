@@ -703,6 +703,13 @@ function addAtxHeadingPresentation(
   }
 }
 
+function selectionTouchesHeading(state: EditorState, node: SyntaxNode): boolean {
+  // Heading CST ranges include the trailing newline, but the next line's
+  // caret must not reveal the heading source.
+  const lastLine = state.doc.lineAt(node.to - 1);
+  return selectionTouchesSourceRange(state, node.from, lastLine.to);
+}
+
 function addSetextHeadingPresentation(
   ranges: Array<ReturnType<Decoration["range"]>>,
   state: EditorState,
@@ -1418,7 +1425,7 @@ function buildCstEditDecorations(
           if (decorated.has(key)) return false;
           decorated.add(key);
           ranges.push(
-            active.has(nodeKey(heading))
+            selectionTouchesHeading(state, heading)
               ? Decoration.mark({ class: CSS.inlineSource }).range(node.from, node.to)
               : Decoration.replace({}).range(node.from, node.to),
           );
@@ -1465,7 +1472,7 @@ function buildCstEditDecorations(
         case "AtxHeading":
           if (decorated.has(key)) return;
           decorated.add(key);
-          addAtxHeadingPresentation(ranges, state, node, isActive);
+          addAtxHeadingPresentation(ranges, state, node, selectionTouchesHeading(state, node));
           return;
         case "SetextHeading":
           if (decorated.has(key)) return;

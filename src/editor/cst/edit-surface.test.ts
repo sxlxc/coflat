@@ -369,22 +369,32 @@ describe("CST edit surface block presentation", () => {
   it.each([
     "# Introduction 中文 😀 {#sec:introduction}",
     "Introduction 中文 😀 {#sec:introduction}\n==========",
-  ])("reveals heading attributes only while editing: %s", (heading) => {
+  ].flatMap((heading) => ["\n", "\r\n"].map((newline) => ({ heading, newline }))))("reveals heading attributes only while editing: $heading ($newline)", ({ heading, newline }) => {
     const doc = `Before.\n\n${heading}\n\nAfter.`;
-    const parent = mount(doc);
+    const parent = mount(doc.replaceAll("\n", newline));
     const view = editor;
     if (!view) throw new Error("Missing editor");
     const tree = getPandocTree(view.state);
     expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
 
-    for (const anchor of [doc.indexOf("Introduction"), doc.indexOf("sec:introduction")]) {
+    const headingEnd = doc.indexOf(heading) + heading.length;
+    for (const anchor of [doc.indexOf("Introduction"), doc.indexOf("sec:introduction"), headingEnd]) {
       view.dispatch({ selection: { anchor } });
       expect(parent.querySelector(`.${CSS.inlineSource}`)?.textContent).toBe("{#sec:introduction}");
       expect(view.state.selection.main.head).toBe(anchor);
       expect(getPandocTree(view.state)).toBe(tree);
     }
 
+    for (const anchor of [headingEnd + 1, headingEnd + 2]) {
+      view.dispatch({ selection: { anchor } });
+      expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
+      expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("# Introduction");
+      expect(view.state.selection.main.head).toBe(anchor);
+      expect(getPandocTree(view.state)).toBe(tree);
+    }
+
     const from = doc.indexOf("sec:introduction");
+    view.dispatch({ selection: { anchor: from } });
     view.dispatch({ changes: { from, to: from + "sec:introduction".length, insert: "sec:修改" } });
     expect(parent.querySelector(`.${CSS.inlineSource}`)?.textContent).toBe("{#sec:修改}");
     expect(getPandocTree(view.state).text).toBe(view.state.doc.toString());

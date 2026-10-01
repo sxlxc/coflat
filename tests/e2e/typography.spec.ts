@@ -257,6 +257,8 @@ test("reveals heading labels in monospace through keyboard navigation", async ({
   await expect(heading).not.toContainText("{#sec:introduction}");
   await page.locator(".cm-content").focus();
   await page.keyboard.press("ArrowUp");
+  await expect(heading).not.toContainText("{#sec:");
+  await expect(heading).toHaveClass(/cf-heading-source-hidden/);
   await page.keyboard.press("ArrowUp");
   const label = heading.locator(".cf-inline-source");
   await expect(label).toHaveText("{#sec:introduction}");
@@ -271,6 +273,8 @@ test("reveals heading labels in monospace through keyboard navigation", async ({
   await page.keyboard.insertText("-edited");
   await expect(label).toHaveText("{#sec:introduction-edited}");
   await page.keyboard.press("ArrowDown");
+  await expect(heading).not.toContainText("{#sec:");
+  await expect(heading).toHaveClass(/cf-heading-source-hidden/);
   await page.keyboard.press("ArrowDown");
   await expect(heading).not.toContainText("{#sec:");
   expect(await page.evaluate(() => (window as unknown as {
