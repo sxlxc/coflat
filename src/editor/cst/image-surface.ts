@@ -50,16 +50,24 @@ class ImageWidget extends WidgetType {
     private readonly alt: string,
     private readonly width: string,
     private readonly height: string,
+    private readonly selected = false,
   ) { super(); }
 
   eq(other: ImageWidget): boolean {
     return this.source === other.source && this.from === other.from
-      && this.src === other.src;
+      && this.src === other.src && this.selected === other.selected;
+  }
+
+  withSelection(selected: boolean): ImageWidget {
+    return selected === this.selected ? this : new ImageWidget(
+      this.source, this.from, this.src, this.alt, this.width, this.height, selected,
+    );
   }
 
   updateDOM(surface: HTMLElement, view: EditorView, previous: ImageWidget): boolean {
     if (this.source !== previous.source || this.src !== previous.src) return false;
     // Position-only edits keep both loaded images and pending host reads alive.
+    surface.classList.toggle(CSS.selectionRange, this.selected);
     this.bindSourceSelection(surface, view);
     return true;
   }
@@ -67,6 +75,7 @@ class ImageWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const surface = view.dom.ownerDocument.createElement("div");
     surface.className = CSS.imagePreview;
+    surface.classList.toggle(CSS.selectionRange, this.selected);
     const image = view.dom.ownerDocument.createElement("img");
     image.alt = this.alt;
     const src = decodedDestination(view.dom.ownerDocument, this.src);
@@ -170,7 +179,7 @@ function imagePlans(state: EditorState): readonly ImagePlan[] {
 function imageDecorations(state: EditorState, plans: readonly ImagePlan[]): ImageState {
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   for (const { from, to, widget } of plans) {
-    const active = state.selection.ranges.some((range) => range.from <= to && range.to >= from);
+    const active = state.selection.ranges.some((range) => from <= range.anchor && range.anchor <= to);
     if (active) {
       ranges.push(Decoration.widget({ widget, block: true, side: -1 }).range(state.doc.lineAt(from).from));
       const last = state.doc.lineAt(to).number;
@@ -178,7 +187,8 @@ function imageDecorations(state: EditorState, plans: readonly ImagePlan[]): Imag
         ranges.push(Decoration.line({ class: CSS.imageSource }).range(state.doc.line(line).from));
       }
     } else {
-      ranges.push(Decoration.replace({ widget, block: true }).range(from, to));
+      const selected = state.selection.ranges.some((range) => range.from <= from && to <= range.to);
+      ranges.push(Decoration.replace({ widget: widget.withSelection(selected), block: true }).range(from, to));
     }
   }
   return { plans, decorations: Decoration.set(ranges, true) };

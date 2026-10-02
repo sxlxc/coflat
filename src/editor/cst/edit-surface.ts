@@ -147,6 +147,12 @@ function selectionTouchesSourceRange(
   ));
 }
 
+function sourceRangeIsActive(state: EditorState, from: number, to: number): boolean {
+  // Source visibility follows the fixed anchor so extending a selection cannot
+  // expand or collapse the content beneath its moving head.
+  return state.selection.ranges.some((range) => from <= range.anchor && range.anchor <= to);
+}
+
 function rangeContainsNode(
   ranges: readonly { readonly from: number; readonly to: number }[],
   node: SyntaxNode,
@@ -382,12 +388,8 @@ function activeNodeKeys(state: EditorState, tree: SyntaxTree): ReadonlySet<strin
   // Keep source visible at both boundaries. Hiding a closing delimiter under
   // the caret makes Firefox move its DOM selection back before that delimiter.
   for (const range of state.selection.ranges) {
-    addAncestors(active, resolvePandocNode(tree, range.head, "right"));
-    addAncestors(active, resolvePandocNode(tree, range.head, "left"));
-    if (range.anchor !== range.head) {
-      addAncestors(active, resolvePandocNode(tree, range.anchor, "right"));
-      addAncestors(active, resolvePandocNode(tree, range.anchor, "left"));
-    }
+    addAncestors(active, resolvePandocNode(tree, range.anchor, "right"));
+    addAncestors(active, resolvePandocNode(tree, range.anchor, "left"));
   }
   return active;
 }
@@ -703,11 +705,11 @@ function addAtxHeadingPresentation(
   }
 }
 
-function selectionTouchesHeading(state: EditorState, node: SyntaxNode): boolean {
+function headingSourceIsActive(state: EditorState, node: SyntaxNode): boolean {
   // Heading CST ranges include the trailing newline, but the next line's
   // caret must not reveal the heading source.
   const lastLine = state.doc.lineAt(node.to - 1);
-  return selectionTouchesSourceRange(state, node.from, lastLine.to);
+  return sourceRangeIsActive(state, node.from, lastLine.to);
 }
 
 function addSetextHeadingPresentation(
@@ -774,7 +776,7 @@ function addFencedDivPresentation(
     renderedHeader: boolean,
   ): void => {
     if (from >= to) return;
-    const active = selectionTouchesSourceRange(state, from, to);
+    const active = sourceRangeIsActive(state, from, to);
     if (active || !renderedHeader) {
       suppressedSourceRanges.push({ from, to });
       ranges.push(active
@@ -980,23 +982,20 @@ function activeDisplayMathKeys(
 ): ReadonlySet<string> {
   const keys = new Set<string>();
   for (const range of state.selection.ranges) {
-    for (const position of range.empty
-      ? [range.head]
-      : [range.anchor, range.head]) {
-      const math = mathNodeAtPosition(tree, position, true);
-      if (math) {
-        keys.add(nodeKey(math));
-      } else {
-        // Replacement rows can include whitespace outside the Math CST node.
-        // A caret there must reveal the source rather than remain hidden.
-        const line = state.doc.lineAt(position);
-        tree.iterate((node) => {
-          if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
-          if (displayMathReplacementFrom(state, node) <= position
-            && position <= displayMathReplacementTo(state, node)) keys.add(nodeKey(node));
-          return false;
-        }, { from: line.from, to: line.to });
-      }
+    const position = range.anchor;
+    const math = mathNodeAtPosition(tree, position, true);
+    if (math) {
+      keys.add(nodeKey(math));
+    } else {
+      // Replacement rows can include whitespace outside the Math CST node.
+      // A caret there must reveal the source rather than remain hidden.
+      const line = state.doc.lineAt(position);
+      tree.iterate((node) => {
+        if (node.kind !== "Math" || !(node.prop(mathDisplay) ?? false)) return;
+        if (displayMathReplacementFrom(state, node) <= position
+          && position <= displayMathReplacementTo(state, node)) keys.add(nodeKey(node));
+        return false;
+      }, { from: line.from, to: line.to });
     }
   }
   return keys;
@@ -1425,7 +1424,7 @@ function buildCstEditDecorations(
           if (decorated.has(key)) return false;
           decorated.add(key);
           ranges.push(
-            selectionTouchesHeading(state, heading)
+            headingSourceIsActive(state, heading)
               ? Decoration.mark({ class: CSS.inlineSource }).range(node.from, node.to)
               : Decoration.replace({}).range(node.from, node.to),
           );
@@ -1472,7 +1471,7 @@ function buildCstEditDecorations(
         case "AtxHeading":
           if (decorated.has(key)) return;
           decorated.add(key);
-          addAtxHeadingPresentation(ranges, state, node, selectionTouchesHeading(state, node));
+          addAtxHeadingPresentation(ranges, state, node, headingSourceIsActive(state, node));
           return;
         case "SetextHeading":
           if (decorated.has(key)) return;

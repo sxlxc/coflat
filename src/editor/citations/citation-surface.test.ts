@@ -215,19 +215,42 @@ describe("CST citation surface", () => {
     const tree = getPandocTree(view.state);
     const from = source.indexOf(opener);
     const to = from + opener.length;
-    for (const [anchor, head, boundary] of [[from - 1, from, from], [to, to + 1, to]]) {
-      view.dispatch({ selection: { anchor, head } });
-      expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toBe("[1]");
+    for (const [anchor, boundary] of [[from - 1, from], [to + 1, to]]) {
+      for (const head of [boundary, source.indexOf("smith2024") + 2]) {
+        view.dispatch({ selection: { anchor, head } });
+        expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toBe("[1]");
+      }
       view.dispatch({ selection: { anchor: boundary } });
       expect(view.state.selection.main.empty).toBe(true);
       expect(view.state.selection.main.head).toBe(boundary);
       expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
       expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
-      view.dispatch({ selection: { anchor, head } });
+      view.dispatch({ selection: { anchor: boundary, head: anchor } });
+      expect(parent.querySelector(`.${CSS.fencedDivSource}`)?.textContent).toBe(opener);
+      expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+      view.dispatch({ selection: { anchor, head: boundary } });
       expect(parent.querySelector(`.${CSS.fencedDivHeader} .${CSS.citation}`)?.textContent).toBe("[1]");
       expect(view.state.doc.toString()).toBe(source);
       expect(getPandocTree(view.state)).toBe(tree);
       expect(tree.text).toBe(source);
+    }
+  });
+
+  it("keeps bibliography citations rendered when a selection passes through them", async () => {
+    const parent = mount("Before 中文 😀 [@smith2024] after.");
+    const view = EditorView.findFromDOM(parent.querySelector(".cm-editor") ?? parent);
+    if (!view) throw new Error("Missing mounted editor view");
+    await vi.waitFor(() => expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]"));
+    const source = view.state.doc.toString();
+    const tree = getPandocTree(view.state);
+    const inside = source.indexOf("smith2024") + 2;
+    for (const anchor of [source.indexOf("Before"), source.length]) {
+      view.dispatch({ selection: { anchor, head: inside } });
+      expect(parent.querySelector(`.${CSS.citation}`)?.textContent).toBe("[1]");
+      view.dispatch({ selection: { anchor: inside, head: anchor } });
+      expect(parent.querySelector(`.${CSS.citation}`)).toBeNull();
+      expect(getPandocTree(view.state)).toBe(tree);
+      expect(view.state.doc.toString()).toBe(source);
     }
   });
 

@@ -58,6 +58,29 @@ describe("standalone image previews", () => {
     expect(parent.querySelector(".cf-image-source")).toBeNull();
   });
 
+  it("keeps image source visibility fixed while extending selections", () => {
+    const doc = `Before 中文 😀.\n\n${imageSource}\n\nAfter.`;
+    mount(doc);
+    const tree = getPandocTree(editor.state);
+    const from = doc.indexOf("![");
+    for (const anchor of [0, doc.length]) {
+      editor.dispatch({ selection: { anchor } });
+      const image = parent.querySelector("img");
+      for (const head of [from, from + 10, from + imageSource.length, doc.length - anchor]) {
+        editor.dispatch({ selection: { anchor, head } });
+        expect(parent.querySelector(".cf-image-source")).toBeNull();
+        expect(parent.querySelector(".cf-image-preview")?.classList.contains("cf-selection-range"))
+          .toBe(Math.min(anchor, head) <= from && Math.max(anchor, head) >= from + imageSource.length);
+        expect(parent.querySelector("img"), `Image changed for selection ${anchor}..${head}`).toBe(image);
+      }
+      editor.dispatch({ selection: { anchor: from + 10, head: anchor } });
+      expect(parent.querySelector(".cf-image-source")?.textContent).toBe(imageSource);
+      expect(parent.querySelector(".cf-image-preview.cf-selection-range")).toBeNull();
+      expect(getPandocTree(editor.state)).toBe(tree);
+      expect(editor.state.doc.toString()).toBe(doc);
+    }
+  });
+
   it.each(["![Alt](<assets/a b.png>){width=120 height='80'}", "![Alt][pic]\n\n[pic]: <assets/a b.png>"])("uses CST destinations and attributes: %s", (source) => {
     mount(`Before\r\n\r\n${source}\r\n\r\nAfter`);
     expect(parent.querySelector("img")?.getAttribute("src")).toBe("assets/a b.png");

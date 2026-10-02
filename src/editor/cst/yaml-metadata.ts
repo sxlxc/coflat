@@ -32,6 +32,7 @@ interface YamlMetadata {
 
 interface YamlMetadataDecorationState {
   readonly active: boolean;
+  readonly selected: boolean;
   readonly decorations: DecorationSet;
   readonly metadata: YamlMetadata | null;
 }
@@ -170,14 +171,12 @@ function readYamlMetadata(state: EditorState, node: SyntaxNode | null): YamlMeta
   };
 }
 
-function selectionTouchesMetadata(
+function selectionStartsInMetadata(
   state: EditorState,
   metadata: YamlMetadata,
 ): boolean {
   return state.selection.ranges.some((range) => (
-    range.empty
-      ? metadata.from <= range.head && range.head < metadata.to
-      : range.from < metadata.to && metadata.from < range.to
+    metadata.from <= range.anchor && range.anchor < metadata.to
   ));
 }
 
@@ -221,6 +220,7 @@ class YamlMetadataControlWidget extends WidgetType {
     private readonly expanded: boolean,
     private readonly target: number,
     private readonly metadata: YamlMetadata,
+    private readonly selected = false,
   ) {
     super();
   }
@@ -228,13 +228,15 @@ class YamlMetadataControlWidget extends WidgetType {
   eq(other: YamlMetadataControlWidget): boolean {
     return other.expanded === this.expanded
       && other.target === this.target
-      && other.metadata === this.metadata;
+      && other.metadata === this.metadata
+      && other.selected === this.selected;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const ownerDocument = view.dom.ownerDocument;
     const header = ownerDocument.createElement("div");
     header.className = CSS.yamlMetadataHeader;
+    header.classList.toggle(CSS.selectionRange, this.selected);
     header.appendChild(createToggleButton(
       ownerDocument,
       view,
@@ -279,6 +281,7 @@ function buildYamlMetadataDecorations(
   state: EditorState,
   metadata: YamlMetadata | null,
   active: boolean,
+  selected: boolean,
 ): DecorationSet {
   if (!metadata) return Decoration.none;
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
@@ -320,6 +323,7 @@ function buildYamlMetadataDecorations(
       false,
       metadata.editFrom,
       metadata,
+      selected,
     ),
   }).range(metadata.to));
   return Decoration.set(ranges, true);
@@ -346,13 +350,17 @@ function yamlMetadataDecorationState(
     const node = yamlMetadataNode(state);
     if (!sameYamlSource(metadata, node)) metadata = readYamlMetadata(state, node);
   }
-  const active = metadata ? selectionTouchesMetadata(state, metadata) : false;
-  if (previous && metadata === previous.metadata && active === previous.active) {
+  const active = metadata ? selectionStartsInMetadata(state, metadata) : false;
+  const selected = metadata !== null && !active && state.selection.ranges.some((range) => (
+    range.from <= metadata.from && metadata.to <= range.to
+  ));
+  if (previous && metadata === previous.metadata && active === previous.active && selected === previous.selected) {
     return previous;
   }
   return {
     active,
-    decorations: buildYamlMetadataDecorations(state, metadata, active),
+    selected,
+    decorations: buildYamlMetadataDecorations(state, metadata, active, selected),
     metadata,
   };
 }

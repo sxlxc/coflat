@@ -146,7 +146,7 @@ describe("CST block selection decorations", () => {
     )).toBe(true);
   });
 
-  it("reveals math when a selection endpoint reaches its opening source line", () => {
+  it("keeps math source at the selection anchor consistent with a full rebuild", () => {
     const extensions = [pandocCstField, cstDisplayMathDecorationField];
     const doc = "Before.\n\n$$x$$\n\nAfter.";
     const before = EditorState.create({ doc, extensions });
@@ -264,7 +264,7 @@ describe("selected fenced div traversal", () => {
 
 describe("CST inline source boundaries", () => {
   it.each(["*", "**", "`", "_", "__", "~~", "^", "~"])(
-    "keeps %s delimiters visible at either selection endpoint without reparsing",
+    "keeps %s delimiters visible at the selection anchor without reparsing",
     (markup) => {
       const body = "résumé中文😀";
       const parent = document.createElement("div");
@@ -281,7 +281,7 @@ describe("CST inline source boundaries", () => {
         for (const selection of [
           { anchor: from },
           { anchor: to },
-          { anchor: 0, head: to },
+          { anchor: from, head: source.length },
           { anchor: to, head: 0 },
         ]) {
           editor.dispatch({ selection });
@@ -294,8 +294,15 @@ describe("CST inline source boundaries", () => {
           expect(getPandocTree(editor.state)).toBe(tree);
           expect(tree.text).toBe(source);
         }
-        editor.dispatch({ selection: { anchor: source.length } });
-        expect(parent.querySelectorAll(`.${CSS.sourceDelimiter}`)).toHaveLength(0);
+        for (const anchor of [0, source.length]) {
+          for (const head of [from, from + markup.length + 1, to, source.length - anchor]) {
+            editor.dispatch({ selection: { anchor, head } });
+            expect(parent.querySelectorAll(`.${CSS.sourceDelimiter}`)).toHaveLength(0);
+            expect(editor.state.selection.main.anchor).toBe(anchor);
+            expect(editor.state.selection.main.head).toBe(head);
+            expect(getPandocTree(editor.state)).toBe(tree);
+          }
+        }
       } finally {
         editor.destroy();
         parent.remove();
@@ -390,6 +397,15 @@ describe("CST edit surface block presentation", () => {
       expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
       expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("# Introduction");
       expect(view.state.selection.main.head).toBe(anchor);
+      expect(getPandocTree(view.state)).toBe(tree);
+    }
+
+    for (const anchor of [0, doc.length]) {
+      view.dispatch({ selection: { anchor, head: doc.indexOf("Introduction") } });
+      expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("{#sec:");
+      expect(parent.querySelector(".cf-doc-heading")?.textContent).not.toContain("# Introduction");
+      view.dispatch({ selection: { anchor: headingEnd, head: anchor } });
+      expect(parent.querySelector(`.${CSS.inlineSource}`)?.textContent).toBe("{#sec:introduction}");
       expect(getPandocTree(view.state)).toBe(tree);
     }
 
@@ -761,7 +777,7 @@ describe("CST edit surface block presentation", () => {
     expect(editor?.state.doc.toString()).toBe(doc.replaceAll("\r\n", "\n"));
   });
 
-  it("reveals only the nested closing fences touched by the selection", () => {
+  it("reveals only the nested closing fence at the selection anchor", () => {
     const doc = "Before\n\n:::: {.theorem}\n中文 😀.\n::: {.proof}\nProof.\n:::\n::::\n\nAfter";
     const parent = mount(doc);
     if (!editor) throw new Error("Missing mounted editor");
@@ -783,7 +799,7 @@ describe("CST edit surface block presentation", () => {
     }
     editor.dispatch({ selection: { anchor: innerCloser, head: closer + 4 } });
     expect([...parent.querySelectorAll(`.${CSS.fencedDivSource}`)].map((fence) => fence.textContent))
-      .toEqual([":::", "::::"]);
+      .toEqual([":::"]);
     expect(getPandocTree(editor.state)).toBe(tree);
     editor.dispatch({ selection: { anchor: doc.length } });
     editor.dispatch({ changes: { from: closer, to: closer + 4 } });

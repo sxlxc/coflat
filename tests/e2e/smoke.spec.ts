@@ -348,7 +348,7 @@ test("renders fenced-div title inlines and preserves keyboard editing and undo",
   const openerEnd = source.indexOf(opener) + opener.length;
   await page.evaluate((position) => {
     const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
-    view.dispatch({ selection: { anchor: position, head: position + 1 } });
+    view.dispatch({ selection: { anchor: position + 1, head: position } });
     view.focus();
   }, openerEnd);
   await expect(header.locator(".cf-citation")).toHaveText("[1]");
@@ -360,6 +360,9 @@ test("renders fenced-div title inlines and preserves keyboard editing and undo",
     return { head: view.state.selection.main.head, empty: view.state.selection.main.empty };
   })).toEqual({ head: openerEnd, empty: true });
   await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator(".cf-fenced-div-source")).toHaveText(opener);
+  await expect(page.locator(".cf-citation")).toHaveCount(0);
+  await page.keyboard.press("ArrowRight");
   await expect(header.locator(".cf-citation")).toHaveText("[1]");
 
   await page.evaluate((position) => {
@@ -1713,7 +1716,11 @@ test("bounds multi-line code selection to text inside the padded background", as
   );
 });
 
-test("shows selected display-math and table replacements", async ({ page }) => {
+test("shows selection over block previews and collapsed metadata", async ({ page }) => {
+  await page.route("**/selection-preview.svg", (route) => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="red"/></svg>',
+  }));
   await page.evaluate(() => {
     const mounted = (window as unknown as { __coflatEditor: EditorHarness })
       .__coflatEditor;
@@ -1723,6 +1730,10 @@ test("shows selected display-math and table replacements", async ({ page }) => {
       };
     }).__coflatEditorView;
     const doc = [
+      "---",
+      "title: Selected metadata",
+      "---",
+      "",
       "Before",
       "",
       "$$x+y$$",
@@ -1731,11 +1742,13 @@ test("shows selected display-math and table replacements", async ({ page }) => {
       "| --- | --- |",
       "| Alpha | 1 |",
       "",
+      "![Selected image](selection-preview.svg)",
+      "",
       "After",
     ].join("\n");
     mounted.setDoc(doc);
     mounted.focus();
-    view.dispatch({ selection: { anchor: 0, head: doc.length } });
+    view.dispatch({ selection: { anchor: doc.length, head: 0 } });
   });
 
   const selectedMath = page.locator(
@@ -1744,9 +1757,14 @@ test("shows selected display-math and table replacements", async ({ page }) => {
   const selectedTable = page.locator(
     ".cf-cst-table.cf-selection-range:not(.cf-cst-table-preview)",
   );
+  const selectedImage = page.locator(".cf-image-preview.cf-selection-range");
+  const selectedMetadata = page.locator(".cf-yaml-metadata-header.cf-selection-range");
   await expect(selectedMath).toHaveCount(1);
   await expect(selectedTable).toHaveCount(1);
-  for (const replacement of [selectedMath, selectedTable]) {
+  await expect(selectedImage).toHaveCount(1);
+  await expect(selectedMetadata).toHaveCount(1);
+  await expect(page.locator(".cf-image-source, .cf-yaml-source")).toHaveCount(0);
+  for (const replacement of [selectedMath, selectedTable, selectedImage, selectedMetadata]) {
     expect(await replacement.evaluate((element) => (
       getComputedStyle(element).backgroundColor
     ))).not.toBe("rgba(0, 0, 0, 0)");
@@ -1917,6 +1935,11 @@ test("keeps host image previews loaded while typing and preserves SVG views", as
     context.drawImage(element, 0, 0);
     return [...context.getImageData(40, 30, 1, 1).data];
   })).toEqual([255, 0, 0, 255]);
+  await page.evaluate((length) => {
+    const view = (window as unknown as ImageFixtureWindow).__coflatEditorView;
+    view.dispatch({ selection: { anchor: 0, head: length } });
+    view.dispatch({ selection: { anchor: 0 } });
+  }, source.length);
   await page.keyboard.type("More ");
   await expect(image).toHaveAttribute("src", imageUrl ?? "");
   expect(await originalImage.evaluate((element) => element.isConnected)).toBe(true);

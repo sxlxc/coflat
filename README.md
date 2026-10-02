@@ -71,6 +71,8 @@ const editor = mountEditor({
 
 These are the defaults. With `activateOnTyping: false`, Ctrl-Space still opens enabled suggestions. Bibliography suggestions and previews use the same host-provided `readTextResource` data as citation rendering, including uncited entries. See [the host API](EDITOR-HOST-API.md) for details.
 
+While extending a selection, source visibility follows its fixed anchor: source already being edited stays open, and passing over rendered content does not expand it. This applies to both pointer and keyboard selections.
+
 Inline delimiters are hidden when inactive and revealed when the cursor enters
 or touches either boundary of their CST node. Inline math is rendered with
 Coflat's KaTeX surface when inactive; on entry, its literal Markdown source and

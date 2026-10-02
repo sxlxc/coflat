@@ -20,6 +20,103 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+for (const backward of [false, true]) {
+  test(`keeps rendered content stable during ${backward ? "backward" : "forward"} drag selection`, async ({ page }) => {
+    const source = "Before 中文 😀 *emphasis* and $\\frac{x}{y}$ after.\n\n$$\nx^2 + y^2\n$$\n\n| A | B |\n| --- | --- |\n| one | two |\n\nAfter.";
+    const anchor = backward ? source.length - 1 : 2;
+    const end = backward ? 2 : source.length - 1;
+    await page.evaluate(({ doc, anchor }) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      fixture.__coflatEditor.scrollToPosition(anchor);
+      fixture.__coflatEditor.focus();
+    }, { doc: source, anchor });
+    await page.evaluate(() => document.fonts.ready);
+    const rectangles = () => page.evaluate(() => (
+      [".cf-italic", ".cf-math-inline", ".cf-math-display", ".cf-cst-table"].map((selector) => {
+        // Selection marks can split the emphasis span without changing its layout.
+        const rects = [...document.querySelectorAll(selector)].map((element) => element.getBoundingClientRect());
+        const x = Math.min(...rects.map((rect) => rect.left));
+        const y = Math.min(...rects.map((rect) => rect.top));
+        return {
+          x, y,
+          width: Math.max(...rects.map((rect) => rect.right)) - x,
+          height: Math.max(...rects.map((rect) => rect.bottom)) - y,
+        };
+      })
+    ));
+    const before = await rectangles();
+    const expectStableLayout = async () => {
+      const after = await rectangles();
+      for (let index = 0; index < before.length; index += 1) {
+        for (const dimension of ["x", "y", "width", "height"] as const) {
+          expect(after[index][dimension]).toBeCloseTo(before[index][dimension], 0);
+        }
+      }
+    };
+    const points = await page.evaluate(({ anchor, end }) => {
+      const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+      return [anchor, end].map((position) => {
+        const rect = view.coordsAtPos(position);
+        if (!rect) throw new Error(`Missing coordinates at ${position}`);
+        return { x: rect.left, y: (rect.top + rect.bottom) / 2 };
+      });
+    }, { anchor, end });
+    await page.mouse.move(points[0].x, points[0].y);
+    await page.mouse.down();
+    for (const rect of backward ? [...before].reverse() : before) {
+      await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2, { steps: 8 });
+      await expect(page.locator(".cf-source-delimiter, .cf-math-source, .cf-table-source")).toHaveCount(0);
+      await expectStableLayout();
+    }
+    await page.mouse.move(points[1].x, points[1].y, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => selectionSnapshot(page)).toEqual({
+      anchor, head: end, domAnchor: anchor, domHead: end,
+    });
+    await expectStableLayout();
+    expect(await page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    })).toEqual({ doc: source, cst: source });
+  });
+
+  test(`keeps rendered inlines stable during ${backward ? "backward" : "forward"} keyboard selection`, async ({ page }) => {
+    const source = "Before 中文 😀 *emphasis* and $x^2$ with [link](https://example.org) after.";
+    const anchor = backward ? source.length - 1 : 2;
+    const end = backward ? 2 : source.length - 1;
+    await page.evaluate(({ doc, anchor }) => {
+      const fixture = window as unknown as EditorFixtureWindow;
+      fixture.__coflatRemount({ doc });
+      fixture.__coflatEditor.scrollToPosition(anchor);
+      fixture.__coflatEditor.focus();
+    }, { doc: source, anchor });
+    let head = anchor;
+    while (backward ? head > end : head < end) {
+      await page.keyboard.press(backward ? "Shift+ArrowLeft" : "Shift+ArrowRight");
+      const next = await page.evaluate(() => (
+        (window as unknown as EditorFixtureWindow).__coflatEditorView.state.selection.main.head
+      ));
+      expect(backward ? next < head : next > head).toBe(true);
+      head = next;
+      await expect(page.locator(".cf-source-delimiter, .cf-math-source, .cf-inline-source")).toHaveCount(0);
+      await expect(page.locator(".cf-math-inline:not(.cf-cst-math-preview)")).toHaveCount(1);
+    }
+    await expect.poll(() => selectionSnapshot(page)).toEqual({
+      anchor, head: end, domAnchor: anchor, domHead: end,
+    });
+    await page.keyboard.insertText("replacement");
+    const snapshot = () => page.evaluate(() => {
+      const editor = (window as unknown as EditorFixtureWindow).__coflatEditor;
+      return { doc: editor.getDoc(), cst: editor.getCst()?.text };
+    });
+    const edited = `${source.slice(0, Math.min(anchor, end))}replacement${source.slice(Math.max(anchor, end))}`;
+    await expect.poll(snapshot).toEqual({ doc: edited, cst: edited });
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(snapshot).toEqual({ doc: source, cst: source });
+  });
+}
+
 test("wraps keyboard selections with paired markup while preserving the DOM selection", async ({ page }) => {
   for (const [open, close] of [
     ["*", "*"], ["_", "_"], ["$", "$"], ["`", "`"], ["~", "~"], ["^", "^"],

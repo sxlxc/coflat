@@ -106,22 +106,51 @@ const headingLineNumbers = lineNumberMarkers.compute([pandocCstField], (state) =
 
 const selectionMark = Decoration.mark({ class: CSS.selectionRange });
 
-function textSelectionDecorations(state: EditorState): DecorationSet {
-  return Decoration.set(state.selection.ranges
-    .filter((range) => !range.empty)
-    .map((range) => selectionMark.range(range.from, range.to)));
+function textSelectionDecorations(view: EditorView): DecorationSet {
+  const { state, viewport } = view;
+  const marks: Array<ReturnType<typeof selectionMark.range>> = [];
+  const markText = (from: number, to: number): void => {
+    // Including a newline can also invalidate a block widget on the next line.
+    while (from < to) {
+      const line = state.doc.lineAt(from);
+      const end = Math.min(to, line.to);
+      if (from < end) marks.push(selectionMark.range(from, end));
+      from = line.to + 1;
+    }
+  };
+  for (const selection of state.selection.ranges) {
+    const selectionFrom = Math.max(selection.from, viewport.from);
+    const selectionTo = Math.min(selection.to, viewport.to);
+    if (selectionFrom >= selectionTo) continue;
+    const replacements: Array<{ from: number; to: number }> = [];
+    // Block previews paint their own selection. Marks through hidden source
+    // can make CodeMirror recreate those widgets, reloading images during a drag.
+    for (const decorations of state.facet(EditorView.decorations)) {
+      if (typeof decorations === "function") continue;
+      decorations.between(selectionFrom, selectionTo, (from, to, decoration) => {
+        if (from < to && decoration.spec.block) replacements.push({ from, to });
+      });
+    }
+    let from = selectionFrom;
+    for (const replacement of replacements.sort((a, b) => a.from - b.from)) {
+      if (from < replacement.from) markText(from, replacement.from);
+      from = Math.max(from, replacement.to);
+    }
+    if (from < selectionTo) markText(from, selectionTo);
+  }
+  return Decoration.set(marks);
 }
 
 const textSelectionHighlighter = ViewPlugin.fromClass(class {
   decorations: DecorationSet;
 
   constructor(view: EditorView) {
-    this.decorations = textSelectionDecorations(view.state);
+    this.decorations = textSelectionDecorations(view);
   }
 
   update(update: ViewUpdate): void {
-    if (update.docChanged || update.selectionSet) {
-      this.decorations = textSelectionDecorations(update.state);
+    if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      this.decorations = textSelectionDecorations(update.view);
     }
   }
 }, { decorations: (plugin) => plugin.decorations });

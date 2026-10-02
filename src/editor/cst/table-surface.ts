@@ -100,18 +100,15 @@ function pipeTableAtPosition(
   return null;
 }
 
-/** Pipe tables containing either endpoint of the current selection. */
+/** Pipe tables containing a selection anchor; extending the head keeps layout stable. */
 export function activePipeTableKeys(
   state: EditorState,
   tree: SyntaxTree,
 ): ReadonlySet<string> {
   const keys = new Set<string>();
   for (const range of state.selection.ranges) {
-    const positions = range.empty ? [range.head] : [range.anchor, range.head];
-    for (const position of positions) {
-      const table = pipeTableAtPosition(tree, position);
-      if (table) keys.add(tableNodeKey(table));
-    }
+    const table = pipeTableAtPosition(tree, range.anchor);
+    if (table) keys.add(tableNodeKey(table));
   }
   return keys;
 }

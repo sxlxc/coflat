@@ -115,6 +115,26 @@ describe("CST YAML metadata presentation", () => {
     expect(editor.state.doc.toString()).toBe(doc);
   });
 
+  it("keeps YAML source visibility fixed while extending selections", () => {
+    const doc = "---\ntitle: 中文 😀\n---\n\nBody";
+    const parent = mount(doc);
+    if (!editor) throw new Error("Missing mounted editor");
+    const tree = getPandocTree(editor.state);
+    const inside = doc.indexOf("title");
+    for (const head of [inside, 0, inside]) {
+      editor.dispatch({ selection: { anchor: doc.length, head } });
+      expect(parent.querySelector(`.${CSS.yamlSource}`)).toBeNull();
+      expect(parent.querySelector(`.${CSS.yamlToggle}`)?.getAttribute("aria-expanded")).toBe("false");
+      expect(parent.querySelector(`.${CSS.yamlMetadataHeader}`)?.classList.contains(CSS.selectionRange)).toBe(head === 0);
+    }
+    editor.dispatch({ selection: { anchor: inside, head: doc.length } });
+    expect(parent.querySelectorAll(`.${CSS.yamlSource}`)).toHaveLength(3);
+    expect(parent.querySelector(`.${CSS.yamlToggle}`)?.getAttribute("aria-expanded")).toBe("true");
+    expect(parent.querySelector(`.${CSS.yamlMetadataHeader}.${CSS.selectionRange}`)).toBeNull();
+    expect(getPandocTree(editor.state)).toBe(tree);
+    expect(editor.state.doc.toString()).toBe(doc);
+  });
+
   it("reveals the hidden source when keyboard navigation enters it", () => {
     const doc = "---\ntitle: Keyboard Title\n---\nBody";
     const parent = mount(doc);

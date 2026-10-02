@@ -239,17 +239,15 @@ class CitationResourceLoader {
 
 const citationResourceLoader = ViewPlugin.fromClass(CitationResourceLoader);
 
-function selectionTouches(
+function selectionStartsInCitation(
   state: EditorState,
   cluster: CitationClusterPresentation,
 ): boolean {
   const { from, to } = cluster.opener ?? cluster;
   return state.selection.ranges.some((range) => (
-    range.empty
-      ? cluster.opener
-        ? from <= range.head && range.head <= to
-        : from < range.head && range.head < to
-      : range.from < to && from < range.to
+    cluster.opener
+      ? from <= range.anchor && range.anchor <= to
+      : from < range.anchor && range.anchor < to
   ));
 }
 
@@ -427,13 +425,13 @@ function citationSelectionSignature(
     while (from < to) {
       const middle = (from + to) >>> 1;
       const cluster = citations[middle].cluster;
-      if ((cluster.opener ? cluster.opener.to + 1 : cluster.to) <= range.from) from = middle + 1;
+      if ((cluster.opener ? cluster.opener.to + 1 : cluster.to) <= range.anchor) from = middle + 1;
       else to = middle;
     }
     for (let index = from; index < citations.length; index += 1) {
       const cluster = citations[index].cluster;
-      if ((cluster.opener ? cluster.opener.from - 1 : cluster.from) >= range.to) break;
-      if (selectionTouches(state, cluster)) signature += `${index},`;
+      if ((cluster.opener ? cluster.opener.from - 1 : cluster.from) >= range.anchor) break;
+      if (selectionStartsInCitation(state, cluster)) signature += `${index},`;
     }
     signature += ";";
   }
@@ -447,7 +445,7 @@ function citationDecorationSet(
 ): DecorationSet {
   const ranges: Array<ReturnType<Decoration["range"]>> = [];
   for (const citation of citations) {
-    if (citation.inLiteralSource || selectionTouches(state, citation.cluster)) continue;
+    if (citation.inLiteralSource || selectionStartsInCitation(state, citation.cluster)) continue;
     ranges.push(Decoration.replace({
       widget: new CitationWidget(citation.cluster, citation.html),
     }).range(citation.cluster.from, citation.cluster.to));
