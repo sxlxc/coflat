@@ -154,7 +154,7 @@ export const coflatTheme = EditorView.theme({
   [`.${CSS.referencePreview} section > small`]: {
     color: "var(--cf-muted)",
     display: "block",
-    fontFamily: "inherit",
+    fontFamily: "var(--cf-code-font)",
     fontSize: "1em",
     marginBottom: "0.6em",
   },

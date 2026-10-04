@@ -373,11 +373,12 @@ test("previews rendered cross-references and citations without changing source",
     const style = getComputedStyle(element);
     return { font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
   });
+  const codeFont = await page.locator(".cm-gutters").evaluate((element) => getComputedStyle(element).fontFamily);
   for (const selector of ["section > div p", "section > small"]) {
     expect(await preview.locator(selector).evaluate((element) => {
       const style = getComputedStyle(element);
       return { font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
-    })).toEqual(bodyTypography);
+    })).toEqual({ ...bodyTypography, font: selector === "section > small" ? codeFont : bodyTypography.font });
   }
   expect((await preview.boundingBox())?.width).toBeGreaterThan(512);
   await page.screenshot({ path: testInfo.outputPath("reference-preview.png") });
