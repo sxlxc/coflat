@@ -40,6 +40,10 @@ history. To open a different file, unmount the editor and mount it with that
 file's source; the host retains any unsaved drafts. `insertText()` performs an ordinary CM6 source transaction.
 Navigation helpers use zero-based source offsets or one-based lines.
 
+`getOutline()` returns source-ordered `{ from, level, number, title }` headings from the existing CST-backed document presentation. Offsets are zero-based UTF-16 positions; numbers match the editor, including unnumbered headings and appendices. Titles contain inline Markdown source without the heading markers or attributes. Hosts choose which levels to show. The array is reused until heading data or positions change; selection changes do not rebuild it.
+
+Explicit navigation and Option/Alt-click fragment jumps request centered scrolling even when the target is already visible. Hosts can customize that placement with CodeMirror's `EditorView.scrollHandler`; ordinary caret movement retains nearest-edge scrolling.
+
 `SaveHandler` is optional. Coflat wires `Mod-s`, dirty state, and optional
 debounced autosave; the host owns persistence, authorization, conflicts, and
 retry policy.

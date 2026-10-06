@@ -1,4 +1,4 @@
-import { type EditorView, ViewPlugin } from "@codemirror/view";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { SyntaxNode, SyntaxTree } from "pandocmd-cst";
 import { isSafeUrl } from "../../core/lib/url-utils";
 import { getDocumentPresentation } from "./document-presentation";
@@ -56,7 +56,7 @@ export const cstLinkNavigation = ViewPlugin.define((view) => {
     event.stopPropagation();
     const position = fragmentPosition(view, href.slice(1));
     if (position !== null) {
-      view.dispatch({ selection: { anchor: position }, scrollIntoView: true, userEvent: "select.pointer" });
+      view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: "center" }), userEvent: "select.pointer" });
       view.focus();
     }
   };

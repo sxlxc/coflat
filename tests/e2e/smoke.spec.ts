@@ -33,6 +33,33 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#editor-root .cm-editor")).toBeVisible();
 });
 
+test("centers explicit and Option-click jumps, including an already visible target", async ({ page }) => {
+  const prose = "Paragraph with 中文 and 😀.\n\n".repeat(80);
+  const source = "# Introduction\n\n" + prose + "# Target {#target}\n\n" + prose + "[Jump](#target)\n\n" + prose;
+  const target = source.indexOf("# Target");
+  await page.evaluate((doc) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatRemount({ doc });
+    fixture.__coflatEditor.scrollToPosition(doc.indexOf("[Jump]") + "[Jump](#target)\n\n".length);
+  }, source);
+  await page.locator('a[href="#target"]').click({ modifiers: ["Alt"] });
+  const centered = () => page.evaluate((position) => {
+    const view = (window as unknown as EditorFixtureWindow).__coflatEditorView;
+    const caret = view.coordsAtPos(position);
+    if (!caret || view.state.selection.main.head !== position) return false;
+    const ratio = ((caret.top + caret.bottom) / 2 - view.scrollDOM.getBoundingClientRect().top) / view.scrollDOM.clientHeight;
+    return Math.abs(ratio - 0.5) < 0.03;
+  }, target);
+  await expect.poll(centered).toBe(true);
+  await page.evaluate((position) => {
+    const fixture = window as unknown as EditorFixtureWindow;
+    fixture.__coflatEditorView.scrollDOM.scrollTop += 80;
+    fixture.__coflatEditor.scrollToPosition(position);
+  }, target);
+  await expect.poll(centered).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as EditorFixtureWindow).__coflatEditor.getDoc())).toBe(source);
+});
+
 test("aligns source line numbers through wrapping, hidden fences, and keyboard edits", async ({ page }) => {
   const source = [
     "Before 中文 😀.", "", "::: {.theorem #thm:main}",

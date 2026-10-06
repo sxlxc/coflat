@@ -17,6 +17,7 @@ import {
   citationResourceExtension,
 } from "./src/editor/citations/citation-surface";
 import { getPandocCursorContext } from "./src/editor/cst/cursor-context";
+import { getDocumentPresentation, type HeadingPresentation } from "./src/editor/cst/document-presentation";
 import { imageResourceFacet } from "./src/editor/cst/image-surface";
 import { getPandocTree } from "./src/editor/cst/pandoc-cst-field";
 import {
@@ -74,6 +75,14 @@ export interface EditorDocumentChange {
   readonly changes: ChangeSet;
   /** The authoritative CST snapshot published with the changed CM6 document. */
   readonly tree: PandocCstSnapshot;
+}
+
+/** A numbered heading from the editor's CST-backed document presentation. */
+export interface EditorHeading {
+  readonly from: number;
+  readonly level: number;
+  readonly number: string;
+  readonly title: string;
 }
 
 export interface EditorInsertTextOptions {
@@ -148,6 +157,7 @@ export interface MountedEditor {
   /** Return the CST snapshot paired with the current document. */
   getCst(): PandocCstSnapshot | null;
   getCursorContext(): PandocCursorContext | null;
+  getOutline(): readonly EditorHeading[];
   setDoc(doc: string): void;
   insertText(text: string, options?: EditorInsertTextOptions): void;
   getVisibleSourcePosition(
@@ -186,7 +196,6 @@ function scrollToPosition(
       target,
       options.center === false ? undefined : { y: "center" },
     ),
-    scrollIntoView: select,
     userEvent: select ? "select" : undefined,
   });
 }
@@ -214,6 +223,8 @@ function visibleSourcePosition(
 export function mountEditor(options: MountEditorOptions): MountedEditor {
   const initialDoc = options.doc ?? "";
   let view: EditorView | null = null;
+  let outlineHeadings: ReadonlyMap<number, HeadingPresentation> | undefined;
+  let outline: readonly EditorHeading[] = [];
   let currentDoc = initialDoc;
   let lastSavedDoc = initialDoc;
   let dirty = false;
@@ -340,6 +351,25 @@ export function mountEditor(options: MountEditorOptions): MountedEditor {
 
     getCursorContext() {
       return view ? getPandocCursorContext(view.state) : null;
+    },
+
+    getOutline() {
+      if (!view) return [];
+      const headings = getDocumentPresentation(view.state).headingsByFrom;
+      if (headings !== outlineHeadings) {
+        outlineHeadings = headings;
+        const nextOutline = Array.from(headings, ([from, { level, number, title }]) => ({ from, level, number, title }));
+        // Unrelated structural edits can rebuild the presentation's heading map.
+        const unchanged = nextOutline.length === outline.length && nextOutline.every((heading, index) => {
+          const previous = outline[index];
+          return previous?.from === heading.from
+            && previous.level === heading.level
+            && previous.number === heading.number
+            && previous.title === heading.title;
+        });
+        if (!unchanged) outline = nextOutline;
+      }
+      return outline;
     },
 
     setDoc(doc) {

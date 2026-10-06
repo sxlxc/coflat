@@ -43,6 +43,54 @@ function mountHostEditor(options: {
 }
 
 describe("mountEditor", () => {
+  it("exposes numbered CST headings and keeps their UTF-16 destinations current", () => {
+    const doc = "---\ntitle: Paper\n---\n\n😀 中文\n\n# Intro {#sec:intro}\n\n## Detail\n\n### Deep\n\n```md\n# Not a section\n```\n\n# Aside {-}\n\n# Appendix {.appendix}\n\n## Proof\n\nEnd.";
+    const { editor, view } = mountHostEditor({ doc });
+    const outline = editor.getOutline();
+    expect(outline).toEqual([
+      { from: doc.indexOf("# Intro"), level: 1, number: "1", title: "Intro" },
+      { from: doc.indexOf("## Detail"), level: 2, number: "1.1", title: "Detail" },
+      { from: doc.indexOf("### Deep"), level: 3, number: "1.1.1", title: "Deep" },
+      { from: doc.indexOf("# Aside"), level: 1, number: "", title: "Aside" },
+      { from: doc.indexOf("# Appendix"), level: 1, number: "", title: "Appendix" },
+      { from: doc.indexOf("## Proof"), level: 2, number: "A.1", title: "Proof" },
+    ]);
+    editor.scrollToPosition(doc.indexOf("End."));
+    expect(editor.getOutline()).toBe(outline);
+    view.dispatch({ changes: { from: doc.indexOf("😀"), insert: "More 😀\n\n" } });
+    expect(editor.getOutline().map((heading) => heading.from)).toEqual(outline.map((heading) => heading.from + "More 😀\n\n".length));
+    const shiftedOutline = editor.getOutline();
+    const current = editor.getDoc();
+    view.dispatch({ changes: { from: current.indexOf("## Detail"), to: current.indexOf("## Detail") + 9, insert: "# Updated" } });
+    expect(editor.getOutline()[1]).toMatchObject({ level: 1, number: "2", title: "Updated" });
+    expect(undo(view)).toBe(true);
+    expect(editor.getOutline()).toEqual(shiftedOutline);
+    expect(undo(view)).toBe(true);
+    expect(editor.getOutline()).toEqual(outline);
+    editor.setDoc("No headings\n");
+    expect(editor.getOutline()).toEqual([]);
+    editor.setDoc("Setext\n======\n\nChild\n-----\n");
+    expect(editor.getOutline().map(({ title, level, number }) => ({ title, level, number }))).toEqual([
+      { title: "Setext", level: 1, number: "1" }, { title: "Child", level: 2, number: "1.1" },
+    ]);
+  });
+
+  it.each([
+    ["populated", "# Intro\n\n## Detail\n\n"],
+    ["empty", ""],
+  ])("reuses the %s outline after unrelated structural edits", (_name, headings) => {
+    const doc = `${headings}::: {.theorem #thm:old}\nStatement.\n:::\n`;
+    const { editor, view } = mountHostEditor({ doc });
+    const outline = editor.getOutline();
+    const from = doc.indexOf("thm:old");
+
+    view.dispatch({ changes: { from, to: from + "thm:old".length, insert: "thm:renamed" } });
+    expect(editor.getDoc()).toBe(doc.replace("thm:old", "thm:renamed"));
+    expect(editor.getOutline()).toBe(outline);
+    expect(undo(view)).toBe(true);
+    expect(editor.getOutline()).toBe(outline);
+  });
+
   it("mounts one editable CST-backed document surface", () => {
     const parent = document.createElement("div");
     const editor = mountEditor({ parent, doc: "# Title\n\nText." });

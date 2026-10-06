@@ -61,6 +61,7 @@ export interface EquationPresentation {
 
 export interface HeadingPresentation {
   readonly kind: "AtxHeading" | "SetextHeading";
+  readonly level: number;
   readonly id?: string;
   readonly number: string;
   readonly title: string;
@@ -256,6 +257,7 @@ export function buildDocumentPresentation(
       const id = node.prop(explicitIdentifier);
       headingsByFrom.set(node.from, {
         kind: node.kind,
+        level: node.prop(headingLevel) ?? 1,
         id,
         number: result.number,
         title: headingTitle(node),
